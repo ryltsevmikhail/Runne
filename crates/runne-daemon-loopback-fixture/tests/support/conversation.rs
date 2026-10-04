@@ -88,14 +88,11 @@ pub async fn send_canonical_conversation(
     match send_canonical_conversation_for_diagnostic(client).await {
         Ok(conversation) => conversation,
         Err(error) => {
-            assert_eq!(
+            panic!(
+                "canonical conversation exchange failed; client_error_kind={:?} request_id_present={}",
                 error.kind(),
-                RuntimeApiErrorKind::InvalidResponse,
-                "fixture ACK fault returned an unexpected error; request_id={:?}",
-                error.request_id()
+                error.request_id().is_some()
             );
-            assert_eq!(error.request_id(), None);
-            unreachable!("validated fixture ACK fault response")
         }
     }
 }
@@ -165,7 +162,7 @@ async fn exchange_once(
         Ok(_) => panic!("fixture ACK fault must project as an error"),
         Err(error) => error,
     };
-    if error.kind() != RuntimeApiErrorKind::InvalidResponse || error.request_id().is_some() {
+    if error.kind() != RuntimeApiErrorKind::OutcomeUnknown || error.request_id().is_none() {
         return Err(error);
     }
     let timeline = client

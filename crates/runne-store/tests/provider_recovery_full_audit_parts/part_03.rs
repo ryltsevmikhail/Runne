@@ -2,7 +2,7 @@
 fn terminal_request_commits_after_reopen_without_rewriting_journal() {
     let (database, claim, request) = terminal_setup("recovery-terminal-before-settlement", 5);
     let before = database.connection();
-    assert_eq!(table_count(&before, "provider_stream_journal"), 1);
+    assert_eq!(table_count(&before, "provider_stream_journal"), 2);
     assert_eq!(table_count(&before, "provider_accounting_settlements"), 0);
     assert_eq!(table_count(&before, "provider_terminal_outbox"), 0);
     drop(before);
@@ -10,8 +10,11 @@ fn terminal_request_commits_after_reopen_without_rewriting_journal() {
     let settlement_digest = *request.settlement_digest();
     let reopened = database.execution();
     assert_eq!(
-        reopened.load_encrypted_events(claim.attempt_id).unwrap().len(),
-        1
+        reopened
+            .load_encrypted_events(claim.attempt_id)
+            .unwrap()
+            .len(),
+        2
     );
     assert_eq!(
         reopened.commit_terminal(&request),

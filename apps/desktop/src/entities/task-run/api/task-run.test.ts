@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { cancelTaskRun, getTaskRunTimeline, submitTaskRun } from './task-run'
+import { cancelTaskRun, getTaskRunTimeline, submitTaskRun, supersedeUnknownTaskRun } from './task-run'
 
 const id = '018f2e3a-7000-7000-8000-000000000210'
 
@@ -26,6 +26,21 @@ describe('TaskRun runtime adapter', () => {
     })).resolves.toEqual({ taskRunId: id, streamVersion: 5 })
     expect(calls).toEqual([['cancel_task_run', { taskRunId: id, expectedVersion: 4 }]])
     await expect(cancelTaskRun(id, 4, async () => ({ taskRunId: id, streamVersion: 4 }))).rejects.toThrow('Invalid TaskRun cancellation response')
+  })
+
+  it('sends only the explicit duplicate execution acknowledgment and accepts a distinct successor', async () => {
+    const successorId = '018f2e3a-7000-7000-8000-000000000213'
+    const calls: unknown[] = []
+    await expect(supersedeUnknownTaskRun(id, 4, { acknowledgeDuplicateExecutionAndCost: true }, async (command, args) => {
+      calls.push([command, args])
+      return { predecessorTaskRunId: id, predecessorVersion: 5, taskRunId: successorId, streamVersion: 2 }
+    })).resolves.toEqual({ predecessorTaskRunId: id, predecessorVersion: 5, taskRunId: successorId, streamVersion: 2 })
+    expect(calls).toEqual([['supersede_unknown_task_run', {
+      request: { taskRunId: id, expectedVersion: 4, acknowledgeDuplicateExecutionAndCost: true },
+    }]])
+    await expect(supersedeUnknownTaskRun(id, 4, { acknowledgeDuplicateExecutionAndCost: true }, async () => ({
+      predecessorTaskRunId: id, predecessorVersion: 5, taskRunId: id, streamVersion: 2,
+    }))).rejects.toThrow('Invalid TaskRun successor response')
   })
 
   it('accepts only a closed timeline response without endpoint or error fields', async () => {

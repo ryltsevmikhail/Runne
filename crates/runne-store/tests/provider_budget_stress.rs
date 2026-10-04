@@ -1,7 +1,6 @@
 #![allow(dead_code)]
 
 use runne_application::provider::{ProviderAdmissionError, ProviderAuthorityIssueRequest};
-use runne_domain::id::{AttemptId, ConversationId, TaskRunId};
 use runne_provider::{
     ModelRef, PreparedProviderRecord as ContractPreparedProviderRecord, PreparedRequest,
     ProviderCall, ProviderCallId, ProviderId,
@@ -13,6 +12,8 @@ use runne_store::provider::{
 
 #[path = "support/online_proof.rs"]
 mod online_proof;
+#[path = "support/provider_taskrun_start.rs"]
+mod provider_taskrun_start;
 #[path = "support/validated_reopen.rs"]
 mod validated_reopen;
 
@@ -52,6 +53,7 @@ fn request(
     index: u8,
     dispatch: &SqliteProviderDispatchStore,
     launch: &runne_store::provider::ProviderRuntimeLaunchCapability,
+    started: &runne_application::ports::TextGenerationReceipt,
 ) -> ProviderAuthorityIssueRequest {
     let call = ProviderCall::new(
         ProviderCallId::from_bytes([index; 16]),
@@ -73,9 +75,9 @@ fn request(
     ProviderAuthorityIssueRequest {
         provider_id: ProviderId::new("fixture").unwrap(),
         principal_id: "principal".into(),
-        conversation_id: ConversationId::from_bytes([index; 16]),
-        taskrun_id: TaskRunId::from_bytes([index; 16]),
-        execution_attempt_id: AttemptId::from_bytes([index; 16]),
+        conversation_id: started.conversation_id,
+        taskrun_id: started.taskrun_id,
+        execution_attempt_id: started.attempt_id,
         prepared: ContractPreparedProviderRecord {
             call_id: record.call_id,
             call_digest_version: record.call_digest_version,
@@ -95,6 +97,13 @@ fn request(
 #[test]
 fn cumulative_limits_are_exact_across_many_admissions_and_reopen() {
     let database = validated_reopen::ProviderTestDatabase::new("budget-stress");
+    let started_receipts = provider_taskrun_start::begin_many(
+        database.path(),
+        [1; 16],
+        "principal",
+        "provider budget fixture",
+        &(1..=ATTEMPTS + 1).collect::<Vec<_>>(),
+    );
     let dispatch = database.dispatch();
     assert!(SqliteProviderExecutionStore::open(database.as_path()).is_err());
     let execution = database.execution();
@@ -103,7 +112,15 @@ fn cumulative_limits_are_exact_across_many_admissions_and_reopen() {
 
     for index in 1..=ATTEMPTS {
         assert!(matches!(
-            execution.issue(&launch, &request(index, &dispatch, &launch)),
+            execution.issue(
+                &launch,
+                &request(
+                    index,
+                    &dispatch,
+                    &launch,
+                    &started_receipts[usize::from(index - 1)]
+                )
+            ),
             Ok(ProviderAuthorityIssueOutcome::Winner(_))
         ));
     }
@@ -128,7 +145,15 @@ fn cumulative_limits_are_exact_across_many_admissions_and_reopen() {
     online_proof::arm(&reopened, 7);
     assert_eq!(reopened.utilization().unwrap(), (tokens, cost));
     assert_eq!(
-        reopened.issue(&reopened_launch, &request(11, &dispatch, &reopened_launch)),
+        reopened.issue(
+            &reopened_launch,
+            &request(
+                11,
+                &dispatch,
+                &reopened_launch,
+                &started_receipts[ATTEMPTS as usize]
+            ),
+        ),
         Err(ProviderAdmissionError::TokenBudgetDenied)
     );
 }

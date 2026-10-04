@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use runne_application::provider::{
@@ -5,7 +6,6 @@ use runne_application::provider::{
     ProviderLeaseBindingKind, ProviderOperationalTelemetryScope,
     ProviderOperationalTelemetrySource,
 };
-use runne_domain::id::{AttemptId, ConversationId, TaskRunId};
 use runne_provider::{
     CredentialLease, CredentialVersionRef, ModelRef, PrepareCredentialVersion,
     PreparedProviderRecord as ContractPreparedProviderRecord, PreparedRequest, ProviderCall,
@@ -23,6 +23,12 @@ use runne_store::provider::{
 use runne_store::schema::{
     ConnectionMode, ManagedConnection, open_managed_connection, reopen_managed_connection_validated,
 };
+
+#[path = "../support/provider_taskrun_start.rs"]
+mod provider_taskrun_start;
+#[path = "../support/validated_reopen.rs"]
+mod validated_reopen;
+
 const OBSERVED_AT: u64 = 1_000_000;
 
 pub(super) struct Fixture {
@@ -30,6 +36,7 @@ pub(super) struct Fixture {
     path: PathBuf,
     store: SqliteProviderExecutionStore,
     launch: ProviderRuntimeLaunchCapability,
+    taskrun_receipts: HashMap<u8, runne_application::ports::TextGenerationReceipt>,
 }
 
 impl Fixture {
@@ -49,7 +56,19 @@ impl Fixture {
             std::fs::set_permissions(&daemon, std::fs::Permissions::from_mode(0o700)).unwrap();
         }
         let path = daemon.join(file_name);
-        let store = SqliteProviderExecutionStore::open(&path).unwrap();
+        let receipts = provider_taskrun_start::begin_many(
+            path.to_str().unwrap(),
+            [1; 16],
+            "principal-1",
+            "operational telemetry fixture prompt",
+            &(1..=23).collect::<Vec<_>>(),
+        );
+        let taskrun_receipts = (1..=23).zip(receipts).collect::<HashMap<_, _>>();
+        let store = SqliteProviderExecutionStore::open_with_connection(
+            path.to_str().unwrap(),
+            configured_connection(&path),
+        )
+        .unwrap();
         let launch = store.activate_runtime_launch(&config()).unwrap();
         arm_online_proof(&store);
         Self {
@@ -57,6 +76,7 @@ impl Fixture {
             path,
             store,
             launch,
+            taskrun_receipts,
         }
     }
 
@@ -67,7 +87,18 @@ impl Fixture {
 
     pub(super) fn issue(&self, discriminator: u8) {
         let record = record(&self.launch, &self.path, discriminator);
-        let request = request(record, discriminator);
+        let request = request(
+            record,
+            discriminator,
+            self.taskrun_receipts
+                .get(&discriminator)
+                .unwrap_or_else(|| {
+                    panic!(
+                        "missing TaskRun receipt {discriminator}; stored keys {:?}",
+                        self.taskrun_receipts.keys()
+                    )
+                }),
+        );
         assert!(matches!(
             self.store.issue(&self.launch, &request).unwrap(),
             ProviderAuthorityIssueOutcome::Winner(_)
@@ -76,7 +107,18 @@ impl Fixture {
 
     pub(super) fn issue_and_start_effect(&self, discriminator: u8) {
         let record = record(&self.launch, &self.path, discriminator);
-        let request = request(record, discriminator);
+        let request = request(
+            record,
+            discriminator,
+            self.taskrun_receipts
+                .get(&discriminator)
+                .unwrap_or_else(|| {
+                    panic!(
+                        "missing TaskRun receipt {discriminator}; stored keys {:?}",
+                        self.taskrun_receipts.keys()
+                    )
+                }),
+        );
         let ProviderAuthorityIssueOutcome::Winner(admission) =
             self.store.issue(&self.launch, &request).unwrap()
         else {
@@ -263,13 +305,17 @@ fn configured_connection(path: &Path) -> ManagedConnection {
     }
 }
 
-fn request(record: PreparedProviderRecord, discriminator: u8) -> ProviderAuthorityIssueRequest {
+fn request(
+    record: PreparedProviderRecord,
+    discriminator: u8,
+    started: &runne_application::ports::TextGenerationReceipt,
+) -> ProviderAuthorityIssueRequest {
     ProviderAuthorityIssueRequest {
         provider_id: ProviderId::new("fixture-provider").unwrap(),
         principal_id: "principal-1".into(),
-        conversation_id: ConversationId::from_bytes([6; 16]),
-        taskrun_id: TaskRunId::from_bytes([7; 16]),
-        execution_attempt_id: AttemptId::from_bytes([8; 16]),
+        conversation_id: started.conversation_id,
+        taskrun_id: started.taskrun_id,
+        execution_attempt_id: started.attempt_id,
         prepared: ContractPreparedProviderRecord {
             call_id: record.call_id,
             call_digest_version: record.call_digest_version,

@@ -15,10 +15,12 @@ use runne_store::provider::{
 };
 use runne_store::schema::{
     ConnectionMode, ManagedConnection, apply_migrations, ensure_authority_id,
-    ensure_event_log_lineage_id, generate_authority_id, open_managed_connection,
-    read_authority_id, read_event_log_lineage_id, reopen_managed_connection_validated,
+    ensure_event_log_lineage_id, generate_authority_id, open_managed_connection, read_authority_id,
+    read_event_log_lineage_id, reopen_managed_connection_validated,
 };
 use rusqlite::{Connection, Error as SqliteError, OpenFlags};
+
+include!("durable_receipt_started.rs");
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 struct MainDatabaseIdentity {
@@ -26,14 +28,21 @@ struct MainDatabaseIdentity {
     lineage_id: EventLogLineageId,
 }
 
+struct DurableDispatch {
+    _runtime_root: tempfile::TempDir,
+    database_path: std::path::PathBuf,
+    database_identity: MainDatabaseIdentity,
+    runtime_authority: RuntimeAuthorityId,
+    taskrun_id: TaskRunId,
+    request: DispatchRequest,
+    receipt: runne_store::provider::ProviderEffectStartReceipt,
+    credential: runne_store::provider::CredentialDispatchBinding,
+}
+
 fn durable_dispatch(
     profile: &DeepSeekResponsesTextProfile,
     effect: &dyn runne_daemon_deepseek_effect::DeepSeekEffect,
-) -> (
-    DispatchRequest,
-    runne_store::provider::ProviderEffectStartReceipt,
-    runne_store::provider::CredentialDispatchBinding,
-) {
+) -> DurableDispatch {
     let runtime_root = tempfile::tempdir().expect("temporary runtime root");
     let daemon_directory = runtime_root.path().join("runne-daemon");
     std::fs::create_dir(&daemon_directory).expect("daemon runtime directory");
@@ -74,7 +83,9 @@ fn durable_dispatch(
     let execution_store =
         SqliteProviderExecutionStore::open_with_connection(path_str, execution_connection)
             .expect("execution store");
-    let launch = activate_launch_and_arm(&execution_store, &runtime_authority(profile));
+    let runtime_authority = runtime_authority(profile);
+    let launch = activate_launch_and_arm(&execution_store, &runtime_authority);
+    let (conversation_id, taskrun_id, attempt_id) = seed_lawful_started_text(&path, identity);
     dispatch_store
         .persist_prepared(
             &launch,
@@ -88,7 +99,10 @@ fn durable_dispatch(
         )
         .expect("durable prepared request");
     let admission = match execution_store
-        .issue(&launch, &authority_issue_request(&prepared, profile))
+        .issue(
+            &launch,
+            &authority_issue_request(&prepared, profile, conversation_id, taskrun_id, attempt_id),
+        )
         .expect("durable provider authority")
     {
         ProviderAuthorityIssueOutcome::Winner(admission) => admission,
@@ -108,7 +122,18 @@ fn durable_dispatch(
     let binding = credential_store
         .authorize_active(reference.provider(), [1; 16], 13, 100)
         .unwrap();
-    receipt_from_admission(execution_store, prepared, admission, binding)
+    let (request, receipt, credential) =
+        receipt_from_admission(execution_store, prepared, admission, binding);
+    DurableDispatch {
+        _runtime_root: runtime_root,
+        database_path: path,
+        database_identity: identity,
+        runtime_authority: RuntimeAuthorityId("01010101010101010101010101010101".into()),
+        taskrun_id,
+        request,
+        receipt,
+        credential,
+    }
 }
 
 fn capture_main_database_identity(
@@ -178,11 +203,9 @@ fn deepseek_call(profile: &DeepSeekResponsesTextProfile) -> ProviderCall {
         profile.binding_extension(),
     )
     .expect("provider call")
-    .with_text_inputs(vec![ProviderTextInput::new(
-        ProviderInputRole::User,
-        "hello",
-    )
-    .expect("input")])
+    .with_text_inputs(vec![
+        ProviderTextInput::new(ProviderInputRole::User, "hello").expect("input"),
+    ])
     .expect("text inputs")
     .with_required_capabilities(vec![ProviderCapability::Streaming])
 }
@@ -218,13 +241,16 @@ fn runtime_authority(profile: &DeepSeekResponsesTextProfile) -> ProviderRuntimeA
 fn authority_issue_request(
     prepared: &PreparedRequest,
     profile: &DeepSeekResponsesTextProfile,
+    conversation_id: ConversationId,
+    taskrun_id: TaskRunId,
+    execution_attempt_id: AttemptId,
 ) -> ProviderAuthorityIssueRequest {
     ProviderAuthorityIssueRequest {
         provider_id: ProviderId::new("deepseek").expect("provider ID"),
         principal_id: "principal-1".into(),
-        conversation_id: ConversationId::from_bytes([6; 16]),
-        taskrun_id: TaskRunId::from_bytes([7; 16]),
-        execution_attempt_id: AttemptId::from_bytes([8; 16]),
+        conversation_id,
+        taskrun_id,
+        execution_attempt_id,
         prepared: runne_provider::PreparedProviderRecord {
             call_id: prepared.call().call_id(),
             call_digest_version: prepared.request_ref().digest_version(),

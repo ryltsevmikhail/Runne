@@ -4,6 +4,7 @@ import targetSurfaces from './english-target-surfaces'
 import runtimeEnglish from './english-runtime'
 import providerSurfaces from './provider-surfaces'
 import projectTrustControl from './project-trust-control-en'
+import taskRunEffects from './task-run-effects-en'
 
 const english = {
   'settings.title': 'Settings',
@@ -285,6 +286,7 @@ const english = {
   ...targetSurfaces,
   ...providerSurfaces,
   ...projectTrustControl,
+  ...taskRunEffects,
 } as const
 
 export default english

@@ -21,6 +21,7 @@ struct Definition {
     tokens: proc_macro2::TokenStream,
     relevant: bool,
     context_relevant: bool,
+    conditional: bool,
 }
 
 struct Import {
@@ -139,6 +140,32 @@ pub(super) fn is_compiler_builtin_macro(name: &str) -> bool {
 }
 
 impl Index {
+    pub(super) fn definition_resolution(
+        &self,
+        name: &str,
+        scope: &[String],
+        position: usize,
+        disposition: MacroDisposition,
+        payload: Option<&proc_macro2::TokenStream>,
+    ) -> Option<(usize, bool)> {
+        let definition = self.definition_before(name, scope, position)?;
+        Some((
+            definition.position,
+            is_relevant(self, name, disposition, scope, position, payload),
+        ))
+    }
+
+    pub(super) fn definition_qualified_macro_paths(
+        &self,
+        name: &str,
+        scope: &[String],
+        position: usize,
+    ) -> std::collections::BTreeSet<String> {
+        self.definition_before(name, scope, position)
+            .map(|definition| super::macro_tokens::qualified_macro_paths(&definition.tokens))
+            .unwrap_or_default()
+    }
+
     fn shadowed_builtins_at(
         &self,
         scope: &[String],
@@ -187,7 +214,7 @@ impl Index {
             .max_by_key(|definition| (definition.scope.len(), definition.position))
     }
 
-    fn has_import(&self, name: &str, scope: &[String]) -> bool {
+    pub(super) fn has_import(&self, name: &str, scope: &[String]) -> bool {
         self.imports.iter().any(|import| {
             (import.name == name || import.name == "*") && scope.starts_with(&import.scope)
         })
@@ -232,7 +259,7 @@ impl Index {
             })
     }
 
-    fn has_definition(&self, name: &str, scope: &[String]) -> bool {
+    pub(super) fn has_definition(&self, name: &str, scope: &[String]) -> bool {
         self.definitions
             .iter()
             .any(|definition| definition.name == name && scope.starts_with(&definition.scope))

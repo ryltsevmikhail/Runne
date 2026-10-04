@@ -10,19 +10,16 @@ use runne_domain::event::Actor;
 use runne_domain::id::{ConversationId, IdempotencyKey, TaskRunId, WorkspaceId};
 use runne_domain::message::MessageText;
 use runne_security::SecretBroker;
-use runne_store::{schema::apply_migrations, store::StoreTransaction};
+use runne_store::{
+    schema::{apply_migrations, apply_migrations_through_v18_for_test},
+    store::StoreTransaction,
+};
 use rusqlite::{Connection, params};
 
-#[path = "support/v36_receipt_downgrade.rs"]
-mod v36_receipt_downgrade;
-#[path = "support/v37_accounting_downgrade.rs"]
-mod v37_accounting_downgrade;
-#[path = "support/v39_lineage_downgrade.rs"]
-mod v39_lineage_downgrade;
-#[path = "support/v43_taskrun_downgrade.rs"]
-mod v43_taskrun_downgrade;
 #[path = "support/validated_reopen.rs"]
 mod validated_reopen;
+#[path = "support/x2_historical_schema_fixture/mod.rs"]
+mod x2_historical_schema_fixture;
 
 fn guard() -> Arc<dyn ProhibitedContentPort> {
     Arc::new(SecretBroker::new().prohibited_content_guard())
@@ -37,7 +34,7 @@ fn context(command: &str, key: &str) -> ApplicationCommandContext {
     }
 }
 
-fn v16_fixture(
+fn v18_fixture(
     label: &str,
 ) -> (
     tempfile::TempDir,
@@ -56,9 +53,11 @@ fn v16_fixture(
         std::fs::set_permissions(&daemon, std::fs::Permissions::from_mode(0o700)).unwrap();
     }
     let database = daemon.join(format!("{label}.sqlite"));
+    let current_source = daemon.join(format!("{label}-current.sqlite"));
     let authority = RuntimeAuthorityId(format!("snapshot-migration-{label}"));
     let store =
-        StoreTransaction::open(database.to_str().unwrap(), authority.clone(), guard()).unwrap();
+        StoreTransaction::open(current_source.to_str().unwrap(), authority.clone(), guard())
+            .unwrap();
     let conversation_id: ConversationId = "018f2e3a-7000-7000-8000-0000000000a1".parse().unwrap();
     let workspace_id: WorkspaceId = "018f2e3a-7000-7000-8000-0000000000a2".parse().unwrap();
     validated_reopen::seed_canonical_workspace(&store, "local-owner", workspace_id);
@@ -94,48 +93,14 @@ fn v16_fixture(
     drop(text);
     drop(store);
     let connection = Connection::open(&database).unwrap();
-    connection
-        .execute_batch(
-            "DROP TRIGGER IF EXISTS aggregate_state_snapshots_bind_insert;
-         DROP TRIGGER IF EXISTS aggregate_state_snapshots_bind_update;
-         DROP TRIGGER IF EXISTS schema_v12_fence_aggregate_state_snapshots_insert;
-         DROP TRIGGER IF EXISTS schema_v12_fence_aggregate_state_snapshots_update;
-         DROP TRIGGER IF EXISTS schema_v12_fence_aggregate_state_snapshots_delete;
-         DROP INDEX IF EXISTS idx_aggregate_state_snapshots_head_position;
-         DROP TABLE IF EXISTS aggregate_state_snapshots;
-         DROP TABLE IF EXISTS conversation_writer_leases;
-         DROP TABLE IF EXISTS process_output;
-         DROP INDEX IF EXISTS idx_process_registry_owner;
-         DROP TABLE IF EXISTS process_registry;
-         DROP INDEX IF EXISTS idx_approvals_pending;
-         DROP TABLE IF EXISTS approvals;
-         DROP TABLE IF EXISTS provider_qualification_admission_fences; DROP TABLE IF EXISTS credential_cleanup_recovery_attempts;
-         DROP TABLE IF EXISTS provider_online_credential_effect_bindings;
-         DROP TABLE IF EXISTS provider_online_dispatch_claim_providers;
-         DROP TABLE IF EXISTS provider_online_dispatch_issuance_evidence;
-         DROP TABLE IF EXISTS provider_credential_verification_observations;
-         DROP TABLE IF EXISTS provider_credential_readiness_observations;
-         DROP TABLE IF EXISTS provider_credential_ticket_attempts;
-         DROP TABLE IF EXISTS provider_credential_authority_heads;
-         DROP TABLE IF EXISTS provider_credential_completion_receipts;
-         DROP TABLE IF EXISTS provider_credential_process_attachments;
-         DROP TABLE IF EXISTS provider_credential_operations;
-         DROP TABLE IF EXISTS provider_subscription_budgets;
-         DROP TABLE IF EXISTS conversation_context_scope;
-         DROP TRIGGER IF EXISTS schema_v12_fence_conversation_context_scope_insert;
-         DROP TRIGGER IF EXISTS schema_v12_fence_conversation_context_scope_update;
-         DROP TRIGGER IF EXISTS schema_v12_fence_conversation_context_scope_delete;
-         DROP TRIGGER IF EXISTS schema_v12_fence_execution_nodes_insert;
-         DROP TRIGGER IF EXISTS schema_v12_fence_execution_nodes_update;
-         DROP TRIGGER IF EXISTS schema_v12_fence_execution_nodes_delete;
-         DROP TABLE IF EXISTS execution_nodes;
-         DELETE FROM schema_version WHERE version >= 19;",
+    apply_migrations_through_v18_for_test(&connection).unwrap();
+    x2_historical_schema_fixture::copy_conversation_and_taskrun_history(
+        &connection,
+        &current_source,
+        conversation_id.as_bytes(),
+        started.taskrun_id.as_bytes(),
     )
     .unwrap();
-    v43_taskrun_downgrade::drop_v42_v43_taskrun_schema(&connection).unwrap();
-    v37_accounting_downgrade::restore_v36_accounting(&connection).unwrap();
-    v36_receipt_downgrade::restore_v18_receipt(&connection).unwrap();
-    v39_lineage_downgrade::restore_v18_lineage(&connection).unwrap();
     (directory, database, conversation_id, started.taskrun_id)
 }
 
@@ -164,7 +129,7 @@ fn malformed_then_repaired(
     label: &str,
     mutate: impl FnOnce(&Connection, ConversationId, TaskRunId) -> Box<dyn FnOnce(&Connection)>,
 ) {
-    let (_directory, database, conversation_id, taskrun_id) = v16_fixture(label);
+    let (_directory, database, conversation_id, taskrun_id) = v18_fixture(label);
     let connection = Connection::open(database).unwrap();
     let repair = mutate(&connection, conversation_id, taskrun_id);
     assert_atomic_v18_rollback(&connection);

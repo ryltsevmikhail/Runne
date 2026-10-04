@@ -32,8 +32,10 @@ mod validation;
 
 pub use snapshot::{TaskRunSnapshotError, TaskRunSnapshotV1};
 pub use types::{
-    MAX_TASK_RUN_PROMPT_BYTES, TaskRunEvent, TaskRunEventKind, TaskRunInput, TaskRunInputError,
-    TaskRunState,
+    MAX_LOCAL_COMMAND_ARGV, MAX_LOCAL_COMMAND_BYTES, MAX_LOCAL_COMMAND_ENV,
+    MAX_TASK_RUN_PROMPT_BYTES, SelectedProviderProfile, SelectedProviderProfileError, TaskRunEvent,
+    TaskRunEventKind, TaskRunExecutable, TaskRunInput, TaskRunInputError, TaskRunLocalCommand,
+    TaskRunLocalCommandError, TaskRunState,
 };
 
 // ── TaskRun aggregate ──────────────────────────────────────────────────────

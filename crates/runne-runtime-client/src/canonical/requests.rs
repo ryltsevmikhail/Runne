@@ -96,6 +96,8 @@ pub struct SubmitTaskRunRequest {
     pub(crate) workspace_id: CanonicalId,
     pub(crate) prompt: String,
     pub(crate) model: Option<String>,
+    pub(crate) selected_profile: Option<runne_api::SelectedProviderProfile>,
+    pub(crate) local_command: Option<runne_api::TaskRunLocalCommand>,
 }
 
 impl std::fmt::Debug for SubmitTaskRunRequest {
@@ -107,6 +109,8 @@ impl std::fmt::Debug for SubmitTaskRunRequest {
             .field("workspace_id", &self.workspace_id)
             .field("prompt", &"[REDACTED]")
             .field("model", &self.model)
+            .field("selected_profile", &self.selected_profile)
+            .field("local_command", &self.local_command.is_some())
             .finish()
     }
 }
@@ -132,15 +136,53 @@ impl SubmitTaskRunRequest {
             workspace_id,
             prompt,
             model: None,
+            selected_profile: None,
+            local_command: None,
         })
     }
 
     /// Requests the exact provider model. Admission compares it against the
     /// runtime-pinned model; a mismatch is rejected before any effect.
-    #[must_use]
-    pub fn with_model(mut self, model: impl Into<String>) -> Self {
+    ///
+    /// # Errors
+    /// Returns `InvalidRequest` when the request already selects a local command.
+    pub fn with_model(mut self, model: impl Into<String>) -> Result<Self, RuntimeApiError> {
+        if self.local_command.is_some() {
+            return Err(RuntimeApiError::new(RuntimeApiErrorKind::InvalidRequest));
+        }
         self.model = Some(model.into());
-        self
+        Ok(self)
+    }
+
+    /// Pins this submit to an explicitly selected profile tuple.
+    ///
+    /// # Errors
+    /// Returns `InvalidRequest` when the request already selects a local command.
+    pub fn with_selected_profile(
+        mut self,
+        profile: runne_api::SelectedProviderProfile,
+    ) -> Result<Self, RuntimeApiError> {
+        if self.local_command.is_some() {
+            return Err(RuntimeApiError::new(RuntimeApiErrorKind::InvalidRequest));
+        }
+        self.selected_profile = Some(profile);
+        Ok(self)
+    }
+
+    /// Selects one structured local command. The command is never parsed from
+    /// the descriptive prompt and cannot be combined with provider selection.
+    ///
+    /// # Errors
+    /// Returns `InvalidRequest` when the request already selects a model/profile.
+    pub fn with_local_command(
+        mut self,
+        command: runne_api::TaskRunLocalCommand,
+    ) -> Result<Self, RuntimeApiError> {
+        if self.model.is_some() || self.selected_profile.is_some() {
+            return Err(RuntimeApiError::new(RuntimeApiErrorKind::InvalidRequest));
+        }
+        self.local_command = Some(command);
+        Ok(self)
     }
 }
 

@@ -1,15 +1,10 @@
 use runne_runtime_client::{
-    CanonicalId, CommandIdentity, CommandReconciliationOutcome, CommandReconciliationRequest,
-    PROTECTED_RUNTIME_CAPABILITIES, RuntimeSessionInfo, mock_authenticated_runtime_client,
+    CommandReconciliationOutcome, CommandReconciliationRequest, SubmitTaskRunRequest,
+    mock_authenticated_runtime_client,
 };
-use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
-    net::TcpListener,
-};
-
-const CONVERSATION: &str = "018f2e3a-7000-7000-8000-000000000304";
-const WORKSPACE: &str = "018f2e3a-7000-7000-8000-000000000303";
-const TASK_RUN: &str = "018f2e3a-7000-7000-8000-000000000305";
+#[path = "support/task_run_submit_reconciliation.rs"]
+mod support;
+use support::*;
 
 #[tokio::test]
 async fn prompt_reconciliation_serializes_exact_input_and_redacts_debug() {
@@ -64,61 +59,213 @@ async fn historical_promptless_reconciliation_keeps_the_legacy_payload() {
     server.await.unwrap();
 }
 
-async fn serve(body: String, expected_request: String) -> (String, tokio::task::JoinHandle<()>) {
-    let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
-    let origin = format!("http://{}", listener.local_addr().unwrap());
-    let server = tokio::spawn(async move {
-        let (mut stream, _) = listener.accept().await.unwrap();
-        let mut request = [0_u8; 4096];
-        let count = stream.read(&mut request).await.unwrap();
-        let request = String::from_utf8_lossy(&request[..count]);
-        assert!(request.contains(&expected_request), "{request}");
-        stream
-            .write_all(
-                format!(
-                    "HTTP/1.1 200 OK\r\ncache-control: no-store\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
-                    body.len()
-                )
-                .as_bytes(),
-            )
-            .await
-            .unwrap();
-    });
-    (origin, server)
-}
-
-fn response_body() -> String {
-    format!(
-        r#"{{"disposition":"durably_recorded","outcome":{{"operation":"submit_task_run","taskRunId":"{TASK_RUN}","newVersion":2}}}}"#
+#[tokio::test]
+async fn submit_request_reconciliation_preserves_model_and_selected_profile_together() {
+    let profile = runne_api::SelectedProviderProfile::new(
+        "gocode-openai-responses-background-text/1".into(),
+        [0xaa; 32],
     )
+    .unwrap();
+    let submit = SubmitTaskRunRequest::new(
+        identity(),
+        id(CONVERSATION),
+        id(WORKSPACE),
+        "private prompt",
+    )
+    .unwrap()
+    .with_model("provider/model-v2")
+    .unwrap()
+    .with_selected_profile(profile)
+    .unwrap();
+    let request = CommandReconciliationRequest::submit_task_run_from_request(&submit).unwrap();
+    let (origin, server) = serve(
+        response_body(),
+        format!(
+            r#"{{"operation":"submit_task_run","conversationId":"{CONVERSATION}","workspaceId":"{WORKSPACE}","prompt":"private prompt","model":"provider/model-v2","profile":{{"profileId":"gocode-openai-responses-background-text/1","profileDigest":"{}"}}}}"#,
+            "aa".repeat(32)
+        ),
+    )
+    .await;
+    let client = mock_authenticated_runtime_client(&origin, session()).unwrap();
+    assert!(matches!(
+        client.reconcile_command(request).await.unwrap(),
+        runne_runtime_client::CommandReconciliationDisposition::DurablyRecorded(
+            CommandReconciliationOutcome::TaskRunSubmitted(_)
+        )
+    ));
+    server.await.unwrap();
 }
 
-fn id(value: &str) -> CanonicalId {
-    CanonicalId::parse(value).unwrap()
+#[tokio::test]
+async fn submit_request_reconciliation_preserves_profile_only_selection() {
+    let profile = runne_api::SelectedProviderProfile::new(
+        "gocode-openai-responses-background-text/1".into(),
+        [0xbb; 32],
+    )
+    .unwrap();
+    let submit = SubmitTaskRunRequest::new(
+        identity(),
+        id(CONVERSATION),
+        id(WORKSPACE),
+        "private prompt",
+    )
+    .unwrap()
+    .with_selected_profile(profile)
+    .unwrap();
+    let request = CommandReconciliationRequest::submit_task_run_from_request(&submit).unwrap();
+    let (origin, server) = serve(
+        response_body(),
+        format!(
+            r#"{{"operation":"submit_task_run","conversationId":"{CONVERSATION}","workspaceId":"{WORKSPACE}","prompt":"private prompt","profile":{{"profileId":"gocode-openai-responses-background-text/1","profileDigest":"{}"}}}}"#,
+            "bb".repeat(32)
+        ),
+    )
+    .await;
+    let client = mock_authenticated_runtime_client(&origin, session()).unwrap();
+    assert!(matches!(
+        client.reconcile_command(request).await.unwrap(),
+        runne_runtime_client::CommandReconciliationDisposition::DurablyRecorded(
+            CommandReconciliationOutcome::TaskRunSubmitted(_)
+        )
+    ));
+    server.await.unwrap();
 }
 
-fn identity() -> CommandIdentity {
-    CommandIdentity::new(id("018f2e3a-7000-7000-8000-000000000301"), "reconcile-test").unwrap()
+#[tokio::test]
+async fn local_command_reconciliation_preserves_exact_typed_intent() {
+    let command = runne_api::TaskRunLocalCommand::new(
+        runne_api::TaskRunExecutable::system_program("shell".into()).unwrap(),
+        "tools".into(),
+        vec!["sh".into(), "-c".into(), "printf safe".into()],
+        vec![("Z".into(), "last".into()), ("A".into(), "first".into())],
+    )
+    .unwrap();
+    let submit = SubmitTaskRunRequest::new(
+        identity(),
+        id(CONVERSATION),
+        id(WORKSPACE),
+        "description only",
+    )
+    .unwrap()
+    .with_local_command(command)
+    .unwrap();
+    let request = CommandReconciliationRequest::submit_task_run_from_request(&submit).unwrap();
+    let expected = format!(
+        r#"{{"operation":"submit_task_run","conversationId":"{CONVERSATION}","workspaceId":"{WORKSPACE}","prompt":"description only","localCommand":{{"executable":{{"kind":"system_program","value":"shell"}},"cwd":"tools","argv":["sh","-c","printf safe"],"env":[{{"key":"A","value":"first"}},{{"key":"Z","value":"last"}}]}}}}"#
+    );
+    let (origin, server) = serve(response_body(), expected).await;
+    let client = mock_authenticated_runtime_client(&origin, session()).unwrap();
+    assert!(matches!(
+        client.reconcile_command(request).await.unwrap(),
+        runne_runtime_client::CommandReconciliationDisposition::DurablyRecorded(
+            CommandReconciliationOutcome::TaskRunSubmitted(_)
+        )
+    ));
+    server.await.unwrap();
 }
 
-fn session() -> RuntimeSessionInfo {
-    RuntimeSessionInfo {
-        profile_id: "gocode-ui-client/2".into(),
-        schema_hash: "test".into(),
-        runtime_version: "test".into(),
-        capabilities: PROTECTED_RUNTIME_CAPABILITIES
-            .iter()
-            .map(|value| (*value).into())
-            .collect(),
-        authority_id: "authority".into(),
-        principal_id: "principal".into(),
-        event_log_lineage_id: "lineage".into(),
-        daemon_instance_id: "daemon".into(),
-        launch_generation: 1,
-        session_id: "session".into(),
-        authorization_epoch: 1,
-        sensitivity_ceiling: "sensitive".into(),
-        certificate_sha256: "certificate".into(),
-        capability_digest: "digest".into(),
-    }
+#[test]
+fn changed_local_command_produces_a_different_reconciliation_witness() {
+    let build = |arg: &str| {
+        SubmitTaskRunRequest::new(identity(), id(CONVERSATION), id(WORKSPACE), "description")
+            .unwrap()
+            .with_local_command(
+                runne_api::TaskRunLocalCommand::new(
+                    runne_api::TaskRunExecutable::workspace_relative("bin/tool".into()).unwrap(),
+                    ".".into(),
+                    vec!["tool".into(), arg.into()],
+                    vec![],
+                )
+                .unwrap(),
+            )
+            .unwrap()
+    };
+    let left =
+        CommandReconciliationRequest::submit_task_run_from_request(&build("--same")).unwrap();
+    let retry =
+        CommandReconciliationRequest::submit_task_run_from_request(&build("--same")).unwrap();
+    let changed =
+        CommandReconciliationRequest::submit_task_run_from_request(&build("--changed")).unwrap();
+    assert_eq!(
+        left, retry,
+        "lost-ack replay carries the same structured command"
+    );
+    assert_ne!(
+        left, changed,
+        "changed command cannot reconcile as the same submit"
+    );
+}
+
+#[test]
+fn submit_request_rejects_model_or_profile_added_after_local_command() {
+    let command = runne_api::TaskRunLocalCommand::new(
+        runne_api::TaskRunExecutable::workspace_relative("bin/tool".into()).unwrap(),
+        ".".into(),
+        vec!["tool".into()],
+        vec![],
+    )
+    .unwrap();
+    let local =
+        SubmitTaskRunRequest::new(identity(), id(CONVERSATION), id(WORKSPACE), "description")
+            .unwrap()
+            .with_local_command(command)
+            .unwrap();
+    assert!(local.clone().with_model("model").is_err());
+    let profile = runne_api::SelectedProviderProfile::new("profile".into(), [0xcc; 32]).unwrap();
+    assert!(local.with_selected_profile(profile).is_err());
+}
+
+#[test]
+fn submit_request_reconciliation_rejects_invalid_model() {
+    let submit = SubmitTaskRunRequest::new(
+        identity(),
+        id(CONVERSATION),
+        id(WORKSPACE),
+        "private prompt",
+    )
+    .unwrap()
+    .with_model("invalid model")
+    .unwrap();
+    assert!(CommandReconciliationRequest::submit_task_run_from_request(&submit).is_err());
+}
+
+#[tokio::test]
+async fn explicit_model_reconciliation_serializes_the_exact_model() {
+    let request = CommandReconciliationRequest::submit_task_run_with_model(
+        identity(),
+        id(CONVERSATION),
+        id(WORKSPACE),
+        "private prompt",
+        "provider/model-v2",
+    )
+    .expect("valid explicit model");
+    let (origin, server) = serve(
+        response_body(),
+        format!(
+            r#"{{"operation":"submit_task_run","conversationId":"{CONVERSATION}","workspaceId":"{WORKSPACE}","prompt":"private prompt","model":"provider/model-v2"}}"#
+        ),
+    )
+    .await;
+    let client = mock_authenticated_runtime_client(&origin, session()).unwrap();
+    assert!(matches!(
+        client.reconcile_command(request).await.unwrap(),
+        runne_runtime_client::CommandReconciliationDisposition::DurablyRecorded(
+            CommandReconciliationOutcome::TaskRunSubmitted(_)
+        )
+    ));
+    server.await.unwrap();
+}
+
+#[test]
+fn explicit_model_reconciliation_rejects_invalid_model() {
+    assert!(
+        CommandReconciliationRequest::submit_task_run_with_model(
+            identity(),
+            id(CONVERSATION),
+            id(WORKSPACE),
+            "prompt",
+            "bad model",
+        )
+        .is_err()
+    );
 }

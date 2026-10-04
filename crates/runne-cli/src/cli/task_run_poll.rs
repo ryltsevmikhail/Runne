@@ -26,7 +26,6 @@ fn record_event(
     }
 }
 
-
 /// Polls the run until a terminal state, handling SIGINT: the first signal
 /// issues one typed cancellation request and starts the grace window; the
 /// second exits immediately without any terminal claim. Returns the terminal
@@ -68,7 +67,15 @@ async fn poll_until_terminal(
                     task_run_id,
                     observed_stream_version,
                 );
-                match client.cancel_task_run(cancel_request).await {
+                let cancellation = race_cancel_with_escalation(
+                    client.cancel_task_run(cancel_request),
+                    async { let _ = sigint.recv().await; },
+                )
+                .await;
+                let Ok(cancellation) = cancellation else {
+                    std::process::exit(130);
+                };
+                match cancellation {
                     Ok(ack) => {
                         record_event(
                             &mut events,
@@ -123,6 +130,18 @@ async fn poll_until_terminal(
     };
 
     Ok((snapshot, sigints_received, events))
+}
+
+async fn race_cancel_with_escalation<C, S>(cancel: C, escalation: S) -> Result<C::Output, ()>
+where
+    C: std::future::Future,
+    S: std::future::Future<Output = ()>,
+{
+    tokio::select! {
+        biased;
+        () = escalation => Err(()),
+        response = cancel => Ok(response),
+    }
 }
 
 /// Renders the observed event stream for all three formats; the terminal
@@ -184,4 +203,38 @@ fn exec_summary_text(snapshot: &TaskRunSnapshot) -> String {
         task_state_name(snapshot.state()),
         terminal_result_text(snapshot.terminal_result()),
     )
+}
+
+#[cfg(test)]
+mod cancel_signal_tests {
+    use super::race_cancel_with_escalation;
+    use tokio::sync::oneshot;
+
+    #[tokio::test]
+    async fn second_signal_interrupts_a_held_cancel_response() {
+        let (_cancel_tx, cancel_rx) = oneshot::channel::<u8>();
+        let (signal_tx, signal_rx) = oneshot::channel::<()>();
+        let result = race_cancel_with_escalation(cancel_rx, async move {
+            let _ = signal_rx.await;
+        });
+        signal_tx.send(()).expect("deliver escalation");
+        assert!(
+            result.await.is_err(),
+            "escalation wins while cancel is held"
+        );
+    }
+
+    #[tokio::test]
+    async fn completed_cancel_wins_when_no_escalation_arrives() {
+        let (cancel_tx, cancel_rx) = oneshot::channel::<u8>();
+        let (_signal_tx, signal_rx) = oneshot::channel::<()>();
+        cancel_tx.send(7).expect("deliver cancel response");
+        assert_eq!(
+            race_cancel_with_escalation(cancel_rx, async move {
+                let _ = signal_rx.await;
+            })
+            .await,
+            Ok(Ok(7))
+        );
+    }
 }

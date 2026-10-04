@@ -34,10 +34,24 @@ impl PausedAppendStore {
     }
 }
 
-#[derive(Default)]
 struct IdempotentTerminalApplication {
     calls: AtomicUsize,
     committed: Mutex<HashMap<String, Vec<u8>>>,
+    conversation_id: ConversationId,
+    taskrun_id: TaskRunId,
+    execution_attempt_id: AttemptId,
+}
+
+impl IdempotentTerminalApplication {
+    fn for_fixture(fixture: &Fixture) -> Self {
+        Self {
+            calls: AtomicUsize::new(0),
+            committed: Mutex::new(HashMap::new()),
+            conversation_id: fixture.conversation_id,
+            taskrun_id: fixture.taskrun_id,
+            execution_attempt_id: fixture.execution_attempt_id,
+        }
+    }
 }
 
 impl ProviderExecutionStore for PausedAppendStore {
@@ -74,7 +88,10 @@ impl ProviderExecutionStore for PausedAppendStore {
     ) -> Result<(), ProviderExecutionError> {
         self.inner.begin_provider_poll(request)
     }
-    fn revalidate_provider_poll(&self, request: &ProviderPollRequest) -> Result<(), ProviderExecutionError> {
+    fn revalidate_provider_poll(
+        &self,
+        request: &ProviderPollRequest,
+    ) -> Result<(), ProviderExecutionError> {
         self.inner.revalidate_provider_poll(request)
     }
 

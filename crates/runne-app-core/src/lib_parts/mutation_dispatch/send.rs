@@ -15,6 +15,7 @@ impl AppCore {
             | CanonicalMutationCommand::CreateTextOnlyConversation { .. }
             | CanonicalMutationCommand::GenerateText { .. } => self.send_conversation(&client, lease).await,
             CanonicalMutationCommand::CancelTaskRun { .. } => self.send_task_run_cancel(&client, lease).await,
+            CanonicalMutationCommand::SupersedeUnknownTaskRun { .. } => self.send_task_run_successor(&client, lease).await,
             CanonicalMutationCommand::SubmitTaskRun { .. } => self.send_task_run_submit(&client, lease).await,
             CanonicalMutationCommand::ApprovalRespond { .. } => self.send_approval(&client, lease).await,
             CanonicalMutationCommand::CreateProject { .. }
@@ -32,7 +33,11 @@ impl AppCore {
         match &lease.request.semantic_command {
             CanonicalMutationCommand::CreateConversation { conversation_id, workspace_id } => client.create_conversation(CreateConversationRequest::new(lease.request.command_identity.clone(), *conversation_id, *workspace_id, runne_api::ConversationContextScope::Workspace)).await.map(MutationDispatchResult::ConversationCreated).map_err(unavailable),
             CanonicalMutationCommand::CreateTextOnlyConversation { conversation_id, workspace_id } => client.create_conversation(CreateConversationRequest::new(lease.request.command_identity.clone(), *conversation_id, *workspace_id, runne_api::ConversationContextScope::TextOnly)).await.map(MutationDispatchResult::ConversationCreated).map_err(unavailable),
-            CanonicalMutationCommand::GenerateText { conversation_id, text } => client.generate_text(GenerateTextRequest::new(lease.request.command_identity.clone(), *conversation_id, lease.request.expected_version, text).map_err(|_| AppCoreError::InvalidMutation)?).await.map(MutationDispatchResult::TextGenerated).map_err(|error| if error.kind() == runne_runtime_client::RuntimeApiErrorKind::ProhibitedInputRejected { AppCoreError::ProhibitedInputRejected } else { AppCoreError::RuntimeUnavailable }),
+            CanonicalMutationCommand::GenerateText { conversation_id, text } => client.generate_text(GenerateTextRequest::new(lease.request.command_identity.clone(), *conversation_id, lease.request.expected_version, text).map_err(|_| AppCoreError::InvalidMutation)?).await.map(MutationDispatchResult::TextGenerated).map_err(|error| match error.kind() {
+                runne_runtime_client::RuntimeApiErrorKind::ProhibitedInputRejected => AppCoreError::ProhibitedInputRejected,
+                runne_runtime_client::RuntimeApiErrorKind::OutcomeUnknown => AppCoreError::GenerationOutcomeUnknown,
+                _ => AppCoreError::RuntimeUnavailable,
+            }),
             _ => Err(AppCoreError::InvalidMutation),
         }
     }
@@ -41,6 +46,16 @@ impl AppCore {
         let CanonicalMutationCommand::CancelTaskRun { task_run_id } = lease.request.semantic_command else { return Err(AppCoreError::InvalidMutation); };
         client.cancel_task_run(runne_runtime_client::CancelTaskRunRequest::new(lease.request.command_identity.clone(), task_run_id, lease.request.expected_version)).await
             .map(MutationDispatchResult::TaskRunCancellationRequested)
+            .map_err(|_| AppCoreError::RuntimeUnavailable)
+    }
+
+    async fn send_task_run_successor(&self, client: &AuthenticatedRuntimeClient, lease: &PreparedMutationLease) -> Result<MutationDispatchResult, AppCoreError> {
+        let CanonicalMutationCommand::SupersedeUnknownTaskRun { predecessor_task_run_id } = lease.request.semantic_command else { return Err(AppCoreError::InvalidMutation); };
+        let request = runne_runtime_client::SupersedeUnknownTaskRunRequest::duplicate_execution_and_cost_v1(
+            lease.request.command_identity.clone(), predecessor_task_run_id, lease.request.expected_version,
+        );
+        client.supersede_unknown_task_run(request).await
+            .map(MutationDispatchResult::TaskRunUnknownSuccessorCreated)
             .map_err(|_| AppCoreError::RuntimeUnavailable)
     }
 

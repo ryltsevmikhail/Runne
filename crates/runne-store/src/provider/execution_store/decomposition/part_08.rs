@@ -118,8 +118,41 @@ fn release_reservations(
             return Err(ProviderExecutionError::ReservationMismatch);
         }
     }
-    let changed = connection
-        .execute(
+    let profile_grant: Option<Vec<u8>> = connection.query_row(
+        "SELECT grant_id FROM provider_secondary_profile_attempts WHERE provider_idempotency_key=?1",
+        [idempotency_key], |row| row.get(0),
+    ).optional().map_err(|_| ProviderExecutionError::StoreUnavailable)?;
+    if profile_grant.is_none() {
+        let primary_route: Option<bool> = connection
+            .query_row(
+                "SELECT admission.profile_digest=runtime.profile_digest
+             FROM provider_execution_admissions admission
+             JOIN provider_runtime_authority_state runtime ON runtime.id=1
+             WHERE admission.provider_idempotency_key=?1",
+                [idempotency_key],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|_| ProviderExecutionError::StoreUnavailable)?;
+        if primary_route != Some(true) {
+            return Err(ProviderExecutionError::ReservationMismatch);
+        }
+    }
+    let changed = if let Some(grant_id) = profile_grant {
+        connection.execute(
+            "UPDATE provider_secondary_profile_grants SET
+                token_budget_reserved=token_budget_reserved-?1,
+                token_budget_settled=token_budget_settled+?2,
+                cost_budget_reserved_micros=cost_budget_reserved_micros-?3,
+                cost_budget_settled_micros=cost_budget_settled_micros+?4
+             WHERE grant_id=?5 AND token_budget_reserved>=?1 AND cost_budget_reserved_micros>=?3
+               AND token_budget_settled+?2<=token_budget_limit-(token_budget_reserved-?1)
+               AND cost_budget_settled_micros+?4<=cost_budget_limit_micros-(cost_budget_reserved_micros-?3)",
+            params![execution_i64(reservations.token_amount)?,execution_i64(settled_tokens)?,
+                execution_i64(reservations.cost_amount)?,execution_i64(settled_cost)?,grant_id],
+        )
+    } else {
+        connection.execute(
             "UPDATE provider_runtime_authority_state SET
                 token_budget_reserved = token_budget_reserved - ?1,
                 token_budget_settled = token_budget_settled + ?2,
@@ -138,7 +171,7 @@ fn release_reservations(
                 execution_i64(settled_cost)?,
             ],
         )
-        .map_err(|_| ProviderExecutionError::StoreUnavailable)?;
+    }.map_err(|_| ProviderExecutionError::StoreUnavailable)?;
     if changed != 1 {
         return Err(ProviderExecutionError::ReservationMismatch);
     }

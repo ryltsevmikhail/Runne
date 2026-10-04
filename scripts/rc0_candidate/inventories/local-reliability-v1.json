@@ -61,6 +61,7 @@
     {"category":"recovery","package":"runne-store","target":"provider_recovery_full_audit","fully_qualified_test_name":"uncertain_reservation_survives_restart_with_exact_counters"},
     {"category":"recovery","package":"runne-store","target":"provider_recovery_full_audit","fully_qualified_test_name":"subscription_zero_xxx_settles_without_fake_money_charge"},
     {"category":"recovery","package":"runne-store","target":"provider_recovery_full_audit","fully_qualified_test_name":"unknown_call_digest_version_row_fails_closed_without_mutation"},
+    {"category":"recovery","package":"runne-store","target":"provider_recovery_full_audit","fully_qualified_test_name":"v50_completed_terminal_reopens_before_and_after_outbox_acknowledgement"},
     {"category":"recovery","package":"runne-store","target":"recovery_fixture_compatibility","fully_qualified_test_name":"current_writers_emit_only_taskrun_v1_and_conversation_v2"},
     {"category":"recovery","package":"runne-store","target":"recovery_fixture_compatibility","fully_qualified_test_name":"loader_refuses_a_destination_inside_the_repository_fixture_directory"},
     {"category":"recovery","package":"runne-store","target":"recovery_fixture_compatibility","fully_qualified_test_name":"loader_rejects_a_parent_symlink_into_the_fixture_tree"},

@@ -31,17 +31,13 @@ pub(super) fn verify_claim_stream(
     verify_claim_stream_inner(connection, receipt, command_id, idempotency_key).map(|_| ())
 }
 
-pub(super) fn verify_current_claim_stream(
+pub(super) fn verify_claim_stream_task(
     connection: &Connection,
     receipt: &TaskRunClaimReceipt,
     command_id: CommandId,
     idempotency_key: &[u8],
-) -> Result<(), ClaimError> {
-    let task = verify_claim_stream_inner(connection, receipt, command_id, idempotency_key)?;
-    if task.state() != TaskRunState::Running || task.active_attempt() != Some(&receipt.attempt_id) {
-        return Err(ClaimError::NotQueued);
-    }
-    Ok(())
+) -> Result<TaskRun, ClaimError> {
+    verify_claim_stream_inner(connection, receipt, command_id, idempotency_key)
 }
 
 pub(super) fn verify_released_stream(

@@ -56,10 +56,11 @@ fn runtime_for_enrolled_session(
         .linux_writer_capability
         .take()
         .ok_or(LaunchAuthorityError::OwnershipMismatch)?;
+    let http_controls = std::mem::take(&mut enrollment.http_controls);
     let live = live_session::LiveEnrollmentSession::capture(sessions, owned)?;
     let rendezvous = enrollment.rendezvous.into_owned()?;
     let session = control
-        .start_protected_session(keys, owned, rendezvous)
+        .start_protected_session_with_controls(keys, owned, rendezvous, http_controls)
         .map_err(runtime::map_enrollment_error)?;
     Ok(V3EnrollmentRuntime {
         live: Some(live),
@@ -92,18 +93,26 @@ mod tests {
     #[test]
     fn shutdown_revokes_published_http_facts_before_return() {
         let (control, keys) = crate::application::provider_credential_enrollment::test_control();
+        let (background, _) = crate::application::provider_credential_enrollment::test_control();
         let (owned, _, _) = crate::protected_activation::test_enrollment_owned_and_sessions();
         let session_id = *owned.session_id();
         let session = control
-            .start_protected_session(
+            .start_protected_session_with_controls(
                 &keys,
                 &owned,
                 crate::application::provider_credential_enrollment::broker::rendezvous::DaemonOwnedUnixBrokerRendezvous::create().unwrap(),
+                vec![control.clone(), background.clone()],
             )
             .unwrap();
         assert!(
             crate::application::provider_credential_enrollment::test_http_status_facts_available(
                 &control, session_id
+            )
+        );
+        assert!(
+            crate::application::provider_credential_enrollment::test_http_status_facts_available(
+                &background,
+                session_id
             )
         );
         let mut runtime = V3EnrollmentRuntime {
@@ -121,6 +130,12 @@ mod tests {
         assert!(
             !crate::application::provider_credential_enrollment::test_http_status_facts_available(
                 &control, session_id
+            )
+        );
+        assert!(
+            !crate::application::provider_credential_enrollment::test_http_status_facts_available(
+                &background,
+                session_id
             )
         );
     }

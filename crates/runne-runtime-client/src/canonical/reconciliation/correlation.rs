@@ -34,7 +34,8 @@ pub(super) fn correlate(
             conversation_task_run::correlate_generation(witness, outcome)
         }
         CommandReconciliationWitness::CancelTaskRun { .. }
-        | CommandReconciliationWitness::SubmitTaskRun { .. } => {
+        | CommandReconciliationWitness::SubmitTaskRun { .. }
+        | CommandReconciliationWitness::SupersedeUnknownTaskRun { .. } => {
             conversation_task_run::correlate_task_run(witness, outcome)
         }
         CommandReconciliationWitness::ApprovalDecision { .. } => {

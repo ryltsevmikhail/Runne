@@ -24,6 +24,7 @@ enum Witness {
     CreateTextOnlyConversation(ConversationId, WorkspaceId),
     GenerateConversationText(ConversationId, u64, CanonicalMessageText),
     CancelTaskRun(TaskRunId, u64),
+    SupersedeUnknownTaskRun(TaskRunId, u64),
     SubmitTaskRun(ConversationId, WorkspaceId, Option<TaskRunInput>),
     ApprovalDecision(ApprovalId, u64, ApprovalDecision, [u8; 32], u64, u64),
 }
@@ -119,6 +120,13 @@ impl CommandReconciliationWitness {
     }
 
     #[must_use]
+    pub const fn supersede_unknown_task_run(id: TaskRunId, version: u64) -> Self {
+        Self {
+            inner: Witness::SupersedeUnknownTaskRun(id, version),
+        }
+    }
+
+    #[must_use]
     pub fn submit_task_run(
         conversation: ConversationId,
         workspace: WorkspaceId,
@@ -178,6 +186,9 @@ impl CommandReconciliationWitness {
                 ReconciliationOperation::GenerateConversationText
             }
             Witness::CancelTaskRun(..) => ReconciliationOperation::CancelTaskRun,
+            Witness::SupersedeUnknownTaskRun(..) => {
+                ReconciliationOperation::SupersedeUnknownTaskRun
+            }
             Witness::SubmitTaskRun(..) => ReconciliationOperation::SubmitTaskRun,
             Witness::ApprovalDecision(..) => ReconciliationOperation::ApprovalDecision,
         }
@@ -251,6 +262,12 @@ impl CommandReconciliationWitness {
             Witness::CancelTaskRun(id, expected_version) => {
                 CommandReconciliationWitnessRef::CancelTaskRun {
                     task_run_id: *id,
+                    expected_version: *expected_version,
+                }
+            }
+            Witness::SupersedeUnknownTaskRun(id, expected_version) => {
+                CommandReconciliationWitnessRef::SupersedeUnknownTaskRun {
+                    predecessor_taskrun_id: *id,
                     expected_version: *expected_version,
                 }
             }

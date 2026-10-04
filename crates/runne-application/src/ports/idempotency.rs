@@ -47,6 +47,10 @@ pub enum OperationTag {
     TaskRunClaim = 21,
     /// Recovery release of a proven never-dispatched attempt.
     TaskRunNoEffectRelease = 22,
+    /// Runtime-owned terminalization of a cancellation proven never claimed.
+    CompleteQueuedCancellation = 23,
+    /// Explicitly create a successor to an unresolved effect.
+    SupersedeUnknownTaskRun = 24,
 }
 
 /// The aggregate scope within which idempotency is enforced.

@@ -63,8 +63,20 @@ Options:
                            compares it against the runtime-pinned model and
                            rejects a mismatch (error code `model_mismatch`)
                            before any effect
+  --profile-id ID          Select a provider profile by its exact catalog ID
+  --profile-digest HEX     Bind that selection to its 32-byte catalog digest
+  --workspace-executable PATH  Submit a structured argv command from workspace
+  --system-executable ID       Submit a catalogued system program
+  --cwd PATH                   Command working directory within the workspace
+  --arg VALUE                  Add one argv element (repeatable)
+  --env KEY=VALUE              Add one environment value (repeatable)
 
-The command exits 0 only on a `succeeded` terminal outcome. Other terminal
+Local commands require one executable option and cannot include --model,
+--profile-id, or --profile-digest. Provider profile options must be supplied
+together. The prompt remains a description; it is never interpreted as command
+text.
+
+The command exits 0 only when the terminal result is `Success`. Other terminal
 outcomes print the full event stream to stdout and exit non-zero. If the
 bounded wait expires without a terminal outcome, the run stays uncertain
 (error code `task_uncertain`, exit 5).

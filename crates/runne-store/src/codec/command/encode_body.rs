@@ -27,11 +27,35 @@
                 write_uuid(&mut buf, taskrun_id.as_bytes());
                 write_u64_be(&mut buf, *new_version);
             }
+            CommandOutcome::UnknownSuccessorCreated {
+                predecessor_taskrun_id,
+                predecessor_version,
+                conversation_id,
+                conversation_version,
+                successor_taskrun_id,
+                successor_version,
+            } => {
+                buf.push(CO_TAG_UNKNOWN_SUCCESSOR_CREATED);
+                write_uuid(&mut buf, predecessor_taskrun_id.as_bytes());
+                write_u64_be(&mut buf, *predecessor_version);
+                write_uuid(&mut buf, conversation_id.as_bytes());
+                write_u64_be(&mut buf, *conversation_version);
+                write_uuid(&mut buf, successor_taskrun_id.as_bytes());
+                write_u64_be(&mut buf, *successor_version);
+            }
             CommandOutcome::TaskRunCancellationRequested {
                 taskrun_id,
                 new_version,
             } => {
                 buf.push(CO_TAG_CANCELLATION_REQUESTED);
+                write_uuid(&mut buf, taskrun_id.as_bytes());
+                write_u64_be(&mut buf, *new_version);
+            }
+            CommandOutcome::TaskRunCancellationCompleted {
+                taskrun_id,
+                new_version,
+            } => {
+                buf.push(CO_TAG_CANCELLATION_COMPLETED);
                 write_uuid(&mut buf, taskrun_id.as_bytes());
                 write_u64_be(&mut buf, *new_version);
             }

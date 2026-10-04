@@ -2,6 +2,7 @@
 //!
 //! All ports are trait-only; no concrete adapters in this crate.
 
+use runne_api::TaskRunEffectsV1;
 use runne_domain::agent_loop::{StepOutcomeRef, WakeCondition, WakeEvidenceRef};
 use runne_domain::conversation::ConversationEvent;
 use runne_domain::event::{EventEnvelope, UncommittedEvent};
@@ -21,10 +22,19 @@ use crate::fingerprint::CommandFingerprint;
 include!("ports/event_store_task_run.rs");
 include!("ports/taskrun_claim.rs");
 include!("ports/taskrun_release.rs");
+include!("ports/taskrun_no_effect_scan.rs");
+include!("ports/taskrun_cancellation_scan.rs");
 include!("ports/taskrun_assignment.rs");
+include!("ports/claimed_text.rs");
+include!("ports/taskrun_cancellation_completion.rs");
+include!("ports/provider_terminal_cancellation.rs");
+include!("ports/provider_remote_artifact_cancellation.rs");
+include!("ports/provider_pre_effect_cancellation.rs");
 include!("ports/taskrun_provider_binding.rs");
 include!("ports/event_store.rs");
+include!("ports/event_store_text_generation.rs");
 include!("ports/unit_of_work.rs");
+include!("ports/unknown_successor.rs");
 include!("ports/runtime.rs");
 include!("ports/idempotency.rs");
 include!("ports/project_workspace.rs");

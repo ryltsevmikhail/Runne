@@ -28,23 +28,140 @@ pub(super) fn apply_v46_migration(connection: &Connection) -> SqliteResult<()> {
 }
 
 pub(super) fn v46_matches(connection: &Connection, version: i64) -> SqliteResult<bool> {
-    if !matches!(version, 46..=48) || !v45_matches(connection, version)? {
+    if !matches!(version, 46..=63) {
+        return Ok(false);
+    }
+    if !v45_matches(connection, version)? {
         return Ok(false);
     }
     let marker: (i64,i64,i64,i64) = connection.query_row("SELECT COALESCE(MAX(version),0),COALESCE(MIN(version),0),COUNT(*),COALESCE(SUM(version),0) FROM schema_version", [], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?)))?;
-    if !matches!(marker,(46,1,45,1062) | (46,1,46,1081) | (47,1,46,1109) | (47,1,47,1128) | (48,1,47,1157) | (48,1,48,1176)) {
+    if !matches!(
+        marker,
+        (46, 1, 45, 1062)
+            | (46, 1, 46, 1081)
+            | (47, 1, 46, 1109)
+            | (47, 1, 47, 1128)
+            | (48, 1, 47, 1157)
+            | (48, 1, 48, 1176)
+            | (49, 1, 48, 1206)
+            | (49, 1, 49, 1225)
+            | (50, 1, 49, 1256)
+            | (50, 1, 50, 1275)
+            | (51, 1, 50, 1307)
+            | (51, 1, 51, 1326)
+            | (52, 1, 51, 1359)
+            | (52, 1, 52, 1378)
+            | (53, 1, 52, 1412)
+            | (53, 1, 53, 1431)
+            | (54, 1, 53, 1466)
+            | (54, 1, 54, 1485)
+            | (55, 1, 54, 1521)
+            | (55, 1, 55, 1540)
+            | (56, 1, 55, 1577)
+            | (56, 1, 56, 1596)
+            | (57, 1, 56, 1634)
+            | (57, 1, 57, 1653)
+            | (58, 1, 57, 1692)
+            | (58, 1, 58, 1711)
+            | (59, 1, 58, 1751)
+            | (59, 1, 59, 1770)
+            | (60, 1, 59, 1811)
+            | (60, 1, 60, 1830)
+            | (61, 1, 60, 1872)
+            | (61, 1, 61, 1891)
+            | (62, 1, 61, 1934)
+            | (62, 1, 62, 1953)
+            | (63, 1, 62, 1997)
+            | (63, 1, 63, 2016)
+    ) {
         return Ok(false);
     }
-    let expected = MIGRATION_V46.split(';').map(str::trim).find(|s| s.starts_with("CREATE TABLE taskrun_provider_bindings ")).unwrap();
-    let actual: Option<String> = connection.query_row("SELECT sql FROM sqlite_master WHERE type='table' AND name='taskrun_provider_bindings'", [], |r| r.get(0)).optional()?;
-    if actual.is_none_or(|sql| normalize_ddl(&sql)!=normalize_ddl(expected)) { return Ok(false); }
-    for (name,sql) in [
-        ("taskrun_provider_bindings_immutable", "CREATE TRIGGER taskrun_provider_bindings_immutable BEFORE UPDATE ON taskrun_provider_bindings BEGIN SELECT RAISE(ABORT,'TaskRun provider binding is append only'); END"),
-        ("taskrun_provider_bindings_no_delete", "CREATE TRIGGER taskrun_provider_bindings_no_delete BEFORE DELETE ON taskrun_provider_bindings BEGIN SELECT RAISE(ABORT,'TaskRun provider binding is append only'); END"),
-    ] {
-        let actual: Option<String> = connection.query_row("SELECT sql FROM sqlite_master WHERE type='trigger' AND name=?1", [name], |r| r.get(0)).optional()?;
-        if actual.is_none_or(|actual| normalize_sql(&actual)!=normalize_sql(sql)) { return Ok(false); }
+    let expected = MIGRATION_V46
+        .split(';')
+        .map(str::trim)
+        .find(|s| s.starts_with("CREATE TABLE taskrun_provider_bindings "))
+        .unwrap();
+    let actual: Option<String> = connection
+        .query_row(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='taskrun_provider_bindings'",
+            [],
+            |r| r.get(0),
+        )
+        .optional()?;
+    if actual.is_none_or(|sql| normalize_ddl(&sql) != normalize_ddl(expected)) {
+        return Ok(false);
     }
-    let invalid: i64 = connection.query_row("SELECT COUNT(*) FROM taskrun_provider_bindings b LEFT JOIN taskrun_dispatch_intents i USING(taskrun_id,fence) LEFT JOIN taskrun_assignment_occupations o USING(taskrun_id,fence) LEFT JOIN taskrun_claim_receipts c USING(taskrun_id,fence) LEFT JOIN provider_prepared_requests p USING(call_id) LEFT JOIN provider_execution_admissions a ON a.call_id=b.call_id AND a.provider_idempotency_key=b.provider_idempotency_key LEFT JOIN provider_dispatch_attempts d ON d.attempt_id=a.dispatch_attempt_id WHERE i.taskrun_id IS NULL OR i.state!='present' OR o.taskrun_id IS NULL OR o.state!='active' OR o.dispatch_intent!='present' OR o.attempt_id!=b.attempt_id OR o.node_id!=b.node_id OR o.node_epoch!=b.node_epoch OR c.taskrun_id IS NULL OR c.new_version!=b.claim_version OR p.call_id IS NULL OR p.call_digest_version!=b.call_digest_version OR p.prepared_digest!=b.prepared_digest OR p.render_digest!=b.render_digest OR p.profile_digest!=b.profile_digest OR a.call_id IS NULL OR a.taskrun_id!=b.taskrun_id OR a.execution_attempt_id!=b.attempt_id OR a.prepared_digest!=b.prepared_digest OR a.render_digest!=b.render_digest OR a.profile_digest!=b.profile_digest OR d.attempt_id IS NULL OR d.call_id!=b.call_id OR d.provider_idempotency_key!=b.provider_idempotency_key OR d.prepared_digest!=b.prepared_digest OR d.render_digest!=b.render_digest OR d.profile_digest!=b.profile_digest", [], |r| r.get(0))?;
-    Ok(invalid==0)
+    for (name, sql) in [
+        (
+            "taskrun_provider_bindings_immutable",
+            "CREATE TRIGGER taskrun_provider_bindings_immutable BEFORE UPDATE ON taskrun_provider_bindings BEGIN SELECT RAISE(ABORT,'TaskRun provider binding is append only'); END",
+        ),
+        (
+            "taskrun_provider_bindings_no_delete",
+            "CREATE TRIGGER taskrun_provider_bindings_no_delete BEFORE DELETE ON taskrun_provider_bindings BEGIN SELECT RAISE(ABORT,'TaskRun provider binding is append only'); END",
+        ),
+    ] {
+        let actual: Option<String> = connection
+            .query_row(
+                "SELECT sql FROM sqlite_master WHERE type='trigger' AND name=?1",
+                [name],
+                |r| r.get(0),
+            )
+            .optional()?;
+        if actual.is_none_or(|actual| normalize_sql(&actual) != normalize_sql(sql)) {
+            return Ok(false);
+        }
+    }
+    let occupation_invalid = if version >= 57 {
+        "(o.state!='active' AND NOT (
+           (o.state='released' AND t.taskrun_id IS NOT NULL
+            AND t.terminal_event_id=o.release_event_id AND t.attempt_id=b.attempt_id
+            AND t.node_id=b.node_id AND t.node_epoch=b.node_epoch)
+           OR (o.state='released' AND EXISTS(
+            SELECT 1 FROM taskrun_unknown_successor_receipts u
+            WHERE u.predecessor_taskrun_id=b.taskrun_id AND u.occupation_fence=b.fence
+              AND u.predecessor_attempt_id=b.attempt_id
+              AND u.occupation_release_reason='user_supersession'
+              AND u.occupation_release_event_id=o.release_event_id
+              AND u.occupation_release_version=(SELECT sequence FROM events e
+                 WHERE e.event_id=o.release_event_id AND e.aggregate_type=1
+                   AND e.aggregate_id=b.taskrun_id)))))"
+    } else if version >= 49 {
+        "(o.state!='active' AND NOT (o.state='released' AND t.taskrun_id IS NOT NULL
+           AND t.terminal_event_id=o.release_event_id AND t.attempt_id=b.attempt_id
+           AND t.node_id=b.node_id AND t.node_epoch=b.node_epoch))"
+    } else {
+        "o.state!='active'"
+    };
+    let receipt_join = if version >= 49 {
+        "LEFT JOIN taskrun_terminal_settlement_receipts t USING(taskrun_id,fence)"
+    } else {
+        ""
+    };
+    let sql = format!(
+        "SELECT COUNT(*) FROM taskrun_provider_bindings b
+         LEFT JOIN taskrun_dispatch_intents i USING(taskrun_id,fence)
+         LEFT JOIN taskrun_assignment_occupations o USING(taskrun_id,fence)
+         LEFT JOIN taskrun_claim_receipts c USING(taskrun_id,fence)
+         LEFT JOIN provider_prepared_requests p USING(call_id)
+         LEFT JOIN provider_execution_admissions a
+           ON a.call_id=b.call_id AND a.provider_idempotency_key=b.provider_idempotency_key
+         LEFT JOIN provider_dispatch_attempts d ON d.attempt_id=a.dispatch_attempt_id
+         {receipt_join}
+         WHERE i.taskrun_id IS NULL OR i.state!='present' OR o.taskrun_id IS NULL
+           OR {occupation_invalid} OR o.dispatch_intent!='present'
+           OR o.attempt_id!=b.attempt_id OR o.node_id!=b.node_id OR o.node_epoch!=b.node_epoch
+           OR c.taskrun_id IS NULL OR c.new_version!=b.claim_version
+           OR p.call_id IS NULL OR p.call_digest_version!=b.call_digest_version
+           OR p.prepared_digest!=b.prepared_digest OR p.render_digest!=b.render_digest
+           OR p.profile_digest!=b.profile_digest OR a.call_id IS NULL
+           OR a.taskrun_id!=b.taskrun_id OR a.execution_attempt_id!=b.attempt_id
+           OR a.prepared_digest!=b.prepared_digest OR a.render_digest!=b.render_digest
+           OR a.profile_digest!=b.profile_digest OR d.attempt_id IS NULL
+           OR d.call_id!=b.call_id OR d.provider_idempotency_key!=b.provider_idempotency_key
+           OR d.prepared_digest!=b.prepared_digest OR d.render_digest!=b.render_digest
+           OR d.profile_digest!=b.profile_digest"
+    );
+    let invalid: i64 = connection.query_row(&sql, [], |row| row.get(0))?;
+    Ok(invalid == 0)
 }

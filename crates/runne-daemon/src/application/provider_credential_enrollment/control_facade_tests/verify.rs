@@ -3,8 +3,8 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
 };
 
-use super::ProtectedEnrollmentSessionFacts;
-use super::protected_session_tests::{control, id};
+use super::super::test_modules::protected_session_tests::{control, id};
+use crate::application::provider_credential_enrollment::ProtectedEnrollmentSessionFacts;
 use crate::application::provider_credential_enrollment::ProviderCredentialVerificationHost;
 use runne_api::{
     ApiActor, ApiPrincipalId, ProtectedCredentialEnrollmentAuthenticator,
@@ -52,7 +52,7 @@ fn protected_verify_requires_native_request_admission_and_reaches_the_installed_
         .unwrap();
     let facts = ProtectedEnrollmentSessionFacts::for_test();
     let rendezvous =
-        super::super::broker::rendezvous::DaemonOwnedUnixBrokerRendezvous::create().unwrap();
+        crate::application::provider_credential_enrollment::broker::rendezvous::DaemonOwnedUnixBrokerRendezvous::create().unwrap();
     let (session_id, _, release, _, supervisor, peer, _, _) = facts.http_authority_parts();
     let broker = runne_api::protected_credential_broker_evidence_binding(
         release,
@@ -119,7 +119,7 @@ fn protected_verify_without_native_request_admission_is_rejected_before_host() {
         .unwrap();
     let facts = ProtectedEnrollmentSessionFacts::for_test();
     let rendezvous =
-        super::super::broker::rendezvous::DaemonOwnedUnixBrokerRendezvous::create().unwrap();
+        crate::application::provider_credential_enrollment::broker::rendezvous::DaemonOwnedUnixBrokerRendezvous::create().unwrap();
     let mut session = control
         .start_test_protected_session(&keys, facts, rendezvous)
         .unwrap();

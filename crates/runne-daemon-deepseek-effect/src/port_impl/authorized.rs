@@ -72,7 +72,7 @@ impl<C: DeepSeekCredentialMaterializer> Sender<C> {
     pub(super) async fn send_authorized(
         &self,
         ready: AuthorizedReady,
-        receipt: ProviderEffectStartReceipt,
+        mut receipt: ProviderEffectStartReceipt,
     ) -> Result<ProviderStreamId, DispatchError> {
         if !receipt.matches_claim(ready.request.claim())
             || !receipt.matches_credential(&ready.credential)
@@ -81,6 +81,11 @@ impl<C: DeepSeekCredentialMaterializer> Sender<C> {
             self.observe(Diagnostic::ReceiptRejected);
             return Err(DispatchError::MaybeDispatched);
         }
+        let final_send = receipt.take_final_send_authority().map_err(|_| {
+            DispatchError::RejectedBeforeEffect(
+                runne_provider::ProviderPreEffectRejection::AdapterRejected,
+            )
+        })?;
         let request_id = match HeaderValue::from_str(ready.request.provider_idempotency_key()) {
             Ok(value) => value,
             Err(_) => {
@@ -133,6 +138,11 @@ impl<C: DeepSeekCredentialMaterializer> Sender<C> {
         };
         let url = format!("{}{}", self.policy.origin(), self.policy.path());
         let effect = async {
+            final_send.consume().map_err(|_| {
+                DispatchError::RejectedBeforeEffect(
+                    runne_provider::ProviderPreEffectRejection::AdapterRejected,
+                )
+            })?;
             self.observe(Diagnostic::RequestSendStarted);
             let response = match self
                 .client

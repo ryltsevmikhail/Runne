@@ -19,6 +19,10 @@ use crate::error::DaemonError;
 
 const FIXTURE_OPERATION: [u8; 16] = [0xD6; 16];
 
+#[cfg(test)]
+#[path = "fixture_credentials_tests.rs"]
+mod tests;
+
 /// Seeds one sealed online credential lifecycle only for the loopback runtime.
 /// A restarted fixture reads the already-completed authority state unchanged.
 pub(super) fn compose(
@@ -50,8 +54,20 @@ fn provision_online(
     snapshot: runne_provider::CredentialLifecycleSnapshot,
     measurements: runne_provider::CredentialEnrollmentMeasurementAuthority,
 ) -> Result<(), DaemonError> {
-    let now = chrono::Utc::now().timestamp();
-    let expiry = now.checked_add(600).ok_or_else(unavailable)?;
+    provision_online_with_clock(store, provider, snapshot, measurements, || {
+        chrono::Utc::now().timestamp()
+    })
+}
+
+fn provision_online_with_clock(
+    store: &SqliteProviderCredentialLifecycleStore,
+    provider: ProviderId,
+    snapshot: runne_provider::CredentialLifecycleSnapshot,
+    measurements: runne_provider::CredentialEnrollmentMeasurementAuthority,
+    mut now: impl FnMut() -> i64,
+) -> Result<(), DaemonError> {
+    let started_at = now();
+    let expiry = started_at.checked_add(600).ok_or_else(unavailable)?;
     let operation =
         CredentialOperationId::from_bytes(FIXTURE_OPERATION).map_err(|_| unavailable())?;
     let active = CredentialVersionRef::new(provider.clone(), snapshot.next_credential_version())
@@ -138,7 +154,7 @@ fn provision_online(
                 .map_err(|_| unavailable())?,
         ),
         release_digest,
-        now,
+        now(),
     )
     .map_err(|_| unavailable())?;
     ProviderCredentialEnrollmentStore::complete(

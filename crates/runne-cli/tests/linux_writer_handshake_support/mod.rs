@@ -118,7 +118,13 @@ pub(crate) fn spawn_writer(handshake: UnixStream) -> std::process::Child {
     let (control_parent, control_child) = UnixStream::pair().expect("control pair");
     // control_parent drops at the end of this function: the writer's loop
     // sees EOF on the control stdin right after the startup exchange.
-    let child = Command::new(env!("CARGO_BIN_EXE_runne"))
+    let child = Command::new("/bin/sh")
+        // Test runners can inherit an unrelated non-CLOEXEC fd 3, while the
+        // production writer reserves fd 3 for its optional secret FIFO.
+        // Close the unused slot before exec; exec preserves the real writer
+        // PID and executable for the process-measurement oracle.
+        .args(["-c", "exec 3<&-; exec \"$@\"", "runne-fixture"])
+        .arg(env!("CARGO_BIN_EXE_runne"))
         .arg(PROVIDER_CREDENTIAL_BROKER_MODE_V1)
         .stdin(Stdio::from(std::os::fd::OwnedFd::from(control_child)))
         .stdout(Stdio::from(std::os::fd::OwnedFd::from(handshake)))
@@ -219,7 +225,11 @@ pub(crate) fn spawn_writer_with_control(
     handshake: UnixStream,
     control: UnixStream,
 ) -> std::process::Child {
-    Command::new(env!("CARGO_BIN_EXE_runne"))
+    Command::new("/bin/sh")
+        // This no-secret fixture has no fd 3 payload; remove any unrelated
+        // inherited descriptor before the writer validates its secret slot.
+        .args(["-c", "exec 3<&-; exec \"$@\"", "runne-fixture"])
+        .arg(env!("CARGO_BIN_EXE_runne"))
         .arg(PROVIDER_CREDENTIAL_BROKER_MODE_V1)
         .stdin(Stdio::from(std::os::fd::OwnedFd::from(control)))
         .stdout(Stdio::from(std::os::fd::OwnedFd::from(handshake)))

@@ -60,9 +60,13 @@ pub(super) fn assert_expected_terminal_recovery_delta(
         allowed.push("provider_runtime_authority_state");
     }
     if allow_credential_rotation {
+        allowed.push("provider_credential_authority_heads");
+        allowed.push("provider_credential_completion_receipts");
+        allowed.push("provider_credential_operations");
+        allowed.push("provider_credential_process_attachments");
+        allowed.push("provider_credential_readiness_observations");
+        allowed.push("provider_credential_ticket_attempts");
         allowed.push("provider_credential_versions");
-        allowed.push("provider_credential_provisions");
-        allowed.push("provider_credential_clock_high_water");
     }
     assert_unchanged_except(before, after, &allowed);
     let outbox_columns = table_columns(harness, "provider_terminal_outbox");
@@ -109,8 +113,6 @@ pub(super) fn assert_expected_terminal_recovery_delta(
     let command = column(&event_columns, "command_id");
     let event_aggregate_type = column(&event_columns, "aggregate_type");
     let event_aggregate_id = column(&event_columns, "aggregate_id");
-    let event_id = column(&event_columns, "event_id");
-    let timestamp = column(&event_columns, "timestamp");
     let expected_position = before_events.last().unwrap()[global]
         .parse::<u64>()
         .unwrap()
@@ -120,6 +122,10 @@ pub(super) fn assert_expected_terminal_recovery_delta(
         ("1", blob(started.taskrun_id.as_bytes())),
         ("2", blob(started.conversation_id.as_bytes())),
     ];
+    let expected_aggregate_keys = expected_aggregates
+        .iter()
+        .map(|(kind, id)| ((*kind).to_owned(), id.clone()))
+        .collect::<Vec<_>>();
     for expected in &expected_aggregates {
         assert_eq!(
             after_events[before_events.len()..]
@@ -174,60 +180,7 @@ pub(super) fn assert_expected_terminal_recovery_delta(
         1
     );
 
-    let aggregate_columns = table_columns(harness, "aggregate_streams");
-    let version = column(&aggregate_columns, "current_version");
-    let aggregate_type = column(&aggregate_columns, "aggregate_type");
-    let aggregate_id = column(&aggregate_columns, "aggregate_id");
-    let last_event_id = column(&aggregate_columns, "last_event_id");
-    let last_timestamp = column(&aggregate_columns, "last_timestamp");
-    assert_eq!(before["aggregate_streams"].len(), expected_aggregates.len());
-    assert_eq!(after["aggregate_streams"].len(), expected_aggregates.len());
-    for expected in &expected_aggregates {
-        assert_eq!(
-            before["aggregate_streams"]
-                .iter()
-                .filter(|row| row[aggregate_type] == expected.0 && row[aggregate_id] == expected.1)
-                .count(),
-            1,
-            "unexpected aggregate key before recovery"
-        );
-        assert_eq!(
-            after["aggregate_streams"]
-                .iter()
-                .filter(|row| row[aggregate_type] == expected.0 && row[aggregate_id] == expected.1)
-                .count(),
-            1,
-            "unexpected aggregate key after recovery"
-        );
-    }
-    for expected in &expected_aggregates {
-        let before = before["aggregate_streams"]
-            .iter()
-            .find(|row| row[aggregate_type] == expected.0 && row[aggregate_id] == expected.1)
-            .unwrap();
-        let after = after["aggregate_streams"]
-            .iter()
-            .find(|row| row[aggregate_type] == expected.0 && row[aggregate_id] == expected.1)
-            .unwrap();
-        let event = after_events[before_events.len()..]
-            .iter()
-            .find(|row| {
-                row[event_aggregate_type] == expected.0 && row[event_aggregate_id] == expected.1
-            })
-            .unwrap();
-        for (index, name) in aggregate_columns.iter().enumerate() {
-            if !["current_version", "last_event_id", "last_timestamp"].contains(&name.as_str()) {
-                assert_eq!(after[index], before[index], "aggregate immutable {name}");
-            }
-        }
-        assert_eq!(
-            after[version].parse::<u64>().unwrap(),
-            before[version].parse::<u64>().unwrap() + 1
-        );
-        assert_eq!(after[last_event_id], event[event_id]);
-        assert_eq!(after[last_timestamp], event[timestamp]);
-    }
-    super::projection_snapshot::assert_refreshed(before, after, harness);
+    super::projection_snapshot::assert_refreshed(before, after, harness, &expected_aggregate_keys);
     let state_columns = table_columns(harness, "event_log_state");
     let position = column(&state_columns, "next_global_position");
     let before_state = singleton_row(before, "event_log_state");

@@ -11,7 +11,7 @@ async fn validated_reopen_after_outbox_ack_does_not_reapply_terminal_output() {
     )
     .await;
     writer.finalize_terminal_output(&context(&fixture)).unwrap();
-    let application = IdempotentTerminalApplication::default();
+    let application = IdempotentTerminalApplication::for_fixture(&fixture);
     assert_eq!(
         writer.apply_terminal_output_for_attempt(fixture.attempt_id, &application),
         Ok(true)
@@ -41,19 +41,25 @@ async fn validated_reopen_after_outbox_ack_does_not_reapply_terminal_output() {
     );
     drop(before);
 
-    let reopened_store = validated_reopen::open_provider_execution(
-        fixture.path.to_str().unwrap(),
-        fixture.identity,
-    )
-    .unwrap();
+    let reopened_store =
+        validated_reopen::open_provider_execution(fixture.path.to_str().unwrap(), fixture.identity)
+            .unwrap();
     let reopened = runtime(&keyring, &reopened_store);
-    assert!(reopened.recover_pending_terminal_outputs().unwrap().is_empty());
+    assert!(
+        reopened
+            .recover_pending_terminal_outputs()
+            .unwrap()
+            .is_empty()
+    );
     assert_eq!(
         reopened.apply_terminal_output_for_attempt(fixture.attempt_id, &application),
         Ok(false)
     );
     assert_eq!(application.calls.load(Ordering::SeqCst), 1);
-    assert_eq!(sql_snapshot(&validated_connection(&fixture)), snapshot_before);
+    assert_eq!(
+        sql_snapshot(&validated_connection(&fixture)),
+        snapshot_before
+    );
 }
 
 #[tokio::test(flavor = "current_thread")]
@@ -91,5 +97,8 @@ async fn stale_generation_finalize_is_recovery_frozen() {
         runtime.finalize_terminal_output(&stale_context),
         Err(RuntimeProviderExecutionError::RecoveryFrozen)
     );
-    assert_eq!(sql_snapshot(&validated_connection(&fixture)), snapshot_before);
+    assert_eq!(
+        sql_snapshot(&validated_connection(&fixture)),
+        snapshot_before
+    );
 }

@@ -20,11 +20,7 @@ impl PartialResponseServer {
                 .await
                 .map_err(|_| ())?;
             let mut connection = h2::server::handshake(tls).await.map_err(|_| ())?;
-            let (request, mut respond) = connection
-                .accept()
-                .await
-                .ok_or(())?
-                .map_err(|_| ())?;
+            let (request, mut respond) = connection.accept().await.ok_or(())?.map_err(|_| ())?;
             if request.method() != http::Method::POST
                 || request.uri().path() != "/responses"
                 || !request
@@ -40,8 +36,11 @@ impl PartialResponseServer {
                 .body(())
                 .map_err(|_| ())?;
             let mut body = respond.send_response(response, false).map_err(|_| ())?;
-            body.send_data(bytes::Bytes::from_static(b"data: {\"type\":\"response."), false)
-                .map_err(|_| ())?;
+            body.send_data(
+                bytes::Bytes::from_static(b"data: {\"type\":\"response."),
+                false,
+            )
+            .map_err(|_| ())?;
             first_chunk_tx.send(()).map_err(|_| ())?;
             loop {
                 tokio::select! {
@@ -77,20 +76,28 @@ async fn dropping_authorized_effect_between_chunks_resets_real_http2_stream() {
     let client = loopback_fixture_client(&policy, server.address, &server.certificate_der)
         .expect("production-shaped loopback client");
     let (effect, _) = effect_from_loopback_fixture(client).expect("fixture effect");
-    let (request, receipt, credential) = durable_dispatch(&profile, effect.as_ref());
+    let fixture = durable_dispatch(&profile, effect.as_ref());
     let ready = effect
-        .stage_effect(request, credential)
+        .stage_effect(fixture.request, fixture.credential)
         .await
         .expect("stage admitted effect");
     let dispatch_effect = Arc::clone(&effect);
-    let task = tokio::spawn(async move { dispatch_effect.dispatch_effect(ready, receipt).await });
+    let task = tokio::spawn(async move {
+        dispatch_effect
+            .dispatch_effect(ready, fixture.receipt)
+            .await
+    });
 
     tokio::time::timeout(Duration::from_secs(2), server.first_chunk)
         .await
         .expect("server emitted first chunk")
         .expect("first chunk signal");
     task.abort();
-    assert!(task.await.expect_err("effect must be cancelled").is_cancelled());
+    assert!(
+        task.await
+            .expect_err("effect must be cancelled")
+            .is_cancelled()
+    );
     let reason = tokio::time::timeout(Duration::from_secs(2), server.reset)
         .await
         .expect("server must observe cancellation")

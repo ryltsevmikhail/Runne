@@ -65,6 +65,26 @@ impl ProjectWorkspaceStore {
                 operation(version)
             })
     }
+
+    /// Runs under the authoritative writer with the current project binding.
+    pub fn with_current_workspace_binding<T>(
+        &self,
+        principal: &str,
+        id: WorkspaceId,
+        operation: impl FnOnce(u64, [u8; 16]) -> Result<T, Error>,
+    ) -> Result<T, Error> {
+        self.store.with_project_workspace_transaction(|transaction| {
+            let binding: Option<(i64, Vec<u8>)> = transaction.query_row(
+                "SELECT w.version,w.project_id FROM workspaces w JOIN projects p ON p.project_id=w.project_id WHERE w.workspace_id=?1 AND w.principal_id=?2 AND w.live=1 AND w.open=1 AND p.archived=0",
+                params![id.as_bytes(), principal],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            ).optional().map_err(|_| Error::InvariantViolation)?;
+            let Some((version, project)) = binding else { return Err(Error::NotFound); };
+            let version = u64::try_from(version).map_err(|_| Error::InvariantViolation)?;
+            let project: [u8; 16] = project.try_into().map_err(|_| Error::InvariantViolation)?;
+            operation(version, project)
+        })
+    }
 }
 
 impl ProjectWorkspaceRepository for ProjectWorkspaceStore {

@@ -30,6 +30,7 @@ use runne_domain::task_run::{TaskRun, TaskRunEvent, TaskRunState};
 use runne_provider::ProviderFuture;
 use runne_runtime::config::RuntimeConfig;
 use runne_runtime::controller::{RuntimeController, ShutdownMode, ShutdownOutcome};
+use runne_runtime::handle::RuntimeHandle;
 use runne_runtime::{
     CanonicalProviderExecutionError, CanonicalProviderExecutionJob,
     CanonicalProviderExecutionService, DeterministicTextProvider, LocalTextProvider,
@@ -54,6 +55,7 @@ struct TestRuntime {
     authority: RuntimeAuthorityId,
     identity: validated_reopen::MainDatabaseIdentity,
     store: StoreTransaction,
+    handle: RuntimeHandle,
     host: RuntimeTaskRunHost<StoreTransaction>,
     controller: RuntimeController,
 }
@@ -74,13 +76,15 @@ impl TestRuntime {
             "local-owner",
             WORKSPACE_ID.parse().unwrap(),
         );
-        let (host, controller) = start_runtime(store.clone(), authority.clone());
+        let (handle, controller) = start_runtime(store.clone(), authority.clone());
+        let host = RuntimeTaskRunHost::new(handle.clone(), store.clone());
         Self {
             _database: database,
             database_path,
             authority,
             identity,
             store,
+            handle,
             host,
             controller,
         }
@@ -92,7 +96,7 @@ impl TestRuntime {
             .shutdown(ShutdownMode::Graceful {
                 timeout: Duration::from_secs(5),
             })
-        .await;
+            .await;
         assert_eq!(outcome, ShutdownOutcome::Quiesced);
         assert_eq!(
             self.controller.wait_terminated().await,
@@ -104,10 +108,7 @@ impl TestRuntime {
 fn start_runtime(
     store: StoreTransaction,
     authority: RuntimeAuthorityId,
-) -> (
-    RuntimeTaskRunHost<StoreTransaction>,
-    RuntimeController,
-) {
+) -> (RuntimeHandle, RuntimeController) {
     let service: Arc<SqliteService> = Arc::new(TaskRunService::new(
         store.clone(),
         store.clone(),
@@ -120,8 +121,7 @@ fn start_runtime(
         RuntimeConfig::default(),
     )
     .unwrap();
-    let host = RuntimeTaskRunHost::new(handle, store.clone());
-    (host, controller)
+    (handle, controller)
 }
 
 fn command_context(sequence: u8, key: impl Into<String>) -> TaskRunCommandContext {

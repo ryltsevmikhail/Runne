@@ -165,6 +165,65 @@ fn task_run_submit_is_reconciled_from_the_authoritative_receipt() {
     ));
 }
 
+#[test]
+fn explicit_model_submit_reconciles_only_with_the_original_model() {
+    let fixture = Fixture::new("command-reconciliation-task-run-explicit-model");
+    fixture.conversation(command(26), "fixture-submit-model-conversation");
+    let task_service = TaskRunService::new(
+        fixture.store.clone(),
+        fixture.store.clone(),
+        fixture.store.clone(),
+        RuntimeAuthorityId("authority".into()),
+    );
+    let input = runne_domain::task_run::TaskRunInput::new("model prompt".to_owned())
+        .unwrap()
+        .with_requested_model("provider/model-v2".to_owned())
+        .unwrap();
+    task_service
+        .submit_task_run(
+            &application_context(command(27), "key"),
+            SubmitTaskRunInput {
+                conversation_id: conversation(),
+                workspace_id: workspace(),
+                input: input.clone(),
+            },
+        )
+        .unwrap();
+    let original =
+        CommandReconciliationWitness::submit_task_run(conversation(), workspace(), input);
+    assert!(matches!(
+        fixture
+            .repository
+            .reconcile_command(&context(command(27)), &original),
+        Ok(CommandReconciliationEvidence::Terminal(_))
+    ));
+    let omitted = CommandReconciliationWitness::submit_task_run(
+        conversation(),
+        workspace(),
+        runne_domain::task_run::TaskRunInput::new("model prompt".to_owned()).unwrap(),
+    );
+    assert!(matches!(
+        fixture
+            .repository
+            .reconcile_command(&context(command(27)), &omitted),
+        Err(CommandReconciliationRepositoryError::Conflict)
+    ));
+    let changed = CommandReconciliationWitness::submit_task_run(
+        conversation(),
+        workspace(),
+        runne_domain::task_run::TaskRunInput::new("model prompt".to_owned())
+            .unwrap()
+            .with_requested_model("provider/other-model".to_owned())
+            .unwrap(),
+    );
+    assert!(matches!(
+        fixture
+            .repository
+            .reconcile_command(&context(command(27)), &changed),
+        Err(CommandReconciliationRepositoryError::Conflict)
+    ));
+}
+
 fn taskrun_zero() -> runne_domain::id::TaskRunId {
     "00000000-0000-7000-8000-000000000000".parse().unwrap()
 }

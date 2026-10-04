@@ -15,6 +15,7 @@ mod renewal;
 mod round;
 #[cfg(unix)]
 mod runtime;
+mod standalone;
 #[cfg(all(test, target_os = "macos", target_arch = "aarch64"))]
 use clocks::QualificationClock;
 use clocks::TicketClock;
@@ -30,42 +31,15 @@ pub(crate) use runtime::require_shutdown_terminal;
 pub(super) use runtime::with_control;
 #[cfg(unix)]
 pub(super) use runtime::{V3EnrollmentDispatch, enrollment_transcript_allows_rotation};
-#[cfg(all(any(unix, windows), feature = "desktop-protected"))]
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "standalone V3 entry awaits a launch-path consumer"
+#[cfg(any(
+    all(test, unix),
+    all(
+        target_os = "macos",
+        target_arch = "aarch64",
+        feature = "desktop-protected"
     )
-)]
-#[cfg_attr(not(unix), allow(dead_code))]
-pub(crate) fn run_control_loop_v3(
-    channel: ProtectedActivationChannel,
-    keys: ProtectedActivationKeys,
-    owned_launch: ProtectedCredentialEnrollmentOwnedLaunchV3,
-    local_session_service: Arc<Mutex<LocalSessionService>>,
-    session_clock: Arc<dyn Fn() -> Duration + Send + Sync>,
-    ticket_clock: TicketClock,
-    #[cfg(unix)] rendezvous: super::enrollment_control_transition::DaemonEnrollmentRendezvous,
-) -> Result<(), LaunchAuthorityError> {
-    channel.enter_control_loop()?;
-    run_control_loop_v3_entered(
-        channel,
-        keys,
-        owned_launch,
-        local_session_service,
-        session_clock,
-        ticket_clock,
-        #[cfg(unix)]
-        V3EnrollmentDispatch::new(
-            None,
-            rendezvous,
-            #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-            None,
-        ),
-        None,
-    )
-}
+))]
+pub(crate) use standalone::run_control_loop_v3;
 #[cfg(all(any(unix, windows), feature = "desktop-protected"))]
 #[cfg_attr(not(unix), allow(dead_code))]
 #[allow(
@@ -98,6 +72,8 @@ pub(crate) fn run_control_loop_v3_entered(
     );
     #[cfg(not(target_os = "linux"))]
     {
+        #[cfg(unix)]
+        let http_controls = enrollment.take_http_controls();
         #[cfg(unix)]
         let mut runtime = match enrollment.control.take() {
             #[cfg(unix)]
@@ -153,10 +129,11 @@ pub(crate) fn run_control_loop_v3_entered(
                 let owned_rendezvous = enrollment.rendezvous.into_owned()?;
                 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
                 let mut enrollment = control
-                    .start_protected_session(
+                    .start_protected_session_with_controls(
                         &keys,
                         &owned_launch,
                         owned_rendezvous,
+                        http_controls,
                         installed_facts,
                     )
                     .map_err(runtime::map_enrollment_error)?;

@@ -138,6 +138,8 @@ pub struct SystemConfig {
     pub max_in_flight: Option<u32>,
     pub shutdown_timeout_ms: Option<u64>,
     pub provider_activation: Option<ExternalProviderActivationConfig>,
+    /// Independent, explicit catalog grant; never a primary route selector.
+    pub secondary_profile_catalog: Option<SecondaryProfileCatalogConfig>,
 }
 
 /// Explicit owner-controlled, non-secret external provider selection.
@@ -266,6 +268,9 @@ pub struct ConfigurationSnapshot {
     pub provider_activation: ProviderActivation,
     /// Exact non-secret settings bound to the selected provider.
     pub provider_activation_settings: ProviderActivationSettings,
+    /// Raw owner-private optional catalog input; startup must verify its source
+    /// before turning it into opaque runtime evidence.
+    pub(crate) secondary_profile_catalog: Option<SecondaryProfileCatalogConfig>,
 
     /// Per-field provenance map (field name → source).
     pub provenance: BTreeMap<String, FieldSource>,

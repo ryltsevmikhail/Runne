@@ -229,6 +229,7 @@ pub fn operation_from_name(value: &str) -> Result<MutationOperation, SecuritySta
         "conversation_generate_text" => Ok(MutationOperation::ConversationGenerateText),
         "task_run_submit" => Ok(MutationOperation::TaskRunSubmit),
         "task_run_cancel" => Ok(MutationOperation::TaskRunCancel),
+        "task_run_unknown_successor" => Ok(MutationOperation::TaskRunUnknownSuccessor),
         "approval_respond" => Ok(MutationOperation::ApprovalRespond),
         "device_revoke" => Ok(MutationOperation::DeviceRevoke),
         "runtime_stop" => Ok(MutationOperation::RuntimeStop),

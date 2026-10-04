@@ -68,3 +68,19 @@ fn provider_id(
     ProviderId::new(provider.as_str())
         .map_err(|_| ProviderCredentialEnrollmentHostError::InvalidRequest)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::provider_id;
+    use runne_api::ProviderCredentialProviderV2;
+
+    #[test]
+    fn background_enrollment_status_keeps_its_separate_provider_account() {
+        assert_eq!(
+            provider_id(ProviderCredentialProviderV2::OpenAiBackground)
+                .unwrap()
+                .as_str(),
+            "openai-background"
+        );
+    }
+}

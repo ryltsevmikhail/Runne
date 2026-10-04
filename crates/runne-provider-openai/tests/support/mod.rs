@@ -21,7 +21,7 @@ pub fn call(profile: &OpenAiResponsesTextProfile) -> ProviderCall {
     ProviderCall::new(
         ProviderCallId::from_bytes([7; 16]),
         ModelRef::new(
-            ProviderId::new("openai").expect("provider id"),
+            ProviderId::new(profile.provider_id()).expect("provider id"),
             OPENAI_MODEL_ID,
             OPENAI_MODEL_REVISION,
         )
@@ -45,7 +45,7 @@ pub fn dispatch_request(
     profile: &OpenAiResponsesTextProfile,
 ) -> DispatchRequest {
     let claim = ProviderDispatchClaim {
-        provider_id: ProviderId::new("openai").expect("provider id"),
+        provider_id: ProviderId::new(profile.provider_id()).expect("provider id"),
         call_id: prepared.call().call_id(),
         attempt_id,
         permit_id: [4; 16],

@@ -106,6 +106,25 @@ fn qualification_provider_and_version_routes_are_isolated_from_legacy_items() {
     );
 }
 
+#[test]
+fn background_account_has_distinct_provider_and_version_keyring_accounts() {
+    let openai = ProviderCredentialId::OpenAi;
+    let background = ProviderCredentialId::OpenAiBackground;
+    let openai_ref =
+        CredentialVersionRef::new(ProviderId::new(openai.account()).unwrap(), 1).unwrap();
+    let background_ref =
+        CredentialVersionRef::new(ProviderId::new(background.account()).unwrap(), 1).unwrap();
+    let (_, openai_account) = provider_key(openai).unwrap();
+    let (_, background_account) = provider_key(background).unwrap();
+    let (_, openai_version_account) = version_key(&openai_ref).unwrap();
+    let (_, background_version_account) = version_key(&background_ref).unwrap();
+
+    assert_eq!(openai_account, "openai");
+    assert_eq!(background_account, "openai-background");
+    assert_eq!(openai_version_account, "openai");
+    assert_eq!(background_version_account, "openai-background");
+}
+
 fn legacy_version_service(reference: &CredentialVersionRef) -> String {
     use core::fmt::Write as _;
     let mut digest = String::with_capacity(64);

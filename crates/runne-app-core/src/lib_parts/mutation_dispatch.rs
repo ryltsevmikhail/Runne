@@ -5,6 +5,7 @@ enum MutationDispatchResult {
     TextGenerated(runne_runtime_client::ConversationTextResult),
     TaskRunCancellationRequested(runne_runtime_client::TaskRunCancellationAcknowledgement),
     TaskRunSubmitted(runne_runtime_client::TaskRunSubmitAcknowledgement),
+    TaskRunUnknownSuccessorCreated(runne_runtime_client::TaskRunSuccessorAcknowledgement),
     ApprovalDecision(runne_runtime_client::ApprovalDecisionAcknowledgementDto),
 }
 include!("mutation_dispatch/public.rs");

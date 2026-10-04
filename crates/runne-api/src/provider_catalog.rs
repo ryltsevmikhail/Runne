@@ -11,6 +11,7 @@ pub use entries::{provider_catalog, provider_catalog_entry, provider_catalog_sna
 pub use types::{
     ProviderAuthKindV1, ProviderCatalogEntryV1, ProviderCatalogRouteV1, ProviderCatalogSnapshotV1,
     ProviderImplementationStatusV1, ProviderProtocolV1, ProviderQuotaPolicyV1,
+    ProviderSelectionPolicyV1,
 };
 
 /// Returns the catalog billing discriminator for a provider.

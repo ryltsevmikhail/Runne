@@ -29,6 +29,25 @@ test.beforeEach(async ({ page }) => {
         if (command === 'get_bootstrap') return { theme: 'dark', runtimeMode: 'bundled', runtime: 'live', runtimeLifecycle: 'ready', runtimeFailure: null }
         if (command === 'connect_runtime') return 'live'
         if (command === 'get_task_run_timeline' && args?.taskRunId === expected.taskRunId) return expected
+        if (command === 'subscribe_task_run_timeline' && args?.taskRunId === expected.taskRunId) return '018f2e3a-7000-7000-8000-000000000220'
+        if (command === 'cancel_task_run_subscription' && args?.subscriptionId === '018f2e3a-7000-7000-8000-000000000220') return null
+        if (command === 'get_task_run_effects' && args?.taskRunId === expected.taskRunId) return {
+          taskRunId: expected.taskRunId,
+          streamVersion: expected.streamVersion,
+          attemptId: null,
+          cancellationRequested: false,
+          localCommand: null,
+          remote: {
+            outcome: 'unknown',
+            publication: 'unknown',
+            accounting: 'unknown',
+            cancellation: 'unknown',
+            availability: 'unknown',
+            capabilities: { statusCheck: false, streamResume: false, remoteCancel: false },
+            usageKnown: null,
+          },
+          successor: 'blocked',
+        }
         throw new Error('unsupported test command')
       },
     }
@@ -38,8 +57,11 @@ test.beforeEach(async ({ page }) => {
 test('renders a typed TaskRun timeline without host material', async ({ page }) => {
   await page.goto(`/task-runs/${taskRun.taskRunId}`)
 
-  await expect(page.getByRole('heading', { name: 'succeeded' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'completed' })).toBeVisible()
   await expect(page.getByLabel('Task run timeline')).toContainText('completed')
   await expect(page.getByText('Terminal result: success')).toBeVisible()
+  await expect(page.getByText('Remote outcome: unknown')).toBeVisible()
+  await expect(page.getByText('Execution effects are unavailable')).toHaveCount(0)
+  await expect(page.getByText('Connection to the task stream was lost.')).toHaveCount(0)
   await expect(page.getByText('private')).toHaveCount(0)
 })

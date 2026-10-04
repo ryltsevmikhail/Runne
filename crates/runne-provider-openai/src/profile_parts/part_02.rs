@@ -13,7 +13,12 @@ impl OpenAiResponsesTextProfile {
             serde_json::from_slice(bytes).map_err(|_| OpenAiProfileError::InvalidProfile)?;
         validate_exact(&raw)?;
         let source_digest: [u8; 32] = Sha256::digest(bytes).into();
-        if source_digest != PROFILE_SOURCE_DIGEST {
+        let expected_source = if raw.profile_id == OPENAI_RESPONSES_BACKGROUND_PROFILE_ID {
+            BACKGROUND_PROFILE_SOURCE_DIGEST
+        } else {
+            PROFILE_SOURCE_DIGEST
+        };
+        if source_digest != expected_source {
             return Err(OpenAiProfileError::InvalidProfile);
         }
         let pricing_digest = pricing_digest(&raw.pricing)?;
@@ -28,6 +33,12 @@ impl OpenAiResponsesTextProfile {
     #[must_use]
     pub fn profile_id(&self) -> &str {
         &self.raw.profile_id
+    }
+
+    /// Returns whether this profile submits work to the background queue.
+    #[must_use]
+    pub const fn is_background(&self) -> bool {
+        self.raw.request.background
     }
 
     /// Returns the exact provider identity.
@@ -196,10 +207,17 @@ impl ProviderTerminalPricing for OpenAiResponsesTextProfile {
 }
 
 fn validate_exact(profile: &RawProfile) -> Result<(), OpenAiProfileError> {
+    let background = profile.profile_id == OPENAI_RESPONSES_BACKGROUND_PROFILE_ID;
+    let revision = if background { 1 } else { PROFILE_REVISION };
     let exact = profile.schema_version == PROFILE_SCHEMA_VERSION
-        && profile.profile_id == OPENAI_RESPONSES_PROFILE_ID
-        && profile.profile_revision == PROFILE_REVISION
-        && profile.provider_id == PROVIDER_ID
+        && (background || profile.profile_id == OPENAI_RESPONSES_PROFILE_ID)
+        && profile.profile_revision == revision
+        && profile.provider_id
+            == if background {
+                "openai-background"
+            } else {
+                PROVIDER_ID
+            }
         && profile.origin == ORIGIN
         && profile.path == PATH
         && profile.model.request_id == OPENAI_REQUEST_MODEL
@@ -220,7 +238,7 @@ fn validate_exact(profile: &RawProfile) -> Result<(), OpenAiProfileError> {
         && profile.request.reasoning_effort == "none"
         && profile.request.tools.is_empty()
         && profile.request.tool_choice == "none"
-        && !profile.request.background
+        && profile.request.background == background
         && !profile.request.store
         && profile.request.stream
         && profile.limits.max_input_entries == MAX_INPUT_ENTRIES

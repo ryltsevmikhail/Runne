@@ -1,23 +1,134 @@
-use runne_application::commands::BeginConversationTextInput;
-use runne_application::ports::{
-    CommitError, ConversationRepository, PrincipalId, StorageFailureKind, TextGenerationPhase,
-    TextGenerationReceipt,
-};
-use runne_application::provider::ProviderTerminalOutboxRecord;
-use runne_domain::conversation::ConversationEvent;
-use runne_domain::id::{CommandId, IdempotencyKey};
-use runne_runtime::provider_execution::{
-    ProviderTerminalConversationResolveError, ProviderTerminalConversationResolver,
-    RecoveredProviderConversationCommand,
-};
-use rusqlite::params;
-
-use crate::codec::{StoreCodec, TextGenerationReceiptCodec};
-
 use super::StoreTransaction;
 use super::parse_helpers::storage_failure;
+use crate::codec::{StoreCodec, TextGenerationReceiptCodec};
+use runne_application::ports::{
+    CommitError, PrincipalId, StorageFailureKind, TextGenerationReceipt,
+};
+use runne_domain::id::{CommandId, IdempotencyKey};
+use rusqlite::params;
+
+#[derive(Debug, Clone)]
+pub struct StartedTextGenerationCommand {
+    pub receipt: TextGenerationReceipt,
+    pub command_id: CommandId,
+    pub idempotency_key: IdempotencyKey,
+    pub principal_id: PrincipalId,
+}
 
 impl StoreTransaction {
+    /// Finds the unique still-Started text command bound to one TaskRun.
+    pub fn find_started_text_generation_for_taskrun(
+        &self,
+        taskrun_id: runne_domain::id::TaskRunId,
+    ) -> Result<Option<StartedTextGenerationCommand>, CommitError> {
+        let connection = self
+            .inner
+            .reader
+            .lock()
+            .map_err(|_| storage_failure(StorageFailureKind::Unavailable))?;
+        let mut statement = connection
+            .prepare(
+                "SELECT command_id,idempotency_key,idempotency_scope_bytes,command_outcome
+                 FROM command_receipts ORDER BY command_id",
+            )
+            .map_err(|_| storage_failure(StorageFailureKind::CorruptData))?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, Vec<u8>>(0)?,
+                    row.get::<_, Vec<u8>>(1)?,
+                    row.get::<_, Vec<u8>>(2)?,
+                    row.get::<_, Vec<u8>>(3)?,
+                ))
+            })
+            .map_err(|_| storage_failure(StorageFailureKind::CorruptData))?;
+        let rows = rows
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|_| storage_failure(StorageFailureKind::CorruptData))?;
+        let mut found = None;
+        for (command, key, encoded_scope, outcome) in rows {
+            let scope = crate::codec::IdempotencyScopeCodec
+                .decode(&encoded_scope)
+                .map_err(|_| storage_failure(StorageFailureKind::CorruptData))?;
+            if scope.operation != runne_application::ports::OperationTag::GenerateConversationText {
+                continue;
+            }
+            let receipt = TextGenerationReceiptCodec
+                .decode(&outcome)
+                .map_err(|_| storage_failure(StorageFailureKind::CorruptData))?;
+            if receipt.taskrun_id != taskrun_id
+                || receipt.phase != runne_application::ports::TextGenerationPhase::Started
+            {
+                continue;
+            }
+            let key = String::from_utf8(key)
+                .ok()
+                .and_then(|value| IdempotencyKey::new(value).ok())
+                .ok_or_else(|| storage_failure(StorageFailureKind::CorruptData))?;
+            let command_id = CommandId::from_bytes(
+                command
+                    .as_slice()
+                    .try_into()
+                    .map_err(|_| storage_failure(StorageFailureKind::CorruptData))?,
+            );
+            let candidate = StartedTextGenerationCommand {
+                receipt,
+                command_id,
+                idempotency_key: key,
+                principal_id: scope.principal_id,
+            };
+            if found.replace(candidate).is_some() {
+                return Err(storage_failure(StorageFailureKind::IntegrityViolation));
+            }
+        }
+        Ok(found)
+    }
+
+    /// Reads the principal pinned by a durable text-generation command receipt.
+    pub fn load_text_generation_principal_by_command(
+        &self,
+        command_id: CommandId,
+        idempotency_key: &IdempotencyKey,
+    ) -> Result<PrincipalId, CommitError> {
+        let scope: Vec<u8> = self
+            .inner
+            .reader
+            .lock()
+            .map_err(|_| storage_failure(StorageFailureKind::Unavailable))?
+            .query_row(
+                "SELECT idempotency_scope_bytes FROM command_receipts
+                 WHERE command_id=?1 AND idempotency_key=?2",
+                params![command_id.as_bytes(), idempotency_key.as_str().as_bytes()],
+                |row| row.get(0),
+            )
+            .map_err(|_| storage_failure(StorageFailureKind::CorruptData))?;
+        let scope = crate::codec::IdempotencyScopeCodec
+            .decode(&scope)
+            .map_err(|_| storage_failure(StorageFailureKind::CorruptData))?;
+        Ok(scope.principal_id)
+    }
+
+    /// Cheap advisory check; the atomic cancellation writer independently rechecks all rows.
+    pub fn has_provider_execution_admission_for_attempt(
+        &self,
+        taskrun_id: runne_domain::id::TaskRunId,
+        attempt_id: runne_domain::id::AttemptId,
+    ) -> Result<bool, CommitError> {
+        let present: bool = self
+            .inner
+            .reader
+            .lock()
+            .map_err(|_| storage_failure(StorageFailureKind::Unavailable))?
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM provider_execution_admissions
+                 WHERE taskrun_id=?1 AND execution_attempt_id=?2)",
+                params![taskrun_id.as_bytes(), attempt_id.as_bytes()],
+                |row| row.get(0),
+            )
+            .map_err(|_| storage_failure(StorageFailureKind::CorruptData))?;
+        Ok(present)
+    }
+
     /// Loads one exact durable Conversation text receipt by original command identity.
     pub fn load_text_generation_receipt_by_command(
         &self,
@@ -39,81 +150,5 @@ impl StoreTransaction {
         TextGenerationReceiptCodec
             .decode(&bytes)
             .map_err(|_| storage_failure(StorageFailureKind::CorruptData))
-    }
-}
-
-impl ProviderTerminalConversationResolver for StoreTransaction {
-    fn resolve_provider_terminal_conversation(
-        &self,
-        record: &ProviderTerminalOutboxRecord,
-    ) -> Result<RecoveredProviderConversationCommand, ProviderTerminalConversationResolveError>
-    {
-        let stream = self
-            .load_conversation(record.conversation_id)
-            .map_err(|_| ProviderTerminalConversationResolveError::Unavailable)?;
-        let event = stream
-            .events
-            .iter()
-            .find(|event| {
-                matches!(
-                    event.payload(),
-                    ConversationEvent::UserMessageAppended {
-                        taskrun_id,
-                        attempt_id,
-                        ..
-                    } if *taskrun_id == record.taskrun_id
-                        && *attempt_id == record.execution_attempt_id
-                )
-            })
-            .ok_or(ProviderTerminalConversationResolveError::Conflict)?;
-        let ConversationEvent::UserMessageAppended { text, .. } = event.payload() else {
-            return Err(ProviderTerminalConversationResolveError::Conflict);
-        };
-        let expected_version = event
-            .sequence()
-            .checked_sub(1)
-            .ok_or(ProviderTerminalConversationResolveError::Conflict)?;
-        let command_id = *event.command_id();
-        let idempotency_key = event.idempotency_key().clone();
-        let actor = event.actor().clone();
-        let stored: Vec<u8> = self
-            .inner
-            .reader
-            .lock()
-            .map_err(|_| ProviderTerminalConversationResolveError::Unavailable)?
-            .query_row(
-                "SELECT command_outcome FROM command_receipts
-                 WHERE command_id = ?1 AND idempotency_key = ?2",
-                params![command_id.as_bytes(), idempotency_key.as_str().as_bytes()],
-                |row| row.get(0),
-            )
-            .map_err(|_| ProviderTerminalConversationResolveError::Conflict)?;
-        let started = TextGenerationReceiptCodec
-            .decode(&stored)
-            .map_err(|_| ProviderTerminalConversationResolveError::Conflict)?;
-        if started.conversation_id != record.conversation_id
-            || started.taskrun_id != record.taskrun_id
-            || started.attempt_id != record.execution_attempt_id
-            || !matches!(
-                started.phase,
-                TextGenerationPhase::Started | TextGenerationPhase::Completed
-            )
-        {
-            return Err(ProviderTerminalConversationResolveError::Conflict);
-        }
-        Ok(RecoveredProviderConversationCommand {
-            context: runne_application::ports::ApplicationCommandContext {
-                command_id,
-                idempotency_key,
-                principal_id: PrincipalId(record.principal_id.clone()),
-                actor,
-            },
-            original: BeginConversationTextInput {
-                conversation_id: record.conversation_id,
-                expected_version,
-                text: text.clone(),
-            },
-            started,
-        })
     }
 }

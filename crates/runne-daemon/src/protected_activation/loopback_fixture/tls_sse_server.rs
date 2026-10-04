@@ -58,75 +58,80 @@ impl TlsSseServer {
         let count_path = runtime_root.join("fixture-provider-request-count");
         let scan_receipt_path = runtime_root.join("fixture-provider-wire-scan-receipt.json");
         let task = tokio::spawn(async move {
-            let Ok((stream, _)) = listener.accept().await else {
-                return;
-            };
-            if scan_wire
-                && increment_named_count(&count_path, "fixture-provider-connection-count").is_err()
-            {
-                return;
-            }
-            let Ok(mut stream) = TlsAcceptor::from(config).accept(stream).await else {
-                return;
-            };
-            let Ok(request) = read_request(&mut stream, request_kind).await else {
-                return;
-            };
-            if (!scan_wire
-                && increment_named_count(&count_path, "fixture-provider-connection-count").is_err())
-                || !matches_expected_request(&request, &authenticator, request_kind)
-                || increment_request_count(&count_path).is_err()
-            {
-                return;
-            }
-            // D1.6 kill matrix: hold the request in flight (b4) after the
-            // provider has received it but before any response byte returns.
-            hold_for_kill_boundary("b4_dispatch_in_flight").await;
-            let response = format!(
-                "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
-                SSE_RESPONSE.len(),
-                SSE_RESPONSE
-            );
-            if drop_response {
+            for _ in 0..3 {
+                let Ok((stream, _)) = listener.accept().await else {
+                    return;
+                };
                 if scan_wire
-                    && write_t1_scan_receipt(&scan_receipt_path, &request, &[], false).is_err()
+                    && increment_named_count(&count_path, "fixture-provider-connection-count")
+                        .is_err()
                 {
                     return;
                 }
-                return;
-            }
-            let mut response_written = 0;
-            // D1.6 kill matrix: serve the stream in two chunks so the b6
-            // boundary can hold the daemon BETWEEN received stream events —
-            // a single full-write would let the client complete first.
-            let first_chunk = response.len() / 2;
-            while response_written < response.len() {
-                if response_written > 0 {
-                    hold_for_kill_boundary("b6_between_stream_events").await;
-                }
-                let remaining = &response.as_bytes()[response_written..];
-                let limit = if response_written == 0 && first_chunk > 0 {
-                    first_chunk
-                } else {
-                    remaining.len()
+                let Ok(mut stream) = TlsAcceptor::from(Arc::clone(&config)).accept(stream).await
+                else {
+                    return;
                 };
-                match stream.write(&remaining[..limit]).await {
-                    Ok(0) | Err(_) => break,
-                    Ok(written) => response_written += written,
+                let Ok(request) = read_request(&mut stream, request_kind).await else {
+                    return;
+                };
+                if (!scan_wire
+                    && increment_named_count(&count_path, "fixture-provider-connection-count")
+                        .is_err())
+                    || !matches_expected_request(&request, &authenticator, request_kind)
+                    || increment_request_count(&count_path).is_err()
+                {
+                    return;
                 }
+                // D1.6 kill matrix: hold the request in flight (b4) after the
+                // provider has received it but before any response byte returns.
+                hold_for_kill_boundary("b4_dispatch_in_flight").await;
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+                    SSE_RESPONSE.len(),
+                    SSE_RESPONSE
+                );
+                if drop_response {
+                    if scan_wire
+                        && write_t1_scan_receipt(&scan_receipt_path, &request, &[], false).is_err()
+                    {
+                        return;
+                    }
+                    return;
+                }
+                let mut response_written = 0;
+                // D1.6 kill matrix: serve the stream in two chunks so the b6
+                // boundary can hold the daemon BETWEEN received stream events —
+                // a single full-write would let the client complete first.
+                let first_chunk = response.len() / 2;
+                while response_written < response.len() {
+                    if response_written > 0 {
+                        hold_for_kill_boundary("b6_between_stream_events").await;
+                    }
+                    let remaining = &response.as_bytes()[response_written..];
+                    let limit = if response_written == 0 && first_chunk > 0 {
+                        first_chunk
+                    } else {
+                        remaining.len()
+                    };
+                    match stream.write(&remaining[..limit]).await {
+                        Ok(0) | Err(_) => break,
+                        Ok(written) => response_written += written,
+                    }
+                }
+                if scan_wire
+                    && write_t1_scan_receipt(
+                        &scan_receipt_path,
+                        &request,
+                        &response.as_bytes()[..response_written],
+                        response_written == response.len(),
+                    )
+                    .is_err()
+                {
+                    return;
+                }
+                let _ = stream.shutdown().await;
             }
-            if scan_wire
-                && write_t1_scan_receipt(
-                    &scan_receipt_path,
-                    &request,
-                    &response.as_bytes()[..response_written],
-                    response_written == response.len(),
-                )
-                .is_err()
-            {
-                return;
-            }
-            let _ = stream.shutdown().await;
         });
         Ok(Self {
             address,

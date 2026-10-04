@@ -7,7 +7,7 @@ publish = false
 
 [features]
 default = []
-test-support = ["runne-platform-desktop?/test-support", "runne-native-qualification/test-support", "runne-secure-store/test-support", "runne-provider/test-support", "runne-store/test-support", "dep:reqwest"]
+test-support = ["runne-platform-desktop?/test-support", "runne-native-qualification/test-support", "runne-secure-store/test-support", "runne-provider/test-support", "runne-store/test-support", "runne-http/test-support", "dep:reqwest"]
 desktop-protected = ["dep:runne-platform-desktop", "runne-platform-desktop/protected-channel-integration", "dep:nix"]
 linux-native-enrollment-qualification = [
     "desktop-protected",
@@ -106,6 +106,7 @@ runne-native-qualification = { path = "../runne-native-qualification" }
 runne-native-enrollment-authority = { path = "../runne-native-enrollment-authority", optional = true }
 
 [dev-dependencies]
+runne-daemon-local-engine-effect = { path = "../runne-daemon-local-engine-effect", features = ["test-support"] }
 futures = "0.3"
 ed25519-dalek.workspace = true
 runne-provider = { path = "../runne-provider", features = ["test-support"] }

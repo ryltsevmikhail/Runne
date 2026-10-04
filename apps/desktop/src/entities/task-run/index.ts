@@ -1,3 +1,5 @@
-export { cancelTaskRun, getTaskRunTimeline, submitTaskRun, subscribeTaskRunTimeline } from './api/task-run'
-export type { TaskRunCancellation, TaskRunSession, TaskRunState, TaskRunSubmission, TaskRunTimeline, TaskRunTimelineEntry, TaskRunTimelineKind } from './api/task-run'
+export { cancelTaskRun, getTaskRunTimeline, submitTaskRun, subscribeTaskRunTimeline, supersedeUnknownTaskRun } from './api/task-run'
+export type { TaskRunCancellation, TaskRunSession, TaskRunState, TaskRunSubmission, TaskRunSuccessor, TaskRunTimeline, TaskRunTimelineEntry, TaskRunTimelineKind } from './api/task-run'
 export type { TaskRunRecovery, TaskRunTerminal } from './api/task-run'
+export { getTaskRunEffects } from './api/task-run-effects'
+export type { TaskRunEffects, LocalCommandOutcome, LocalCommandStop, RemoteEffectOutcome, RemotePublication, RemoteAccounting, RemoteCancellation, RemoteAvailability, SuccessorEligibility } from './api/task-run-effects'

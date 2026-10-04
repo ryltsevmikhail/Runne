@@ -79,6 +79,108 @@ async fn admitted_status_is_dynamically_delegated_to_the_host() {
 
     assert_eq!(response.status(), StatusCode::OK);
     assert_eq!(calls.load(Ordering::SeqCst), 1);
+    let body = to_bytes(response.into_body(), 16 * 1024).await.unwrap();
+    assert!(std::str::from_utf8(&body).unwrap().contains("\"openai\""));
+}
+
+#[tokio::test]
+async fn exact_background_realm_status_route_uses_the_closed_provider_identity() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let router = provider_credential_enrollment_router_for_provider(
+        ProviderCredentialEnrollmentHttpState::new(Host {
+            calls: Arc::clone(&calls),
+        }),
+        "openai-background",
+    );
+    let mut request = Request::get("/v2/providers/openai-background/credential-enrollment")
+        .body(Body::empty())
+        .unwrap();
+    request.extensions_mut().insert(base_admission());
+
+    let response = router.clone().oneshot(request).await.unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    let body = to_bytes(response.into_body(), 16 * 1024).await.unwrap();
+    assert!(
+        std::str::from_utf8(&body)
+            .unwrap()
+            .contains("openai-background")
+    );
+
+    let wrong_realm = Request::get("/v2/providers/openai/credential-enrollment")
+        .body(Body::empty())
+        .unwrap();
+    let response = router.oneshot(wrong_realm).await.unwrap();
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn scoped_background_begin_resume_and_local_verify_reach_only_the_selected_router() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let router = provider_credential_enrollment_router_for_provider(
+        ProviderCredentialEnrollmentHttpState::new(Host {
+            calls: Arc::clone(&calls),
+        }),
+        "openai-background",
+    );
+    let mut begin = Request::post(
+        "/v2/providers/openai-background/credential-enrollment/begin",
+    )
+    .header("content-type", "application/json")
+    .body(Body::from(
+        r#"{"action":"pair","provider":"openai-background","expectedLifecycleRevision":1,"commandIdentity":"018f8d23-7f90-7c00-8000-000000000001","idempotencyKey":"background-pair","nativeIntentId":"background-intent"}"#,
+    ))
+    .unwrap();
+    begin.extensions_mut().insert(mutation_admission());
+    let response = router.clone().oneshot(begin).await.unwrap();
+    assert_eq!(response.status(), StatusCode::ACCEPTED);
+    let body = to_bytes(response.into_body(), 16 * 1024).await.unwrap();
+    assert!(
+        std::str::from_utf8(&body)
+            .unwrap()
+            .contains("openai-background")
+    );
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+
+    let handle =
+        serde_json::to_string(&ProviderCredentialOperationHandleV2::from_bytes([1; 48]).unwrap())
+            .unwrap();
+    let mut resume = Request::post("/v2/providers/openai-background/credential-enrollment/resume")
+        .header("content-type", "application/json")
+        .body(Body::from(format!(r#"{{"operationId":{handle}}}"#)))
+        .unwrap();
+    resume.extensions_mut().insert(base_admission());
+    let response = router.clone().oneshot(resume).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
+
+    let mut verify = Request::post(
+        "/v2/providers/openai-background/credential-enrollment/verify",
+    )
+    .header("content-type", "application/json")
+    .body(Body::from(
+        r#"{"provider":"openai-background","expectedLifecycleRevision":1,"verificationKind":"local","commandIdentity":"018f8d23-7f90-7c00-8000-000000000002","nativeIntentId":"background-verify"}"#,
+    ))
+    .unwrap();
+    verify.extensions_mut().insert(mutation_admission());
+    let response = router.clone().oneshot(verify).await.unwrap();
+    assert_eq!(response.status(), StatusCode::ACCEPTED);
+    let body = to_bytes(response.into_body(), 16 * 1024).await.unwrap();
+    assert!(
+        std::str::from_utf8(&body)
+            .unwrap()
+            .contains("openai-background")
+    );
+    assert_eq!(calls.load(Ordering::SeqCst), 3);
+
+    let wrong_realm = Request::post("/v2/providers/openai/credential-enrollment/begin")
+        .body(Body::empty())
+        .unwrap();
+    let response = router.oneshot(wrong_realm).await.unwrap();
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    assert_eq!(calls.load(Ordering::SeqCst), 3);
 }
 
 fn resolver_router() -> (Router, Arc<AtomicUsize>) {

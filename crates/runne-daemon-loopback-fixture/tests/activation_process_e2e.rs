@@ -23,19 +23,11 @@ async fn activation_process_uses_the_protected_v2_channel_and_canonical_conversa
         Err(error) => {
             drop(client);
             let diagnostic = support::stop_with_diagnostic(process, &runtime_root);
-            assert_eq!(
-                error.kind(),
-                runne_runtime_client::RuntimeApiErrorKind::InvalidResponse,
-                "fixture ACK fault returned an unexpected client error; client_error_kind={:?} request_id_present={}; {diagnostic}",
+            panic!(
+                "canonical conversation exchange failed; client_error_kind={:?} request_id_present={}; {diagnostic}",
                 error.kind(),
                 error.request_id().is_some()
             );
-            assert_eq!(
-                error.request_id(),
-                None,
-                "fixture ACK fault returned a correlated error; {diagnostic}"
-            );
-            unreachable!("validated fixture ACK fault response")
         }
     };
     let execution = support::execution_stage(&runtime_root);

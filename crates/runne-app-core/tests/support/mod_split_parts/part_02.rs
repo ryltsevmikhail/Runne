@@ -153,7 +153,12 @@ async fn open_session(
             .expect("retention response");
     }
     let events = if body["aggregateType"].as_str() == Some("taskRun") {
-        Vec::new()
+        state
+            .inner
+            .lock()
+            .expect("mock state")
+            .task_run_events
+            .clone()
     } else {
         let inner = state.inner.lock().expect("mock state");
         let start = body

@@ -10,6 +10,7 @@ fn desktop_profile_requires_the_exact_root_admission_capability_tuple() {
             "task_run.submit.v2",
             "task_run.get.v1",
             "task_run.cancel.v1",
+            "task_run.successor.v1",
             "replay.aggregate.open.v1",
             "replay.aggregate.retention_baseline.v1",
             "replay.aggregate.retention_baseline_resume.v2",

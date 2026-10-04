@@ -1,14 +1,16 @@
 //! Live CLI tests for the headless `exec` command: the real binary submits a
 //! `TaskRun` through the X2 typed lifecycle and reports the honest bounded
-//! outcome. In the DP1 composition no automatic queue worker exists (the
-//! automatic lifecycle is X2's remaining effect-start fence / terminal path,
-//! slice ruling 2026-09-28), so the bounded wait resolves `task_uncertain`
-//! with the observed event stream on stdout; the cancel terminal is covered
-//! by the SIGINT tests. Seeding happens through the public runtime client
-//! only; the CLI never touches raw HTTP or `SQLite`.
+//! outcome. This fixture has no configured provider, so the runtime-owned
+//! worker leaves accepted work queued and the bounded wait resolves
+//! `task_uncertain` with the observed event stream on stdout; queued cancel
+//! terminal behavior is covered by the SIGINT tests. The CLI itself uses the
+//! public runtime client; the local-failure subprocess test has a separate
+//! authenticated test driver that returns a mocked terminal receipt.
 
 #![cfg(unix)]
 
+#[path = "headless_cli_parts/local_failure_subprocess.rs"]
+mod local_failure_subprocess;
 #[path = "headless_cli_parts/support.rs"]
 mod support;
 
@@ -36,7 +38,7 @@ fn exec_arguments(profile_arg: &str, conversation_id: &str, workspace_id: &str) 
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn exec_streams_submitted_event_and_resolves_typed_uncertain_without_worker() {
+async fn exec_without_provider_streams_submitted_event_and_resolves_typed_uncertain() {
     let mut daemon = start_test_daemon().await;
     let profile_arg = daemon.profile.to_str().expect("profile path").to_owned();
     let client = connect_client(&daemon.profile).await;
@@ -101,7 +103,7 @@ async fn exec_reads_prompt_from_stdin_when_not_a_tty() {
     assert_eq!(
         exit_code(&output),
         5,
-        "stdin prompt is accepted and the run submits (no automatic worker)"
+        "stdin prompt is accepted and queued while this daemon has no provider"
     );
     let events = parse_jsonl_lines(&output, "exec stdin jsonl");
     assert_eq!(

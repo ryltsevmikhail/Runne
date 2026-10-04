@@ -66,9 +66,18 @@ impl ProviderEffectPort for CompletedAfterRevoke {
     fn dispatch_effect(
         &self,
         _: Box<dyn ProviderReadyEffect>,
-        _: ProviderEffectStartReceipt,
+        mut receipt: ProviderEffectStartReceipt,
     ) -> ProviderFuture<'_, Result<ProviderStreamId, DispatchError>> {
         Box::pin(async move {
+            receipt
+                .take_final_send_authority()
+                .map_err(|_| DispatchError::MaybeDispatched)?
+                .consume()
+                .map_err(|_| {
+                    DispatchError::RejectedBeforeEffect(
+                        runne_provider::ProviderPreEffectRejection::AdapterRejected,
+                    )
+                })?;
             if let Some(now) = self.finish_at {
                 self.now.store(now, Ordering::SeqCst);
             } else {
@@ -111,6 +120,7 @@ async fn verify_cleanup(stall_cancel: bool, finish_at: Option<i64>) {
     secure_directory(&daemon);
     let path = daemon.join("publication-revoke.sqlite");
     let lifecycle = open_test_store(&path, 100);
+    let request = coordinator_request(95, "publication-revoke", &path);
     complete_pair(&lifecycle, 95, "publication-pair");
     let dispatch = SqliteProviderDispatchStore::open_with_connection(
         path.to_str().unwrap(),
@@ -147,7 +157,7 @@ async fn verify_cleanup(stall_cancel: bool, finish_at: Option<i64>) {
     // timeout keeps the invariant meaningful on a fully loaded CI host.
     let outcome = tokio::time::timeout(
         std::time::Duration::from_secs(30),
-        coordinator.dispatch(coordinator_request(95, "publication-revoke")),
+        coordinator.dispatch(request),
     )
     .await
     .expect("local cancellation must be bounded")

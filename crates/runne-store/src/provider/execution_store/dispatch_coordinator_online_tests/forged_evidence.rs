@@ -2,7 +2,6 @@ use std::sync::atomic::Ordering;
 
 use futures::executor::block_on;
 use runne_application::provider::{ProviderAdmissionError, ProviderCoordinatorRequest};
-use runne_domain::id::{AttemptId, ConversationId, TaskRunId};
 use runne_provider::{ModelRef, ProviderCall, ProviderCallId, ProviderId, ProviderRepositoryState};
 use rusqlite::Connection;
 use rusqlite::functions::FunctionFlags;
@@ -30,6 +29,7 @@ fn raw_forged_v26_proof_never_yields_receipt_or_adapter_call() {
         crate::provider::ProviderAuthorityIssueOutcome::Winner(admission) => admission,
         crate::provider::ProviderAuthorityIssueOutcome::Existing { .. } => panic!("fresh issue"),
     };
+    let coordinator_request = coordinator_request(path);
     let dispatch = SqliteProviderDispatchStore::open_with_connection(
         path.to_str().unwrap(),
         configured_connection(path),
@@ -61,7 +61,7 @@ fn raw_forged_v26_proof_never_yields_receipt_or_adapter_call() {
         &Guard,
     );
     assert_eq!(
-        block_on(coordinator.dispatch(coordinator_request())).unwrap(),
+        block_on(coordinator.dispatch(coordinator_request)).unwrap(),
         ProviderCoordinatorOutcome::Existing {
             state: ProviderRepositoryState::Dispatching,
         }
@@ -110,7 +110,9 @@ fn forge_evidence(path: &std::path::Path) {
         .unwrap();
 }
 
-fn coordinator_request() -> ProviderCoordinatorRequest {
+fn coordinator_request(path: &std::path::Path) -> ProviderCoordinatorRequest {
+    let (conversation_id, taskrun_id, execution_attempt_id) =
+        super::super::canonical_started_test_support::seed(path, 83);
     ProviderCoordinatorRequest {
         call: ProviderCall::new(
             ProviderCallId::from_bytes([83; 16]),
@@ -121,9 +123,9 @@ fn coordinator_request() -> ProviderCoordinatorRequest {
         )
         .unwrap(),
         principal_id: "principal-1".into(),
-        conversation_id: ConversationId::from_bytes([6; 16]),
-        taskrun_id: TaskRunId::from_bytes([7; 16]),
-        execution_attempt_id: AttemptId::from_bytes([8; 16]),
+        conversation_id,
+        taskrun_id,
+        execution_attempt_id,
         profile_digest: [2; 32],
         pricing_revision_digest: [3; 32],
         requested_input_tokens: 512,

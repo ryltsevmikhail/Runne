@@ -23,24 +23,99 @@ pub(super) fn apply_v44_migration(connection: &Connection) -> SqliteResult<()> {
 }
 
 pub(super) fn v44_matches(connection: &Connection, version: i64) -> SqliteResult<bool> {
-    if !matches!(version, 44..=48) { return Ok(false); }
+    if !matches!(version, 44..=63) {
+        return Ok(false);
+    }
     if !v43_matches(connection, version)? {
         return Ok(false);
     }
     let marker: (i64,i64,i64,i64) = connection.query_row("SELECT COALESCE(MAX(version),0),COALESCE(MIN(version),0),COUNT(*),COALESCE(SUM(version),0) FROM schema_version", [], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?)))?;
-    if !matches!(marker,(44,1,43,971) | (44,1,44,990) | (45,1,44,1016) | (45,1,45,1035) | (46,1,45,1062) | (46,1,46,1081) | (47,1,46,1109) | (47,1,47,1128) | (48,1,47,1157) | (48,1,48,1176)) { return Ok(false); }
-    let expected = MIGRATION_V44.split(';').map(str::trim).find(|s| s.starts_with("CREATE TABLE taskrun_dispatch_intents ")).unwrap();
-    let actual: Option<String> = connection.query_row("SELECT sql FROM sqlite_master WHERE type='table' AND name='taskrun_dispatch_intents'", [], |r| r.get(0)).optional()?;
-    if actual.is_none_or(|sql| normalize_ddl(&sql)!=normalize_ddl(expected)) { return Ok(false); }
+    if !matches!(
+        marker,
+        (44, 1, 43, 971)
+            | (44, 1, 44, 990)
+            | (45, 1, 44, 1016)
+            | (45, 1, 45, 1035)
+            | (46, 1, 45, 1062)
+            | (46, 1, 46, 1081)
+            | (47, 1, 46, 1109)
+            | (47, 1, 47, 1128)
+            | (48, 1, 47, 1157)
+            | (48, 1, 48, 1176)
+            | (49, 1, 48, 1206)
+            | (49, 1, 49, 1225)
+            | (50, 1, 49, 1256)
+            | (50, 1, 50, 1275)
+            | (51, 1, 50, 1307)
+            | (51, 1, 51, 1326)
+            | (52, 1, 51, 1359)
+            | (52, 1, 52, 1378)
+            | (53, 1, 52, 1412)
+            | (53, 1, 53, 1431)
+            | (54, 1, 53, 1466)
+            | (54, 1, 54, 1485)
+            | (55, 1, 54, 1521)
+            | (55, 1, 55, 1540)
+            | (56, 1, 55, 1577)
+            | (56, 1, 56, 1596)
+            | (57, 1, 56, 1634)
+            | (57, 1, 57, 1653)
+            | (58, 1, 57, 1692)
+            | (58, 1, 58, 1711)
+            | (59, 1, 58, 1751)
+            | (59, 1, 59, 1770)
+            | (60, 1, 59, 1811)
+            | (60, 1, 60, 1830)
+            | (61, 1, 60, 1872)
+            | (61, 1, 61, 1891)
+            | (62, 1, 61, 1934)
+            | (62, 1, 62, 1953)
+            | (63, 1, 62, 1997)
+            | (63, 1, 63, 2016)
+    ) {
+        return Ok(false);
+    }
+    let expected = MIGRATION_V44
+        .split(';')
+        .map(str::trim)
+        .find(|s| s.starts_with("CREATE TABLE taskrun_dispatch_intents "))
+        .unwrap();
+    let actual: Option<String> = connection
+        .query_row(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='taskrun_dispatch_intents'",
+            [],
+            |r| r.get(0),
+        )
+        .optional()?;
+    if actual.is_none_or(|sql| normalize_ddl(&sql) != normalize_ddl(expected)) {
+        return Ok(false);
+    }
     for (name, sql) in [
-        ("taskrun_dispatch_intents_immutable", "CREATE TRIGGER taskrun_dispatch_intents_immutable BEFORE UPDATE ON taskrun_dispatch_intents BEGIN SELECT RAISE(ABORT,'dispatch intent is append only'); END"),
-        ("taskrun_dispatch_intents_no_delete", "CREATE TRIGGER taskrun_dispatch_intents_no_delete BEFORE DELETE ON taskrun_dispatch_intents BEGIN SELECT RAISE(ABORT,'dispatch intent is append only'); END"),
-        ("taskrun_occupation_intent_guard", "CREATE TRIGGER taskrun_occupation_intent_guard BEFORE UPDATE OF dispatch_intent ON taskrun_assignment_occupations WHEN (NEW.dispatch_intent='present' AND NOT EXISTS(SELECT 1 FROM taskrun_dispatch_intents i WHERE i.taskrun_id=NEW.taskrun_id AND i.fence=NEW.fence AND i.attempt_id=NEW.attempt_id AND i.node_id=NEW.node_id AND i.node_epoch=NEW.node_epoch AND i.state='present')) OR (OLD.dispatch_intent IN ('present','unknown') AND NEW.dispatch_intent!=OLD.dispatch_intent) BEGIN SELECT RAISE(ABORT,'dispatch intent evidence mismatch'); END"),
+        (
+            "taskrun_dispatch_intents_immutable",
+            "CREATE TRIGGER taskrun_dispatch_intents_immutable BEFORE UPDATE ON taskrun_dispatch_intents BEGIN SELECT RAISE(ABORT,'dispatch intent is append only'); END",
+        ),
+        (
+            "taskrun_dispatch_intents_no_delete",
+            "CREATE TRIGGER taskrun_dispatch_intents_no_delete BEFORE DELETE ON taskrun_dispatch_intents BEGIN SELECT RAISE(ABORT,'dispatch intent is append only'); END",
+        ),
+        (
+            "taskrun_occupation_intent_guard",
+            "CREATE TRIGGER taskrun_occupation_intent_guard BEFORE UPDATE OF dispatch_intent ON taskrun_assignment_occupations WHEN (NEW.dispatch_intent='present' AND NOT EXISTS(SELECT 1 FROM taskrun_dispatch_intents i WHERE i.taskrun_id=NEW.taskrun_id AND i.fence=NEW.fence AND i.attempt_id=NEW.attempt_id AND i.node_id=NEW.node_id AND i.node_epoch=NEW.node_epoch AND i.state='present')) OR (OLD.dispatch_intent IN ('present','unknown') AND NEW.dispatch_intent!=OLD.dispatch_intent) BEGIN SELECT RAISE(ABORT,'dispatch intent evidence mismatch'); END",
+        ),
     ] {
-        let actual: Option<String> = connection.query_row("SELECT sql FROM sqlite_master WHERE type='trigger' AND name=?1", [name], |r| r.get(0)).optional()?;
-        if actual.is_none_or(|actual| normalize_sql(&actual)!=normalize_sql(sql)) { return Ok(false); }
+        let actual: Option<String> = connection
+            .query_row(
+                "SELECT sql FROM sqlite_master WHERE type='trigger' AND name=?1",
+                [name],
+                |r| r.get(0),
+            )
+            .optional()?;
+        if actual.is_none_or(|actual| normalize_sql(&actual) != normalize_sql(sql)) {
+            return Ok(false);
+        }
     }
     let mismatch: i64 = connection.query_row("SELECT COUNT(*) FROM taskrun_assignment_occupations o LEFT JOIN taskrun_dispatch_intents i USING(taskrun_id,fence) WHERE (o.dispatch_intent='absent' AND i.taskrun_id IS NOT NULL) OR (o.dispatch_intent IN ('present','unknown') AND (i.taskrun_id IS NULL OR i.attempt_id!=o.attempt_id OR i.node_id!=o.node_id OR i.node_epoch!=o.node_epoch OR i.state!=o.dispatch_intent))", [], |r| r.get(0))?;
     let orphan: i64 = connection.query_row("SELECT COUNT(*) FROM taskrun_dispatch_intents i LEFT JOIN taskrun_assignment_occupations o USING(taskrun_id,fence) WHERE o.taskrun_id IS NULL", [], |r| r.get(0))?;
-    Ok(mismatch==0 && orphan==0)
+    Ok(mismatch == 0 && orphan == 0)
 }

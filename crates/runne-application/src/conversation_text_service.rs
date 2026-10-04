@@ -8,15 +8,19 @@ use runne_domain::event::{CommandContext, materialize_batch};
 use runne_domain::task_run::TaskRun;
 
 use crate::commands::{
-    BeginConversationTextInput, ConversationTextCompletion, FinishConversationTextInput,
+    BeginClaimedConversationTextInput, BeginConversationTextInput, ConversationTextCompletion,
+    FinishConversationTextInput,
 };
 use crate::fingerprint::CommandFingerprint;
 use crate::ports::{
     AggregateScope, ApplicationCommandContext, BeginTextGenerationCommit, CommitError,
     ConversationRepository, ConversationTextRepository, EventStore, EventStoreError,
     FinishTextGenerationCommit, IdGenerationError, IdGenerator, IdempotencyScope, OperationTag,
-    RejectTextGenerationCommit, RuntimeAuthorityId, TextGenerationCommitResult,
-    TextGenerationPhase, TextGenerationReceipt, TextGenerationReceiptLookup,
+    RejectTextGenerationAfterNoAdmissionCancellationCommit,
+    RejectTextGenerationAfterPreEffectCancellationCommit,
+    RejectTextGenerationAfterTerminalCancellationCommit, RejectTextGenerationCommit,
+    RuntimeAuthorityId, TextGenerationCommitResult, TextGenerationPhase, TextGenerationReceipt,
+    TextGenerationReceiptLookup,
 };
 use crate::prohibited_content::{
     CanonicalContentBoundary, ContentDisposition, ProhibitedContentPort,
@@ -67,6 +71,16 @@ pub trait ConversationTextCommandService: Send + Sync {
         input: BeginConversationTextInput,
     ) -> Result<TextGenerationReceipt, ConversationTextServiceError>;
 
+    /// Appends a user message to the exact already claimed TaskRun.
+    fn begin_claimed_text(
+        &self,
+        context: &ApplicationCommandContext,
+        input: BeginClaimedConversationTextInput,
+    ) -> Result<TextGenerationReceipt, ConversationTextServiceError> {
+        let _ = (context, input);
+        Err(ConversationTextServiceError::StoredDataUnavailable)
+    }
+
     /// Executes the durable completed phase.
     fn finish_text(
         &self,
@@ -77,6 +91,11 @@ pub trait ConversationTextCommandService: Send + Sync {
 
 include!("conversation_text_service/factory.rs");
 include!("conversation_text_service/begin.rs");
+include!("conversation_text_service/begin_claimed.rs");
 include!("conversation_text_service/finish.rs");
+include!("conversation_text_service/finish/remote_cancel_replay.rs");
+include!("conversation_text_service/finish/terminal_drafts.rs");
+include!("conversation_text_service/finish/cancellation_receipt.rs");
+include!("conversation_text_service/finish/cancellation_facts.rs");
 include!("conversation_text_service/trait.rs");
 include!("conversation_text_service/helpers.rs");

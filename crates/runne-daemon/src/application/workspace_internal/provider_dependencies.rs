@@ -25,11 +25,19 @@ pub(crate) struct ProtectedProviderDependencyCapsule(ProviderDependencyState);
 
 pub(crate) enum ProviderDependencyState {
     Production,
+    #[cfg(test)]
+    ProductionWithSecondaryFixture {
+        secondary_effect: Arc<dyn CanonicalProviderEffect>,
+        keyring: Arc<dyn ProviderJournalKeyring>,
+        decorator: Arc<RuntimeStoreDecorator>,
+    },
     // fixture-only capability begin
     #[cfg(any(test, feature = "test-support"))]
     #[allow(dead_code)]
     LoopbackFixture {
         effect: Arc<dyn CanonicalProviderEffect>,
+        #[cfg(test)]
+        secondary_effect: Option<Arc<dyn CanonicalProviderEffect>>,
         keyring: Arc<dyn ProviderJournalKeyring>,
         decorator: Arc<RuntimeStoreDecorator>,
         #[cfg(test)]
@@ -49,6 +57,19 @@ impl ProtectedProviderDependencyCapsule {
         Self(ProviderDependencyState::Production)
     }
 
+    #[cfg(test)]
+    pub(crate) fn production_with_secondary_fixture(
+        secondary_effect: Arc<dyn CanonicalProviderEffect>,
+        keyring: Arc<dyn ProviderJournalKeyring>,
+        decorator: Arc<RuntimeStoreDecorator>,
+    ) -> Self {
+        Self(ProviderDependencyState::ProductionWithSecondaryFixture {
+            secondary_effect,
+            keyring,
+            decorator,
+        })
+    }
+
     // fixture-only capability begin
     #[cfg(test)]
     #[allow(dead_code)]
@@ -60,6 +81,24 @@ impl ProtectedProviderDependencyCapsule {
     ) -> Self {
         Self(ProviderDependencyState::LoopbackFixture {
             effect,
+            secondary_effect: None,
+            keyring,
+            decorator,
+            credential_versions,
+        })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn from_loopback_fixture_with_secondary(
+        effect: Arc<dyn CanonicalProviderEffect>,
+        secondary_effect: Arc<dyn CanonicalProviderEffect>,
+        keyring: Arc<dyn ProviderJournalKeyring>,
+        decorator: Arc<RuntimeStoreDecorator>,
+        credential_versions: Arc<FixtureCredentialVersionStoreFactory>,
+    ) -> Self {
+        Self(ProviderDependencyState::LoopbackFixture {
+            effect,
+            secondary_effect: Some(secondary_effect),
             keyring,
             decorator,
             credential_versions,

@@ -73,6 +73,38 @@ pub(super) fn upgraded_v25_for_provider(
              DROP TABLE provider_online_dispatch_claim_providers;
              DROP TABLE provider_online_dispatch_issuance_evidence;
              DROP TABLE provider_online_credential_effect_bindings;
+             DROP TRIGGER schema_v12_fence_provider_secondary_profile_attempts_insert;
+             DROP TRIGGER schema_v12_fence_provider_secondary_profile_attempts_update;
+             DROP TRIGGER schema_v12_fence_provider_secondary_profile_attempts_delete;
+             DROP TRIGGER provider_secondary_profile_attempts_immutable;
+             DROP TRIGGER provider_secondary_profile_attempts_no_delete;
+             DROP TABLE provider_secondary_profile_attempts;
+             DROP TRIGGER schema_v12_fence_provider_secondary_profile_bindings_insert;
+             DROP TRIGGER schema_v12_fence_provider_secondary_profile_bindings_update;
+             DROP TRIGGER schema_v12_fence_provider_secondary_profile_bindings_delete;
+             DROP TRIGGER provider_secondary_profile_bindings_immutable;
+             DROP TRIGGER provider_secondary_profile_bindings_no_delete;
+             DROP TABLE provider_secondary_profile_bindings;
+             DROP TRIGGER schema_v12_fence_provider_secondary_profile_grants_insert;
+             DROP TRIGGER schema_v12_fence_provider_secondary_profile_grants_update;
+             DROP TRIGGER schema_v12_fence_provider_secondary_profile_grants_delete;
+             DROP TRIGGER provider_secondary_profile_grants_identity_immutable;
+             DROP TRIGGER provider_secondary_profile_grants_no_delete;
+             DROP TABLE provider_secondary_profile_grants;
+             DROP TRIGGER taskrun_local_command_stop_receipts_immutable;
+             DROP TRIGGER taskrun_local_command_stop_receipts_no_delete;
+             DROP TRIGGER schema_v12_fence_taskrun_local_command_stop_receipts_insert;
+             DROP TRIGGER schema_v12_fence_taskrun_local_command_stop_receipts_update;
+             DROP TRIGGER schema_v12_fence_taskrun_local_command_stop_receipts_delete;
+             DROP TABLE taskrun_local_command_stop_receipts;
+             DROP TRIGGER schema_v12_fence_taskrun_local_command_attempts_insert;
+             DROP TRIGGER schema_v12_fence_taskrun_local_command_attempts_update;
+             DROP TRIGGER schema_v12_fence_taskrun_local_command_attempts_delete;
+             DROP TRIGGER taskrun_local_command_identity_immutable;
+             DROP TRIGGER taskrun_local_command_state_transition;
+             DROP TRIGGER taskrun_local_command_no_delete;
+             DROP INDEX taskrun_local_command_writer_active;
+             DROP TABLE taskrun_local_command_attempts;
              DROP TRIGGER schema_v12_fence_conversation_context_scope_insert;
              DROP TRIGGER schema_v12_fence_conversation_context_scope_update;
              DROP TRIGGER schema_v12_fence_conversation_context_scope_delete;
@@ -103,6 +135,18 @@ pub(super) fn upgraded_v25_for_provider(
              DROP TRIGGER schema_v12_fence_text_only_taskrun_lineage_delete;
              DROP TABLE text_only_taskrun_lineage;
              DROP TABLE conversation_writer_leases;
+             DROP TRIGGER provider_terminal_dispositions_immutable;
+             DROP TRIGGER provider_terminal_dispositions_no_delete;
+             DROP TRIGGER schema_v12_fence_provider_terminal_dispositions_insert;
+             DROP TRIGGER schema_v12_fence_provider_terminal_dispositions_update;
+             DROP TRIGGER schema_v12_fence_provider_terminal_dispositions_delete;
+             DROP TABLE provider_terminal_dispositions;
+             DROP TRIGGER taskrun_terminal_settlement_immutable;
+             DROP TRIGGER taskrun_terminal_settlement_no_delete;
+             DROP TRIGGER schema_v12_fence_taskrun_terminal_settlement_receipts_insert;
+             DROP TRIGGER schema_v12_fence_taskrun_terminal_settlement_receipts_update;
+             DROP TRIGGER schema_v12_fence_taskrun_terminal_settlement_receipts_delete;
+             DROP TABLE taskrun_terminal_settlement_receipts;
              DROP TABLE taskrun_dispatch_intents;
              DROP TRIGGER global_command_id_from_release_v45;
              DROP TRIGGER global_command_id_from_command_receipts_v45;
@@ -118,6 +162,22 @@ pub(super) fn upgraded_v25_for_provider(
              DROP TRIGGER global_command_id_from_taskrun_claim_receipts_v43;
              DROP TABLE taskrun_assignment_lease_renewals;
              DROP TABLE taskrun_assignment_occupations;
+             DROP TABLE taskrun_unknown_successor_receipts;
+             DROP TRIGGER taskrun_provider_cancel_fences_immutable;
+             DROP TRIGGER taskrun_provider_cancel_fences_no_delete;
+             DROP TRIGGER schema_v12_fence_taskrun_provider_cancel_fences_insert;
+             DROP TRIGGER schema_v12_fence_taskrun_provider_cancel_fences_update;
+             DROP TRIGGER schema_v12_fence_taskrun_provider_cancel_fences_delete;
+             DROP TABLE taskrun_provider_cancel_fences;
+             DROP TABLE provider_remote_terminal_audit_receipts;
+             DROP TABLE provider_remote_terminal_applications;
+             DROP TABLE provider_remote_artifact_cancel_closures;
+             DROP TABLE provider_remote_terminal_settlements;
+             DROP TABLE provider_remote_terminal_artifacts;
+             DROP TABLE provider_remote_operation_proofs;
+             DROP TABLE provider_remote_response_bindings;
+             DROP TABLE provider_remote_request_intents;
+             DROP TABLE provider_unknown_terminal_receipts;
              DROP TRIGGER global_command_id_from_command_receipts_v42;
              DROP TRIGGER global_command_id_from_project_workspace_receipts_v42;
              DROP TABLE taskrun_claim_receipts;
@@ -142,14 +202,25 @@ pub(super) fn upgraded_v25_for_provider(
             .unwrap(),
         25
     );
-    let v46_objects: i64 = connection
+    let released_schema_objects: i64 = connection
         .query_row(
-            "SELECT COUNT(*) FROM sqlite_master WHERE name IN ('taskrun_provider_bindings', 'taskrun_provider_bindings_immutable', 'taskrun_provider_bindings_no_delete', 'text_only_taskrun_lineage', 'text_only_taskrun_lineage_immutable', 'text_only_taskrun_lineage_no_delete', 'text_only_taskrun_lineage_no_workspace_collision')",
+            "SELECT COUNT(*) FROM sqlite_master WHERE name IN ('taskrun_provider_bindings', 'taskrun_provider_bindings_immutable', 'taskrun_provider_bindings_no_delete', 'text_only_taskrun_lineage', 'text_only_taskrun_lineage_immutable', 'text_only_taskrun_lineage_no_delete', 'text_only_taskrun_lineage_no_workspace_collision', 'taskrun_terminal_settlement_receipts', 'taskrun_terminal_settlement_immutable', 'taskrun_terminal_settlement_no_delete', 'schema_v12_fence_taskrun_terminal_settlement_receipts_insert', 'schema_v12_fence_taskrun_terminal_settlement_receipts_update', 'schema_v12_fence_taskrun_terminal_settlement_receipts_delete', 'provider_terminal_dispositions', 'provider_terminal_dispositions_immutable', 'provider_terminal_dispositions_no_delete', 'schema_v12_fence_provider_terminal_dispositions_insert', 'schema_v12_fence_provider_terminal_dispositions_update', 'schema_v12_fence_provider_terminal_dispositions_delete', 'provider_secondary_profile_grants', 'provider_secondary_profile_grants_identity_immutable', 'provider_secondary_profile_grants_no_delete', 'provider_secondary_profile_bindings', 'provider_secondary_profile_bindings_immutable', 'provider_secondary_profile_bindings_no_delete', 'provider_secondary_profile_bindings_one_active', 'provider_secondary_profile_attempts', 'provider_secondary_profile_attempts_immutable', 'provider_secondary_profile_attempts_no_delete', 'taskrun_local_command_attempts', 'taskrun_local_command_writer_active', 'taskrun_local_command_identity_immutable', 'taskrun_local_command_state_transition', 'taskrun_local_command_no_delete', 'schema_v12_fence_taskrun_local_command_attempts_insert', 'schema_v12_fence_taskrun_local_command_attempts_update', 'schema_v12_fence_taskrun_local_command_attempts_delete', 'taskrun_local_command_stop_receipts', 'taskrun_local_command_stop_receipts_immutable', 'taskrun_local_command_stop_receipts_no_delete', 'schema_v12_fence_taskrun_local_command_stop_receipts_insert', 'schema_v12_fence_taskrun_local_command_stop_receipts_update', 'schema_v12_fence_taskrun_local_command_stop_receipts_delete', 'taskrun_unknown_successor_receipts', 'provider_remote_terminal_audit_receipts', 'provider_remote_terminal_audit_receipts_immutable', 'provider_remote_terminal_audit_receipts_no_delete', 'schema_v12_fence_provider_remote_terminal_audit_receipts_insert', 'schema_v12_fence_provider_remote_terminal_audit_receipts_update', 'schema_v12_fence_provider_remote_terminal_audit_receipts_delete', 'provider_remote_terminal_applications', 'provider_remote_artifact_cancel_closures', 'provider_remote_terminal_settlements', 'provider_remote_terminal_artifacts', 'provider_remote_operation_proofs', 'provider_remote_response_bindings', 'provider_remote_request_intents', 'provider_unknown_terminal_receipts')",
             [],
             |row| row.get(0),
         )
         .unwrap();
-    assert_eq!(v46_objects, 0, "V25 fixture must not retain V46/V47 schema objects");
+    assert_eq!(
+        released_schema_objects, 0,
+        "V25 fixture must not retain later schema objects"
+    );
+    drop(
+        crate::schema::reopen_managed_connection_validated(
+            &path,
+            crate::schema::ConnectionMode::ValidatedReopen,
+            |_| Ok(()),
+        )
+        .expect("reconstructed V25 fixture must pass its real admission validators"),
+    );
     drop(connection);
 
     (directory, path, request)
@@ -180,6 +251,9 @@ fn restore_v36_accounting_for_fixture(connection: &Connection) -> rusqlite::Resu
             .collect::<rusqlite::Result<_>>()?;
         let old_table = format!("{table}_v37");
         connection.execute(&format!("ALTER TABLE {table} RENAME TO {old_table}"), [])?;
+        if source.matches(current).count() != 1 {
+            return Err(rusqlite::Error::InvalidQuery);
+        }
         let rewritten = source.replace(current, old);
         connection.execute_batch(&rewritten)?;
         connection.execute(

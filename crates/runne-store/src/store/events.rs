@@ -29,6 +29,73 @@ impl AppEventStore for StoreTransaction {
             .collect()
     }
 
+    fn load_task_run_effects(
+        &self,
+        taskrun_id: TaskRunId,
+    ) -> Result<runne_api::TaskRunEffectsV1, EventStoreError> {
+        load_task_run_effects_from_store(self, taskrun_id)
+    }
+
+    fn load_task_run_effects_with_remote_authenticator(
+        &self,
+        taskrun_id: TaskRunId,
+        authenticator: Option<&dyn runne_application::provider::ProviderRemoteFactAuthenticator>,
+        resolver: Option<&dyn runne_application::provider::HistoricalProviderModelResolver>,
+    ) -> Result<runne_application::ports::TaskRunEffectsReadSnapshot, EventStoreError> {
+        self.load_task_run_effects_with_fact_authenticators(
+            taskrun_id,
+            authenticator,
+            None,
+            resolver,
+        )
+    }
+
+    fn load_task_run_effects_with_fact_authenticators(
+        &self,
+        taskrun_id: TaskRunId,
+        authenticator: Option<&dyn runne_application::provider::ProviderRemoteFactAuthenticator>,
+        source1_authenticator: Option<
+            &dyn runne_application::provider::ProviderUnknownTerminalFactAuthenticator,
+        >,
+        resolver: Option<&dyn runne_application::provider::HistoricalProviderModelResolver>,
+    ) -> Result<runne_application::ports::TaskRunEffectsReadSnapshot, EventStoreError> {
+        let mut connection = self
+            .inner
+            .reader
+            .lock()
+            .map_err(|_| EventStoreError::Unavailable)?;
+        let tx = connection
+            .transaction()
+            .map_err(map_event_store_read_error)?;
+        let successor_eligibility = match resolver {
+            Some(resolver) => {
+                crate::store::unknown_successor::unknown_successor_eligibility_in_transaction(
+                    &tx,
+                    &self.runtime_authority_id,
+                    taskrun_id,
+                    crate::store::taskrun_claim::stream_validate::verify_stream(
+                        &tx, taskrun_id, None,
+                    )
+                    .map_err(|_| EventStoreError::CorruptData)?
+                    .version,
+                    resolver,
+                )
+                .map_err(|_| EventStoreError::CorruptData)?
+            }
+            None => runne_api::SuccessorEligibilityV1::Blocked,
+        };
+        let snapshot = load_task_run_effects_snapshot_in_transaction(
+            &tx,
+            &self.runtime_authority_id,
+            taskrun_id,
+            authenticator,
+            source1_authenticator,
+            successor_eligibility,
+        )?;
+        tx.commit().map_err(map_event_store_read_error)?;
+        Ok(snapshot)
+    }
+
     fn load_task_run(&self, taskrun_id: TaskRunId) -> Result<LoadedStream, EventStoreError> {
         let mut conn = self
             .inner
@@ -220,3 +287,6 @@ impl AppEventStore for StoreTransaction {
         })
     }
 }
+
+include!("events/effects.rs");
+include!("events/effects_projection.rs");

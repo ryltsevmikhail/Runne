@@ -3,6 +3,7 @@ use super::*;
 use runne_api::{DaemonInstanceId, RuntimeSessionBinding};
 use runne_domain::id::EventLogLineageId;
 
+mod exec_taskrun_queue_gate;
 mod nm06_delivery_gate;
 mod nm06_delivery_gate_fixture;
 mod nm06_delivery_gate_gap;

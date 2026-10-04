@@ -11,11 +11,15 @@ use crate::application::workspace_internal::{
 
 pub(super) struct SelectedDependencies {
     pub(super) effect: Option<Arc<dyn CanonicalProviderEffect>>,
+    #[cfg(test)]
+    pub(super) secondary_effect: Option<Arc<dyn CanonicalProviderEffect>>,
     #[cfg(all(feature = "test-support", not(test)))]
     pub(super) adapter_override: Option<Arc<ProviderEffectFactory>>,
     pub(super) keyring: Option<Arc<dyn ProviderJournalKeyring>>,
     pub(super) decorator: Option<Arc<RuntimeStoreDecorator>>,
     pub(super) fixture_transport: bool,
+    #[cfg(test)]
+    pub(super) primary_missing_fixture: bool,
     #[cfg(test)]
     pub(super) credential_versions:
         Option<Arc<crate::application::workspace_internal::FixtureCredentialVersionStoreFactory>>,
@@ -24,14 +28,32 @@ pub(super) struct SelectedDependencies {
 pub(super) fn select(dependencies: ProtectedProviderDependencyCapsule) -> SelectedDependencies {
     #[cfg(test)]
     return match dependencies.into_provider_state() {
-        ProviderDependencyState::Production => selected(None, None, None, None),
+        ProviderDependencyState::Production => selected(None, None, None, None, None),
+        ProviderDependencyState::ProductionWithSecondaryFixture {
+            secondary_effect,
+            keyring,
+            decorator,
+        } => {
+            let mut selected = selected(
+                Some(Arc::clone(&secondary_effect)),
+                Some(secondary_effect),
+                Some(keyring),
+                Some(decorator),
+                None,
+            );
+            selected.fixture_transport = true;
+            selected.primary_missing_fixture = true;
+            selected
+        }
         ProviderDependencyState::LoopbackFixture {
             effect,
+            secondary_effect,
             keyring,
             decorator,
             credential_versions,
         } => selected(
             Some(effect),
+            secondary_effect,
             Some(keyring),
             Some(decorator),
             Some(credential_versions),
@@ -61,6 +83,7 @@ pub(super) fn select(dependencies: ProtectedProviderDependencyCapsule) -> Select
 #[cfg(test)]
 fn selected(
     effect: Option<Arc<dyn CanonicalProviderEffect>>,
+    secondary_effect: Option<Arc<dyn CanonicalProviderEffect>>,
     keyring: Option<Arc<dyn ProviderJournalKeyring>>,
     decorator: Option<Arc<RuntimeStoreDecorator>>,
     credential_versions: Option<
@@ -69,7 +92,9 @@ fn selected(
 ) -> SelectedDependencies {
     SelectedDependencies {
         fixture_transport: effect.is_some(),
+        primary_missing_fixture: false,
         effect,
+        secondary_effect,
         keyring,
         decorator,
         credential_versions,

@@ -161,6 +161,7 @@ impl DaemonApplication {
             provider_readiness: self.provider_readiness,
             installation,
             credential_enrollment_control: self.credential_enrollment_control.clone(),
+            credential_enrollment_controls: self.credential_enrollment_controls.clone(),
         })
     }
 }
@@ -180,4 +181,11 @@ pub(crate) struct ProtectedEnrollmentFacts {
                 DaemonProviderCredentialEnrollmentControl,
         >,
     >,
+    pub(crate) credential_enrollment_controls: Vec<(
+        String,
+        Arc<
+            crate::application::provider_credential_enrollment::
+                DaemonProviderCredentialEnrollmentControl,
+        >,
+    )>,
 }

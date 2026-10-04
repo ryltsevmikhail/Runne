@@ -82,6 +82,7 @@ impl AppCore {
             Outcome::ConversationTextProhibitedInputRejected(_) => Err(AppCoreError::ProhibitedInputRejected),
             Outcome::TaskRunCancellationRequested(value) => Ok(MutationDispatchResult::TaskRunCancellationRequested(*value)),
             Outcome::TaskRunSubmitted(value) => Ok(MutationDispatchResult::TaskRunSubmitted(*value)),
+            Outcome::UnknownSuccessorCreated(value) => Ok(MutationDispatchResult::TaskRunUnknownSuccessorCreated(*value)),
             Outcome::ApprovalDecision(value) => Ok(MutationDispatchResult::ApprovalDecision(*value)),
         }
     }
@@ -126,4 +127,3 @@ enum ReconciliationFailure {
     Unavailable,
     Runtime(runne_runtime_client::RuntimeApiErrorKind),
 }
-

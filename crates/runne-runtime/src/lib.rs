@@ -29,6 +29,7 @@ pub mod provider_tool;
 pub mod qualification_matrix;
 pub mod session_host;
 pub mod task_run_host;
+pub mod taskrun_auto_worker;
 pub mod types;
 pub mod workspace_diff_host;
 pub mod workspace_editor_host;
@@ -45,6 +46,8 @@ pub use startup::{
     BorrowedLease, Runtime, RuntimeGenerationId, RuntimeStartError, TokioRuntimeContext,
 };
 pub use task_run_host::RuntimeTaskRunHost;
+pub use task_run_host::TaskRunEffectsEnricher;
+pub use taskrun_auto_worker::{AutomaticTaskRunError, AutomaticTaskRunService};
 pub use workspace_diff_host::RuntimeWorkspaceDiffHost;
 pub use workspace_editor_host::RuntimeWorkspaceEditorHost;
 pub use workspace_file_host::RuntimeWorkspaceFileHost;

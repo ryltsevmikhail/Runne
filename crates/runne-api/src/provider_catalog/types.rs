@@ -66,6 +66,8 @@ pub enum ProviderImplementationStatusV1 {
 pub enum ProviderCatalogRouteV1 {
     /// Existing OpenAI Responses effect.
     OpenAiResponses,
+    /// Explicit-only OpenAI background Responses profile route.
+    BackgroundResponses,
     /// Existing DeepSeek Responses effect.
     DeepSeekResponses,
     /// Dedicated Z.ai Coding Plan Chat route.
@@ -86,10 +88,22 @@ pub enum ProviderCatalogRouteV1 {
     CatalogOnly,
 }
 
+/// Whether a catalog provider may participate in implicit default selection.
+///
+/// This policy is intentionally internal to the catalog and is not added to
+/// the stable six-field renderer snapshot.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ProviderSelectionPolicyV1 {
+    /// Eligible for existing default-selection behavior.
+    DefaultEligible,
+    /// Requires an explicit, separately authorized profile selection.
+    ExplicitOnly,
+}
+
 /// Non-secret provider metadata returned by the authoritative backend.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ProviderCatalogEntryV1 {
-    /// Stable provider identifier from the Pi provider catalog.
+    /// Stable provider identifier from the closed Runne provider catalog.
     pub provider_id: &'static str,
     /// Protocol family used by the adapter.
     pub protocol: ProviderProtocolV1,
@@ -127,6 +141,7 @@ impl ProviderCatalogEntryV1 {
     pub fn route(self) -> ProviderCatalogRouteV1 {
         match self.provider_id {
             "openai" => ProviderCatalogRouteV1::OpenAiResponses,
+            "openai-background" => ProviderCatalogRouteV1::BackgroundResponses,
             "deepseek" => ProviderCatalogRouteV1::DeepSeekResponses,
             "zai" => ProviderCatalogRouteV1::ZaiCodingChat,
             "qwen-token-plan-individual" => ProviderCatalogRouteV1::QwenTokenPlanChat,
@@ -160,6 +175,16 @@ impl ProviderCatalogEntryV1 {
             | "xiaomi-token-plan-sgp"
             | "zai-coding-cn" => ProviderCatalogRouteV1::GenericChat,
             _ => ProviderCatalogRouteV1::CatalogOnly,
+        }
+    }
+
+    /// Returns the catalog-owned implicit selection policy.
+    #[must_use]
+    pub fn selection_policy(self) -> ProviderSelectionPolicyV1 {
+        if self.provider_id == "openai-background" {
+            ProviderSelectionPolicyV1::ExplicitOnly
+        } else {
+            ProviderSelectionPolicyV1::DefaultEligible
         }
     }
 

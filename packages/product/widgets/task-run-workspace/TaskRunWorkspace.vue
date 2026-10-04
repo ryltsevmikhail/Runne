@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { GcAlert } from '../../shared/ui'
 import { TaskRunTimeline, type TaskRunTimelineEntry } from '../../entities/task-run'
 
@@ -9,6 +10,7 @@ export type TaskRunTerminal = 'success' | 'failure' | 'cancelled' | 'budget_exha
 const states: readonly TaskRunState[] = ['created', 'queued', 'admitted', 'running', 'waiting', 'retrying', 'checkpointing', 'cancelling', 'reconciling', 'succeeded', 'failed', 'cancelled', 'budget_exhausted', 'policy_denied', 'unrecoverable']
 const recoveries: readonly TaskRunRecovery[] = ['live', 'reconnecting', 'incompatible', 'revoked', 'resync_required', 'fatal']
 const terminals: readonly TaskRunTerminal[] = ['success', 'failure', 'cancelled', 'budget_exhausted', 'policy_denied', 'unrecoverable']
+const heading = computed(() => props.state === 'succeeded' ? 'completed' : props.state.replaceAll('_', ' '))
 const props = defineProps<{
   readonly state: TaskRunState
   readonly entries: readonly TaskRunTimelineEntry[]
@@ -25,7 +27,7 @@ const valid = () => states.includes(props.state) && recoveries.includes(props.re
   <section v-else aria-labelledby="task-run-title">
     <header>
       <p>Task run</p>
-      <h1 id="task-run-title">{{ state.replaceAll('_', ' ') }}</h1>
+      <h1 id="task-run-title">{{ heading }}</h1>
       <p v-if="activeAttemptId !== null">Active attempt {{ activeAttemptId }}</p>
     </header>
     <GcAlert

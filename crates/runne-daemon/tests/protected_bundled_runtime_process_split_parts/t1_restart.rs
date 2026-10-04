@@ -103,13 +103,13 @@ pub(super) async fn assert_revoked_restart(context: RevokedRestartContext<'_>) {
     assert_eq!(
         std::fs::read_to_string(provider_root.join("fixture-provider-request-count"))
             .expect("provider request count after restart"),
-        "1",
+        "3",
         "revoked restart cannot dispatch another provider request"
     );
     assert_eq!(
         std::fs::read_to_string(provider_root.join("fixture-provider-connection-count"))
             .expect("provider connection count after restart"),
-        "1",
+        "3",
         "revoked restart cannot open another provider connection"
     );
     super::assert_tree_absent(

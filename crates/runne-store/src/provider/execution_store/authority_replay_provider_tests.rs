@@ -9,7 +9,7 @@ include!("authority_replay_provider_test_support.rs");
 
 #[test]
 fn unarmed_new_online_issue_is_denied() {
-    let fixture = Fixture::new_unarmed(1_000);
+    let fixture = Fixture::new(1_000);
     let launch = fixture
         .store
         .activate_runtime_launch(&fixture.config)
@@ -173,7 +173,13 @@ fn store_open_restores_the_private_issuance_guard_after_caller_replaces_it() {
     assert!(mapping.is_err(), "restored guard must also protect mapping");
     drop(connection);
 
-    let issue = store.issue(&launch, &prepare_request(&launch, &path, 80));
+    let mut request = prepare_request(&launch, &path, 80);
+    let (conversation_id, taskrun_id, attempt_id) =
+        super::canonical_started_test_support::seed_distinct(&path, 81);
+    request.conversation_id = conversation_id;
+    request.taskrun_id = taskrun_id;
+    request.execution_attempt_id = attempt_id;
+    let issue = store.issue(&launch, &request);
     assert!(
         matches!(issue, Ok(ProviderAuthorityIssueOutcome::Winner(_))),
         "{issue:?}"

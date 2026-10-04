@@ -8,7 +8,7 @@ use runne_provider::{
     AttachCredentialProcess, BeginCredentialOperation, BindCredentialReadback,
     ClaimCredentialOperation, CompleteCredentialOperation, CredentialAuthorityPair,
     CredentialBindingDigest, CredentialEnrollmentAuthorityPair,
-    CredentialEnrollmentMeasurementAuthority, CredentialFence, CredentialInstallationOwnerId,
+    CredentialEnrollmentMeasurementAuthority, CredentialInstallationOwnerId,
     CredentialLifecycleError, CredentialLifecycleRevision, CredentialMeasurementSnapshot,
     CredentialNativeEffectDisposition, CredentialOperationAction, CredentialOperationId,
     CredentialReadbackDisposition, CredentialReadinessDisposition, CredentialReadinessObservation,
@@ -57,7 +57,7 @@ pub fn credential_with_connection(
             Some(active.clone()),
             None,
             CredentialLifecycleRevision::new(1).unwrap(),
-            CredentialFence::new(1).unwrap(),
+            runne_provider::CredentialFence::new(1).unwrap(),
             digest(discriminator.wrapping_add(1)),
             now.checked_add(600).unwrap(),
         )
@@ -127,7 +127,7 @@ pub fn credential_with_connection(
             operation,
             readback(),
             CredentialLifecycleRevision::new(1).unwrap(),
-            CredentialFence::new(1).unwrap(),
+            runne_provider::CredentialFence::new(1).unwrap(),
         )
         .unwrap()
         .with_readiness_observation(readiness);
@@ -138,7 +138,10 @@ pub fn credential_with_connection(
             {
                 continue;
             }
-            Err(error) => panic!("online credential completion failed: {error:?}"),
+            Err(error) => panic!(
+                "online credential completion failed for {}: {error:?}",
+                provider.as_str()
+            ),
         }
     }
     store

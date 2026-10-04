@@ -11,13 +11,21 @@ pub(super) fn fresh_store(
     ProviderTestDatabase,
     SqliteProviderDispatchStore,
     ProviderRuntimeLaunchCapability,
+    runne_application::ports::TextGenerationReceipt,
 ) {
     let database = ProviderTestDatabase::new(name);
+    let receipt = crate::online_stream_fixture::begin_taskrun(
+        &database,
+        [1; 16],
+        "provider-dispatch-test-principal",
+        "provider dispatch store fixture",
+        0x81,
+    );
     let execution = database.execution();
     let launch = execution.activate_runtime_launch(&config()).unwrap();
     crate::online_proof::arm(&execution, 1);
     let dispatch = database.dispatch();
-    (database, dispatch, launch)
+    (database, dispatch, launch, receipt)
 }
 
 pub(super) fn config() -> ProviderRuntimeAuthorityConfig {
@@ -51,9 +59,9 @@ pub(super) fn config() -> ProviderRuntimeAuthorityConfig {
 pub(super) fn stream_dispatch(
     database: &ProviderTestDatabase,
     call_byte: u8,
+    receipt: &runne_application::ports::TextGenerationReceipt,
 ) -> runne_provider::ProviderDispatchClaim {
     use runne_application::provider::ProviderAuthorityIssueRequest;
-    use runne_domain::id::{AttemptId, ConversationId, TaskRunId};
     use runne_provider::{
         ModelRef, PreparedRequest, ProviderCall, ProviderCallId, ProviderId, ProviderStreamId,
     };
@@ -77,9 +85,9 @@ pub(super) fn stream_dispatch(
     let request = ProviderAuthorityIssueRequest {
         provider_id: call.model_ref().provider_id().clone(),
         principal_id: "provider-dispatch-test-principal".into(),
-        conversation_id: ConversationId::from_bytes([call_byte.wrapping_add(30); 16]),
-        taskrun_id: TaskRunId::from_bytes([call_byte.wrapping_add(40); 16]),
-        execution_attempt_id: AttemptId::from_bytes([call_byte.wrapping_add(50); 16]),
+        conversation_id: receipt.conversation_id,
+        taskrun_id: receipt.taskrun_id,
+        execution_attempt_id: receipt.attempt_id,
         prepared: runne_provider::PreparedProviderRecord {
             call_id: call.call_id(),
             call_digest_version: prepared.request_ref().digest_version(),

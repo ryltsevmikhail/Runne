@@ -19,9 +19,9 @@ fn v39_lineage_rebuild_preserves_rows_and_admits_the_submit_origin() {
 
     apply_migrations(&connection).unwrap();
 
-    assert_eq!(schema_marker(&connection), 48);
+    assert_eq!(schema_marker(&connection), CURRENT_SCHEMA_VERSION);
     assert!(
-        v48_matches(&connection, 48).unwrap(),
+        v63_matches(&connection, CURRENT_SCHEMA_VERSION).unwrap(),
         "upgraded structure: marker={:?} inherited={:?} receipts={:?} triggers={:?} lineage={:?}",
         connection
             .query_row(
@@ -113,7 +113,7 @@ fn lineage_ddl_drift_is_rejected_per_schema_version() {
     // must equally stay rejected.
     let rolled_back = Connection::open_in_memory().unwrap();
     apply_migrations(&rolled_back).unwrap();
-    assert!(v48_matches(&rolled_back, 48).unwrap());
+    assert!(v63_matches(&rolled_back, CURRENT_SCHEMA_VERSION).unwrap());
     let v18_lineage = project_workspace_schema::MIGRATION_V18
         .split(';')
         .map(str::trim)
@@ -140,7 +140,7 @@ fn lineage_ddl_drift_is_rejected_per_schema_version() {
         .unwrap();
     rolled_back.execute_batch("CREATE TRIGGER text_only_taskrun_lineage_no_workspace_collision BEFORE INSERT ON text_only_taskrun_lineage WHEN EXISTS(SELECT 1 FROM task_run_workspace_lineage WHERE taskrun_id=NEW.taskrun_id) BEGIN SELECT RAISE(ABORT,'TaskRun lineage owner collision'); END;").unwrap();
     assert!(
-        !v48_matches(&rolled_back, 48).unwrap(),
+        !v63_matches(&rolled_back, CURRENT_SCHEMA_VERSION).unwrap(),
         "v18 lineage DDL under a v40 marker is DDL drift"
     );
     assert!(classify_schema_version(&rolled_back).is_err());
@@ -150,7 +150,11 @@ fn lineage_ddl_drift_is_rejected_per_schema_version() {
 fn v39_reopens_full_and_no_v19_lineages() {
     for no_v19_lineage in [false, true] {
         let directory = tempfile::tempdir().unwrap();
-        let path = { let daemon = directory.path().join("runne-daemon"); std::fs::create_dir_all(&daemon).unwrap(); daemon.join("taskrun-lineage-v39.sqlite") };
+        let path = {
+            let daemon = directory.path().join("runne-daemon");
+            std::fs::create_dir_all(&daemon).unwrap();
+            daemon.join("taskrun-lineage-v39.sqlite")
+        };
         let connection = Connection::open(&path).unwrap();
         if no_v19_lineage {
             apply_migrations_internal(&connection, 35).unwrap();
@@ -158,7 +162,10 @@ fn v39_reopens_full_and_no_v19_lineages() {
             apply_migrations_internal(&connection, 19).unwrap();
         }
         apply_migrations(&connection).unwrap();
-        assert!(v48_matches(&connection, 48).unwrap(), "lineage {no_v19_lineage}");
+        assert!(
+            v63_matches(&connection, CURRENT_SCHEMA_VERSION).unwrap(),
+            "lineage {no_v19_lineage}"
+        );
         assert_eq!(
             connection
                 .query_row(
@@ -167,7 +174,7 @@ fn v39_reopens_full_and_no_v19_lineages() {
                     |row| row.get::<_, i64>(0),
                 )
                 .unwrap(),
-            if no_v19_lineage { 1157 } else { 1176 }
+            if no_v19_lineage { 1997 } else { 2016 }
         );
         drop(connection);
         drop(open_managed_connection(&path, ConnectionMode::Writer).unwrap());

@@ -1,4 +1,3 @@
-
 #[test]
 fn nonce_reuse_keeps_poll_marker_and_recovery_freezes_before_repoll() {
     let fixture = fixture();
@@ -235,29 +234,33 @@ fn settled_usage_remains_consumed_for_later_admission() {
         render_digest: *prepared.render_digest(),
         profile_digest: [2; 32],
     };
-    fixture.dispatch.persist_prepared(&fixture.launch, &record).unwrap();
+    fixture
+        .dispatch
+        .persist_prepared(&fixture.launch, &record)
+        .unwrap();
 
+    let denied_request = ProviderAuthorityIssueRequest {
+        provider_id: ProviderId::new("fixture-provider").unwrap(),
+        principal_id: "principal-1".to_owned(),
+        conversation_id: fixture.denied_receipt.conversation_id,
+        taskrun_id: fixture.denied_receipt.taskrun_id,
+        execution_attempt_id: fixture.denied_receipt.attempt_id,
+        prepared: ContractPreparedProviderRecord {
+            call_id: record.call_id,
+            call_digest_version: record.call_digest_version,
+            prepared_digest: record.prepared_digest,
+            render_digest: record.render_digest,
+            profile_digest: record.profile_digest,
+        },
+        pricing_revision_digest: [3; 32],
+        requested_input_tokens: 512,
+        requested_output_tokens: 1_024,
+        max_cost_micros: 50_000,
+        currency: "USD".to_owned(),
+        provider_idempotency_key: "provider-terminal-2".to_owned(),
+    };
     assert_eq!(
-        fixture.execution.issue(&fixture.launch, &ProviderAuthorityIssueRequest {
-            provider_id: ProviderId::new("fixture-provider").unwrap(),
-            principal_id: "principal-1".to_owned(),
-            conversation_id: ConversationId::from_bytes([46; 16]),
-            taskrun_id: TaskRunId::from_bytes([47; 16]),
-            execution_attempt_id: AttemptId::from_bytes([48; 16]),
-            prepared: ContractPreparedProviderRecord {
-                call_id: record.call_id,
-                call_digest_version: record.call_digest_version,
-                prepared_digest: record.prepared_digest,
-                render_digest: record.render_digest,
-                profile_digest: record.profile_digest,
-            },
-            pricing_revision_digest: [3; 32],
-            requested_input_tokens: 512,
-            requested_output_tokens: 1_024,
-            max_cost_micros: 50_000,
-            currency: "USD".to_owned(),
-            provider_idempotency_key: "provider-terminal-2".to_owned(),
-        }),
+        fixture.execution.issue(&fixture.launch, &denied_request),
         Err(ProviderAdmissionError::TokenBudgetDenied)
     );
     assert_eq!(fixture.execution.admitted_count().unwrap(), 1);

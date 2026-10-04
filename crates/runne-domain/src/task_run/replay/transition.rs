@@ -29,6 +29,7 @@ impl TaskRun {
             | TaskRunEvent::ReconciliationStarted
             | TaskRunEvent::Reconciled
             | TaskRunEvent::Unrecoverable
+            | TaskRunEvent::UserSupersedeUnknown { .. }
             | TaskRunEvent::TaskRunCancelled => self.apply_lifecycle_payload(payload),
             TaskRunEvent::LoopCycleStarted { .. }
             | TaskRunEvent::ContextCommitted { .. }

@@ -30,9 +30,8 @@ use runne_application::local_session::LocalSessionService;
 use runne_application::ports::RuntimeAuthorityId;
 use runne_application::prohibited_content::ProhibitedContentPort;
 use runne_application::replay_service::{
-    REPLAY_ENVELOPE_CURSOR_BINDING_OVERHEAD_BYTES, REPLAY_FRAME_CAPACITY_BYTES,
-    REPLAY_PAGE_CAPACITY_BYTES, ReplayAuthorizationLease, ReplayAuthorizationPort,
-    ReplayAuthorizationRequest, ReplayError, ReplayService, validate_replay_reader_capacity,
+    ReplayAuthorizationLease, ReplayAuthorizationPort, ReplayAuthorizationRequest, ReplayError,
+    ReplayService,
 };
 use runne_application::service::TaskRunService;
 use runne_domain::event::Sensitivity;
@@ -50,17 +49,20 @@ use runne_runtime::controller::{RuntimeController, ShutdownMode, ShutdownOutcome
 use runne_runtime::handle::RuntimeHandle;
 use runne_runtime::{
     DeterministicTextProvider, Runtime, RuntimeCanonicalConversationHost, RuntimeGenerationId,
-    RuntimeTaskRunHost, TokioRuntimeContext,
+    TokioRuntimeContext,
 };
 use runne_security::SecretBroker;
 use runne_store::local_session::SqliteBootstrapReservationStore;
-use runne_store::replay_store::ReplayStore;
 use runne_store::schema::ensure_event_log_lineage_id;
 use runne_store::store::StoreTransaction;
 
 type SqliteTaskRunService = TaskRunService<StoreTransaction, StoreTransaction, StoreTransaction>;
 type SqliteConversationService = ConversationService<StoreTransaction, StoreTransaction>;
 
+mod exec_taskrun_pre_effect_cancel;
+pub(crate) mod exec_taskrun_recovery;
+mod exec_taskrun_service;
+pub(crate) mod exec_taskrun_worker;
 mod executable_identity;
 #[cfg(target_os = "linux")]
 mod execution_node_lifecycle;
@@ -80,6 +82,20 @@ mod process_unavailable;
 pub(crate) mod provider_credential_enrollment;
 pub(crate) mod provider_credential_verification;
 mod provider_selection;
+
+#[cfg(test)]
+pub(crate) fn native_profile_for_fixture(
+    binding: &runne_api::ProviderActivationBindingV1,
+) -> Result<
+    (
+        runne_provider_native_wire::NativeWireProfile,
+        runne_daemon_native_effect::TrustedNativeEndpoint,
+        runne_daemon_native_effect::NativeAuthDescriptor,
+    ),
+    DaemonError,
+> {
+    provider_selection::native_profile_for_fixture(binding)
+}
 mod provider_startup;
 mod provider_status;
 mod quota;

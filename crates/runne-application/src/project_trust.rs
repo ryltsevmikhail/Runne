@@ -25,6 +25,9 @@ pub use persistence::{ProjectTrustControlLease, ProjectTrustEffectLease, Project
 /// docs/05-security/T1_SOURCE_PATH_INVENTORY.md §G3 revision history.
 pub const FROZEN_POLICY_VERSION: u64 = 2;
 
+/// Policy generation for the separately admitted TaskRun local-command action.
+pub const LOCAL_COMMAND_POLICY_VERSION: u64 = 1;
+
 /// Stable identifier of a project inside the trust store.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ProjectTrustProjectId([u8; 16]);
@@ -222,6 +225,19 @@ pub struct SourceAdmission {
     pub token: TrustToken,
     /// Frozen deny-policy version that decided this admission.
     pub policy_version: u64,
+}
+
+/// Admission tuple for the additive local-command action. Source admission
+/// remains pinned to the frozen source policy while this action has its own
+/// versioned approval policy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LocalCommandAdmission {
+    /// Current epoch-scoped trust record.
+    pub token: TrustToken,
+    /// Existing frozen source policy generation, always version 2 here.
+    pub source_policy_version: u64,
+    /// Dedicated local-command policy generation.
+    pub command_policy_version: u64,
 }
 
 /// Stage-1 admission request: metadata only, never content.

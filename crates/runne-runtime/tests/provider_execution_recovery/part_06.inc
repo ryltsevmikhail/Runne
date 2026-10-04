@@ -23,7 +23,15 @@ fn assert_pending_terminal_settlement(
                 },
             )
             .unwrap(),
-        (settlement_digest.to_vec(), 500, 900, 0, 0, 40_000, "USD".to_owned())
+        (
+            settlement_digest.to_vec(),
+            500,
+            900,
+            0,
+            0,
+            40_000,
+            "USD".to_owned()
+        )
     );
     let mut statement = connection
         .prepare(
@@ -123,11 +131,9 @@ async fn assert_versioned_terminal_recovery(digest_version: ProviderCallDigestVe
     let snapshot_before = sql_snapshot(&before);
     drop(before);
 
-    let reopened_store = validated_reopen::open_provider_execution(
-        fixture.path.to_str().unwrap(),
-        fixture.identity,
-    )
-    .unwrap();
+    let reopened_store =
+        validated_reopen::open_provider_execution(fixture.path.to_str().unwrap(), fixture.identity)
+            .unwrap();
     let reopened = runtime(&keyring, &reopened_store);
     assert_eq!(reopened.recover_events(fixture.attempt_id).unwrap(), events);
     let pending = reopened.recover_pending_terminal_outputs().unwrap();
@@ -138,7 +144,7 @@ async fn assert_versioned_terminal_recovery(digest_version: ProviderCallDigestVe
     assert_pending_terminal_settlement(&after, &fixture, settlement_digest);
     drop(after);
 
-    let application = IdempotentTerminalApplication::default();
+    let application = IdempotentTerminalApplication::for_fixture(&fixture);
     assert_eq!(
         reopened.apply_pending_terminal_outputs(&application, &IGNORING_RECOVERY_OBSERVER),
         Ok(1)
@@ -172,7 +178,10 @@ async fn assert_versioned_terminal_recovery(digest_version: ProviderCallDigestVe
         Ok(0)
     );
     assert_eq!(application.calls.load(Ordering::SeqCst), 1);
-    assert_eq!(sql_snapshot(&validated_connection(&fixture)), snapshot_applied);
+    assert_eq!(
+        sql_snapshot(&validated_connection(&fixture)),
+        snapshot_applied
+    );
 }
 
 #[tokio::test(flavor = "current_thread")]

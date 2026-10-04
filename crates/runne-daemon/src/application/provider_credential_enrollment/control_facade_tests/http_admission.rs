@@ -1,12 +1,15 @@
 use std::sync::Arc;
 
+#[cfg(all(target_os = "linux", feature = "desktop-protected"))]
 use runne_api::{ProviderCredentialEnrollmentHostError, ProviderCredentialProviderV2};
 use runne_http::ProviderCredentialEnrollmentHttpAdmissionResolver;
 
-use super::protected_session_tests::{control, id};
-use super::{DaemonProviderCredentialEnrollmentControl, ProtectedEnrollmentSessionFacts};
+use super::super::test_modules::protected_session_tests::{control, id};
+use crate::application::provider_credential_enrollment::{
+    DaemonProviderCredentialEnrollmentControl, ProtectedEnrollmentSessionFacts,
+};
 
-type Resolver = super::super::http_admission_resolver::LiveCredentialHttpAdmissionResolver;
+type Resolver = crate::application::provider_credential_enrollment::http_admission_resolver::LiveCredentialHttpAdmissionResolver;
 
 fn resolver(control: &Arc<DaemonProviderCredentialEnrollmentControl>) -> Resolver {
     Resolver::new(
@@ -70,7 +73,7 @@ fn protected_session_drop_revokes_its_current_http_facts() {
     let facts = ProtectedEnrollmentSessionFacts::for_test();
     control.publish_http_facts(facts.clone()).unwrap();
     let rendezvous =
-        super::super::broker::rendezvous::DaemonOwnedUnixBrokerRendezvous::create().unwrap();
+        crate::application::provider_credential_enrollment::broker::rendezvous::DaemonOwnedUnixBrokerRendezvous::create().unwrap();
     let session = control
         .start_test_protected_session(&keys, facts, rendezvous)
         .unwrap();
@@ -90,7 +93,7 @@ fn renewal_then_next_round_keeps_replacement_http_facts_until_its_drop() {
         .start_test_protected_session(
             &keys,
             facts_a.clone(),
-            super::super::broker::rendezvous::DaemonOwnedUnixBrokerRendezvous::create().unwrap(),
+            crate::application::provider_credential_enrollment::broker::rendezvous::DaemonOwnedUnixBrokerRendezvous::create().unwrap(),
         )
         .unwrap();
     control.publish_http_facts(facts_a).unwrap();
@@ -109,7 +112,7 @@ fn renewal_then_next_round_keeps_replacement_http_facts_until_its_drop() {
         .start_test_protected_session(
             &keys,
             facts_b.clone(),
-            super::super::broker::rendezvous::DaemonOwnedUnixBrokerRendezvous::create().unwrap(),
+            crate::application::provider_credential_enrollment::broker::rendezvous::DaemonOwnedUnixBrokerRendezvous::create().unwrap(),
         )
         .unwrap();
     control.publish_http_facts(facts_b).unwrap();

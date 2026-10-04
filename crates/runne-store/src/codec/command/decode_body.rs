@@ -38,6 +38,14 @@
                     new_version: nv,
                 }
             }
+            CO_TAG_UNKNOWN_SUCCESSOR_CREATED => CommandOutcome::UnknownSuccessorCreated {
+                predecessor_taskrun_id: TaskRunId::from_bytes(read_uuid(bytes, &mut pos)?),
+                predecessor_version: read_u64_be(bytes, &mut pos)?,
+                conversation_id: ConversationId::from_bytes(read_uuid(bytes, &mut pos)?),
+                conversation_version: read_u64_be(bytes, &mut pos)?,
+                successor_taskrun_id: TaskRunId::from_bytes(read_uuid(bytes, &mut pos)?),
+                successor_version: read_u64_be(bytes, &mut pos)?,
+            },
             CO_TAG_CANCELLATION_REQUESTED => {
                 let tr_id = TaskRunId::from_bytes(read_uuid(bytes, &mut pos)?);
                 let nv = read_u64_be(bytes, &mut pos)?;
@@ -45,6 +53,11 @@
                     taskrun_id: tr_id,
                     new_version: nv,
                 }
+            }
+            CO_TAG_CANCELLATION_COMPLETED => {
+                let taskrun_id = TaskRunId::from_bytes(read_uuid(bytes, &mut pos)?);
+                let new_version = read_u64_be(bytes, &mut pos)?;
+                CommandOutcome::TaskRunCancellationCompleted { taskrun_id, new_version }
             }
             CO_TAG_ADMITTED => {
                 let tr_id = TaskRunId::from_bytes(read_uuid(bytes, &mut pos)?);

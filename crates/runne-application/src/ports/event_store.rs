@@ -40,12 +40,50 @@ pub trait ConversationTextRepository {
         fingerprint: &CommandFingerprint,
     ) -> Result<TextGenerationReceiptLookup, CommitError>;
 
+    /// Confirms that a rejected v6 receipt is the exact no-provider-admission
+    /// cancellation proof, including continued absence of linked effects.
+    /// Adapters that do not persist this proof fail closed by returning `false`.
+    fn validate_no_admission_cancellation_receipt(
+        &self,
+        _receipt: &TextGenerationReceipt,
+    ) -> Result<bool, CommitError> {
+        Ok(false)
+    }
+
+    /// Looks up a claimed receipt while validating its immutable claim tuple.
+    fn lookup_claimed_text_generation_receipt(
+        &self,
+        command_id: CommandId,
+        idempotency_key: &IdempotencyKey,
+        idempotency_scope: &IdempotencyScope,
+        fingerprint: &CommandFingerprint,
+        assignment: &TaskRunAssignmentIdentity,
+        claim_version: u64,
+    ) -> Result<TextGenerationReceiptLookup, CommitError> {
+        let _ = (assignment, claim_version);
+        self.lookup_text_generation_receipt(
+            command_id,
+            idempotency_key,
+            idempotency_scope,
+            fingerprint,
+        )
+    }
+
     /// Atomically appends the user message, starts its TaskRun, and stores a
     /// `Started` receipt before provider execution.
     fn begin_text_generation(
         &self,
         payload: BeginTextGenerationCommit,
     ) -> Result<TextGenerationCommitResult, CommitError>;
+
+    /// Atomically appends only the user message to an already claimed run.
+    /// Implementations without this boundary fail closed for compatibility.
+    fn begin_claimed_text_generation(
+        &self,
+        _payload: BeginClaimedTextGenerationCommit,
+    ) -> Result<TextGenerationCommitResult, CommitError> {
+        Err(CommitError::StorageFailure(StorageFailureKind::Unavailable))
+    }
 
     /// Atomically appends assistant output, completes its TaskRun, and advances
     /// the original receipt to `Completed`.
@@ -60,6 +98,51 @@ pub trait ConversationTextRepository {
         &self,
         payload: RejectTextGenerationCommit,
     ) -> Result<TextGenerationCommitResult, CommitError>;
+
+    /// Atomically closes a started receipt without output when a winning
+    /// cancellation follows an exact durable provider terminal settlement.
+    fn reject_text_generation_after_terminal_cancellation(
+        &self,
+        _payload: RejectTextGenerationAfterTerminalCancellationCommit,
+    ) -> Result<TextGenerationCommitResult, CommitError> {
+        Err(CommitError::StorageFailure(StorageFailureKind::Unavailable))
+    }
+
+    /// Atomically closes a started receipt from an authenticated Source1 fact.
+    /// This proof carries no financial settlement or Known disposition.
+    fn reject_text_generation_after_unknown_terminal_cancellation(
+        &self,
+        _payload: RejectTextGenerationAfterUnknownTerminalCancellationCommit,
+    ) -> Result<TextGenerationCommitResult, CommitError> {
+        Err(CommitError::StorageFailure(StorageFailureKind::Unavailable))
+    }
+
+    /// Atomically closes a started receipt from an authenticated RemoteArtifact
+    /// plus exact accepted-cancellation witness. Legacy journal proofs remain
+    /// on `reject_text_generation_after_terminal_cancellation`.
+    fn reject_text_generation_after_remote_artifact_cancellation(
+        &self,
+        _payload: RejectTextGenerationAfterRemoteArtifactCancellationCommit,
+    ) -> Result<TextGenerationCommitResult, CommitError> {
+        Err(CommitError::StorageFailure(StorageFailureKind::Unavailable))
+    }
+
+    /// Atomically closes a started receipt after an exact durable pre-effect rejection.
+    fn reject_text_generation_after_pre_effect_cancellation(
+        &self,
+        _payload: RejectTextGenerationAfterPreEffectCancellationCommit,
+    ) -> Result<TextGenerationCommitResult, CommitError> {
+        Err(CommitError::StorageFailure(StorageFailureKind::Unavailable))
+    }
+
+    /// Atomically closes a started text attempt when cancellation won before
+    /// any provider admission. Implementations must prove the exact no-effect history.
+    fn reject_text_generation_after_no_admission_cancellation(
+        &self,
+        _payload: RejectTextGenerationAfterNoAdmissionCancellationCommit,
+    ) -> Result<TextGenerationCommitResult, CommitError> {
+        Err(CommitError::StorageFailure(StorageFailureKind::Unavailable))
+    }
 }
 
 /// A committed conversation stream.
@@ -131,135 +214,5 @@ pub enum ConversationCommitResult {
     Duplicate {
         /// Original durable create result.
         stored_result: ConversationReceipt,
-    },
-}
-
-/// Durable phase of one idempotent Conversation text execution.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TextGenerationPhase {
-    /// User message and running TaskRun are durable; provider output is pending.
-    Started,
-    /// Assistant message and successful terminal TaskRun are durable.
-    Completed,
-    /// Provider output was rejected safely without an assistant message.
-    Rejected,
-    /// Provider input was rejected safely before outbound delivery.
-    ProhibitedInputRejected,
-}
-
-/// Durable coordination receipt linking Conversation messages to TaskRun.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TextGenerationReceipt {
-    /// Current durable phase.
-    pub phase: TextGenerationPhase,
-    /// Target Conversation.
-    pub conversation_id: ConversationId,
-    /// Conversation workspace.
-    pub workspace_id: WorkspaceId,
-    /// Coordinating TaskRun.
-    pub taskrun_id: TaskRunId,
-    /// Exact execution attempt.
-    pub attempt_id: AttemptId,
-    /// Durable user message.
-    pub user_message_id: MessageId,
-    /// Reserved assistant message identity, stable across retries.
-    pub assistant_message_id: MessageId,
-    /// Current Conversation version for this phase.
-    pub conversation_version: u64,
-    /// Current TaskRun version for this phase.
-    pub taskrun_version: u64,
-}
-
-/// Result of a text-generation receipt lookup.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum TextGenerationReceiptLookup {
-    /// No matching command was committed.
-    Miss,
-    /// The exact command has a durable started or completed phase.
-    Duplicate {
-        /// Original durable coordination result.
-        stored_result: TextGenerationReceipt,
-    },
-}
-
-/// Atomic phase-one commit for a Conversation text execution.
-#[derive(Debug, Clone)]
-pub struct BeginTextGenerationCommit {
-    /// Unique command identity.
-    pub command_id: CommandId,
-    /// Client-provided idempotency key.
-    pub idempotency_key: IdempotencyKey,
-    /// Full uniqueness scope.
-    pub idempotency_scope: IdempotencyScope,
-    /// Deterministic semantic input fingerprint.
-    pub command_fingerprint: CommandFingerprint,
-    /// Expected Conversation stream version.
-    pub expected_conversation_version: u64,
-    /// User message event to append.
-    pub conversation_events: Vec<UncommittedEvent<ConversationEvent>>,
-    /// TaskRun create-through-start event batch.
-    pub taskrun_events: Vec<UncommittedEvent<TaskRunEvent>>,
-    /// Started coordination receipt.
-    pub receipt: TextGenerationReceipt,
-}
-
-/// Atomic phase-two commit for a Conversation text execution.
-#[derive(Debug, Clone)]
-pub struct FinishTextGenerationCommit {
-    /// Original command identity.
-    pub command_id: CommandId,
-    /// Original client idempotency key.
-    pub idempotency_key: IdempotencyKey,
-    /// Original uniqueness scope.
-    pub idempotency_scope: IdempotencyScope,
-    /// Original semantic input fingerprint.
-    pub command_fingerprint: CommandFingerprint,
-    /// Expected Conversation version from the started phase.
-    pub expected_conversation_version: u64,
-    /// Expected TaskRun version from the started phase.
-    pub expected_taskrun_version: u64,
-    /// Assistant message event to append.
-    pub conversation_events: Vec<UncommittedEvent<ConversationEvent>>,
-    /// Successful TaskRun completion event.
-    pub taskrun_events: Vec<UncommittedEvent<TaskRunEvent>>,
-    /// Completed coordination receipt.
-    pub receipt: TextGenerationReceipt,
-}
-
-/// Atomic terminal rejection for a Conversation text execution.
-#[derive(Debug, Clone)]
-pub struct RejectTextGenerationCommit {
-    /// Original command identity.
-    pub command_id: CommandId,
-    /// Original client idempotency key.
-    pub idempotency_key: IdempotencyKey,
-    /// Original uniqueness scope.
-    pub idempotency_scope: IdempotencyScope,
-    /// Original semantic input fingerprint.
-    pub command_fingerprint: CommandFingerprint,
-    /// Expected Conversation version from the started phase.
-    pub expected_conversation_version: u64,
-    /// Expected TaskRun version from the started phase.
-    pub expected_taskrun_version: u64,
-    /// Safe generation-failure event.
-    pub conversation_events: Vec<UncommittedEvent<ConversationEvent>>,
-    /// Failed TaskRun terminal event.
-    pub taskrun_events: Vec<UncommittedEvent<TaskRunEvent>>,
-    /// Rejected coordination receipt.
-    pub receipt: TextGenerationReceipt,
-}
-
-/// Result of an atomic text-generation phase commit.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum TextGenerationCommitResult {
-    /// The requested phase committed.
-    Committed {
-        /// New durable coordination result.
-        result: TextGenerationReceipt,
-    },
-    /// Another identical request already committed this or a later phase.
-    Duplicate {
-        /// Existing durable coordination result.
-        stored_result: TextGenerationReceipt,
     },
 }

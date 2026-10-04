@@ -5,6 +5,9 @@ edition = "2024"
 rust-version = "1.95"
 publish = false
 
+[features]
+test-support = []
+
 [dependencies]
 runne-provider = { path = "../runne-provider" }
 runne-store = { path = "../runne-store" }

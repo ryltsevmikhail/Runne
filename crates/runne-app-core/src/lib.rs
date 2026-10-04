@@ -11,6 +11,9 @@ use runne_local_store::{
     LocalStore, ProjectOpenError, RecentRoot, RecentRootError, ReplayScopeKey,
     SecurityTransactionError, StoreOpenError,
 };
+#[cfg(feature = "test-support")]
+#[doc(hidden)]
+pub use runne_runtime_client::test_decode_task_run_effects_wire;
 pub use runne_runtime_client::{ApprovalDecisionDto, CanonicalId};
 use runne_runtime_client::{
     AuthenticatedRuntimeClient, CommandIdentity, CreateConversationRequest, CreateProjectRequest,
@@ -24,6 +27,13 @@ use runne_runtime_client::{
     TelemetrySectionMetaV1, WorkspaceChangeEntryDto, WorkspaceChangeKindDto, WorkspaceDiffDto,
     WorkspaceDiffHunkDto, WorkspaceDiffLineDto, WorkspaceDiffLineKindDto, WorkspaceFileEntryDto,
     WorkspaceFileKindDto, default_local_profile_path,
+};
+pub use runne_runtime_client::{
+    LocalCommandEffect, LocalExecutionOutcome, LocalStopEvidence, RemoteAccountingDisposition,
+    RemoteCancellationEvidence, RemoteEffect, RemoteEffectAvailability, RemoteEffectCapabilities,
+    RemoteEffectOutcome, RemotePublicationDisposition, TaskRunCancellationAcknowledgement,
+    TaskRunEffectsV1, TaskRunSuccessorAcknowledgement, TaskRunSuccessorEligibility,
+    UnknownSuccessorAcknowledgment,
 };
 pub use runne_runtime_client::{
     ProjectTrustControlRequestDto, ProjectTrustControlSnapshotDto, ProjectTrustDecisionDto,
@@ -113,6 +123,7 @@ mod tests {
     include!("lib_parts/mutation_restart_recovery_tests.rs");
     include!("lib_parts/mutation_rename_tests.rs");
     include!("lib_parts/mutation_network_matrix_tests.rs");
+    include!("lib_parts/task_run_unknown_successor_tests.rs");
     include!("lib_parts/mutation_network_state_tests.rs");
     include!("lib_parts/mutation_network_state_bind_tests.rs");
     include!("lib_parts/mutation_cancellation_tests.rs");
@@ -122,4 +133,12 @@ mod tests {
     include!("lib_parts/device_tests.rs");
     include!("lib_parts/providers_tests.rs");
     include!("lib_parts/provider_credential_enrollment_tests.rs");
+    mod task_run_terminal_projection_tests {
+        use crate::{
+            AppCoreError, CanonicalId, TaskRunProjectionState, TaskRunRecoveryDisposition,
+            TaskRunTerminalDisposition, ensure_authoritative_task_run_covers_replay,
+            task_run_snapshot,
+        };
+        include!("lib_parts/task_run_terminal_projection_tests.rs");
+    }
 }

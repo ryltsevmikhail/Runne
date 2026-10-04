@@ -82,25 +82,7 @@ fn serve_v3_transcript(
                 session.clear_http_facts();
             }
             #[cfg(all(target_os = "linux", feature = "desktop-protected"))]
-            let idle_rendezvous = if let Some(session) = runtime.session.as_mut() {
-                if session.is_idle() {
-                    let rendezvous = Some(
-                        session
-                            .take_idle_rendezvous()
-                            .map_err(runtime::map_enrollment_error)?,
-                    );
-                    runtime.session.take();
-                    rendezvous
-                } else {
-                    session
-                        .require_durable_terminal()
-                        .map_err(runtime::map_enrollment_error)?;
-                    session.clear_http_facts();
-                    None
-                }
-            } else {
-                None
-            };
+            let idle_session = take_idle_enrollment_session(&mut runtime.session)?;
             // Fence the root admission authority exactly like the V2 renewal
             // path: no rotated successor authority may outrun an in-flight
             // root handle handoff that predates the rotation.
@@ -121,19 +103,28 @@ fn serve_v3_transcript(
                 last_renew_sequence,
             )?;
             #[cfg(all(target_os = "linux", feature = "desktop-protected"))]
-            if let Some(rendezvous) = idle_rendezvous {
+            if let Some(IdleEnrollmentTransfer {
+                rendezvous,
+                http_controls,
+            }) = idle_session
+            {
                 let control = runtime
                     .linux_control
                     .as_ref()
                     .ok_or(LaunchAuthorityError::OwnershipMismatch)?;
-                control
-                    .rebind_idle_linux_preadmission(
-                        *owned_launch.session_id(),
-                        *next_owned_launch.session_id(),
-                    )
-                    .map_err(runtime::map_enrollment_error)?;
+                super::enrollment_control_fanout::rebind_linux_preadmission(
+                    &http_controls,
+                    *owned_launch.session_id(),
+                    *next_owned_launch.session_id(),
+                )
+                .map_err(runtime::map_enrollment_error)?;
                 let session = control
-                    .start_protected_session(keys, &next_owned_launch, rendezvous)
+                    .start_protected_session_with_controls(
+                        keys,
+                        &next_owned_launch,
+                        rendezvous,
+                        http_controls,
+                    )
                     .map_err(runtime::map_enrollment_error)?;
                 runtime.live = Some(live_session::LiveEnrollmentSession::capture(
                     local_session_service,
@@ -188,6 +179,43 @@ fn serve_v3_transcript(
         return Err(LaunchAuthorityError::InvalidContract);
     }
 }
+
+#[cfg(all(target_os = "linux", feature = "desktop-protected"))]
+struct IdleEnrollmentTransfer {
+    rendezvous: crate::application::provider_credential_enrollment::broker::rendezvous::DaemonOwnedUnixBrokerRendezvous,
+    http_controls: Vec<Arc<crate::application::provider_credential_enrollment::DaemonProviderCredentialEnrollmentControl>>,
+}
+
+#[cfg(all(target_os = "linux", feature = "desktop-protected"))]
+fn take_idle_enrollment_session(
+    session: &mut Option<
+        crate::application::provider_credential_enrollment::DaemonProtectedCredentialEnrollmentSession,
+    >,
+) -> Result<Option<IdleEnrollmentTransfer>, LaunchAuthorityError> {
+    let Some(active) = session.as_mut() else {
+        return Ok(None);
+    };
+    if !active.is_idle() {
+        active
+            .require_durable_terminal()
+            .map_err(runtime::map_enrollment_error)?;
+        active.clear_http_facts();
+        return Ok(None);
+    }
+    let controls = active.http_controls();
+    let rendezvous = active
+        .take_idle_rendezvous()
+        .map_err(runtime::map_enrollment_error)?;
+    session.take();
+    Ok(Some(IdleEnrollmentTransfer {
+        rendezvous,
+        http_controls: controls,
+    }))
+}
+
+#[cfg(all(test, target_os = "linux", feature = "desktop-protected"))]
+#[path = "transcript/idle_round_tests.rs"]
+mod idle_round_tests;
 
 #[cfg(all(unix, target_os = "macos", target_arch = "aarch64"))]
 fn write_shutdown_ack_after_revocation(

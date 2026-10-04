@@ -56,6 +56,7 @@ fn provider_display_name(provider_id: &str) -> &'static str {
         "moonshotai-cn" => "Moonshot AI CN",
         "nvidia" => "NVIDIA",
         "openai" => "OpenAI",
+        "openai-background" => "OpenAI Background Responses",
         "openai-codex" => "OpenAI Codex",
         "opencode" => "OpenCode Zen",
         "opencode-go" => "OpenCode Go",
@@ -83,7 +84,7 @@ mod tests {
 
     #[test]
     fn catalog_contains_exact_text_provider_ids_without_duplicates() {
-        assert_eq!(CATALOG_ENTRIES.len(), 40);
+        assert_eq!(CATALOG_ENTRIES.len(), 41);
         for (index, entry) in CATALOG_ENTRIES.iter().enumerate() {
             assert!(!entry.provider_id.is_empty());
             assert!(
@@ -93,6 +94,39 @@ mod tests {
             );
         }
         assert!(provider_catalog_entry("openrouter-images").is_none());
+    }
+
+    #[test]
+    fn background_route_is_explicit_only_and_not_live_qualified() {
+        let legacy = provider_catalog_entry("openai").expect("legacy OpenAI");
+        let background = provider_catalog_entry("openai-background").expect("background OpenAI");
+        assert_eq!(
+            legacy.selection_policy(),
+            ProviderSelectionPolicyV1::DefaultEligible
+        );
+        assert_eq!(legacy.route(), ProviderCatalogRouteV1::OpenAiResponses);
+        assert_eq!(
+            background.selection_policy(),
+            ProviderSelectionPolicyV1::ExplicitOnly
+        );
+        assert_eq!(
+            background.route(),
+            ProviderCatalogRouteV1::BackgroundResponses
+        );
+        assert_eq!(background.protocol, ProviderProtocolV1::Responses);
+        assert!(background.supports_auth(ProviderAuthKindV1::ApiKey));
+        assert_eq!(background.quota, ProviderQuotaPolicyV1::Payg);
+        assert_eq!(
+            background.implementation,
+            ProviderImplementationStatusV1::CatalogOnly
+        );
+        assert!(!background.is_live_qualified());
+        let explicit_only = provider_catalog()
+            .iter()
+            .filter(|entry| entry.selection_policy() == ProviderSelectionPolicyV1::ExplicitOnly)
+            .map(|entry| entry.provider_id)
+            .collect::<Vec<_>>();
+        assert_eq!(explicit_only, ["openai-background"]);
     }
 
     #[test]
@@ -215,7 +249,7 @@ mod tests {
     #[test]
     fn snapshot_is_closed_and_contains_no_secret_or_endpoint_fields() {
         let snapshots = provider_catalog_snapshot();
-        assert_eq!(snapshots.len(), 40);
+        assert_eq!(snapshots.len(), 41);
         let json = serde_json::to_value(&snapshots).expect("snapshot JSON");
         let first = json.as_array().expect("snapshot array")[0]
             .as_object()

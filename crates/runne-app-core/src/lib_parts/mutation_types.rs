@@ -188,25 +188,6 @@ impl MutationRequest {
         )
     }
 
-    /// Creates an AppCore-owned normalized `TaskRun` cancellation request.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error for an invalid target, zero expected version, or
-    /// command identity.
-    pub fn cancel_task_run(
-        task_run_id: CanonicalId,
-        expected_version: u64,
-    ) -> Result<Self, AppCoreError> {
-        Self::new(
-            runne_local_store::MutationOperation::TaskRunCancel,
-            runne_local_store::MutationTargetKind::TaskRun,
-            task_run_id,
-            expected_version,
-            CanonicalMutationCommand::CancelTaskRun { task_run_id },
-        )
-    }
-
     fn existing_project(
         operation: runne_local_store::MutationOperation,
         project_id: CanonicalId,
@@ -287,6 +268,7 @@ include!("mutation_types/digest.rs");
 include!("mutation_types/prepared.rs");
 include!("mutation_types/invariants.rs");
 include!("mutation_types/approval.rs");
+include!("mutation_types/task_run.rs");
 
 include!("mutation_types/rename.rs");
 include!("mutation_types/submit.rs");

@@ -9,30 +9,41 @@ import {
   getTaskRunTimeline,
   cancelTaskRun,
   subscribeTaskRunTimeline,
+  getTaskRunEffects,
   type TaskRunSession,
   type TaskRunTimeline,
+  type TaskRunEffects,
 } from '@/entities/task-run'
 import { listPendingApprovals } from '@/entities/approval'
 import { tryUseRuntimeSession } from '@/app/providers/runtime-session'
 import { translate } from '@/shared/i18n'
 
 import TaskRunRecoveryPanel from './TaskRunRecoveryPanel.vue'
+import TaskRunEffectsPanel from './TaskRunEffectsPanel.vue'
+import TaskRunSuccessorAction from './TaskRunSuccessorAction.vue'
 
 type LoadTaskRun = (id: string) => Promise<TaskRunTimeline>
 type SubscribeTaskRun = (id: string, initial: TaskRunTimeline, onTimeline: (value: TaskRunTimeline) => void) => Promise<TaskRunSession>
+type LoadTaskRunEffects = (id: string) => Promise<TaskRunEffects>
 
 const props = withDefaults(defineProps<{
   loadTaskRun?: LoadTaskRun
   subscribeTaskRun?: SubscribeTaskRun
   openBlockedTaskRun?: SubscribeTaskRun
+  loadEffects?: LoadTaskRunEffects
 }>(), {
   loadTaskRun: getTaskRunTimeline,
   subscribeTaskRun: subscribeTaskRunTimeline,
   openBlockedTaskRun: subscribeTaskRunTimeline,
+  loadEffects: getTaskRunEffects,
 })
 
 const route = useRoute()
 const snapshot = ref<TaskRunTimeline | null>(null)
+const effects = ref<TaskRunEffects | null>(null)
+const effectsPending = ref(false)
+const effectsUnavailable = ref(false)
+const effectsMismatch = ref(false)
 const unavailable = ref(false)
 const resyncing = ref(false)
 const cancelling = ref(false)
@@ -41,6 +52,7 @@ let session: TaskRunSession | null = null
 let requestGeneration = 0
 let teardown = Promise.resolve()
 let resyncOperation = 0
+let effectsRequest = 0
 const runtimeSession = tryUseRuntimeSession()
 const runtimeStatus = computed(() => runtimeSession?.snapshot.value.status ?? 'unavailable')
 const taskRunId = computed(() => typeof route.params.taskRunId === 'string' ? route.params.taskRunId : '')
@@ -80,30 +92,73 @@ async function refreshTaskRun(id: string, generation: number) {
     const initial = await props.loadTaskRun(id)
     if (!isCurrentLive(generation)) return
     snapshot.value = initial
+    await refreshEffects(initial, generation)
     try {
       approvalAttention.value = (await listPendingApprovals()).some(item => item.taskRunId === id && item.state === 'pending')
     } catch {
       approvalAttention.value = false
     }
-    const open = initial.recovery === 'live' ? props.subscribeTaskRun : props.openBlockedTaskRun
+    const stableInitial = snapshot.value ?? initial
+    const open = stableInitial.recovery === 'live' ? props.subscribeTaskRun : props.openBlockedTaskRun
     if (!isCurrentLive(generation)) return
     let acceptsUpdates = false
     let pendingUpdate: TaskRunTimeline | null = null
-    const nextSession = await open(id, initial, (next) => {
+    const nextSession = await open(id, stableInitial, (next) => {
       if (!isCurrentLive(generation)) return
-      if (acceptsUpdates) snapshot.value = next
+      if (acceptsUpdates) { snapshot.value = next; void refreshEffects(next, generation) }
       else pendingUpdate = next
     })
     if (!isCurrentLive(generation)) { pendingUpdate = null; await nextSession.unsubscribe(); return }
     session = nextSession
     acceptsUpdates = true
-    if (pendingUpdate !== null && isCurrentLive(generation)) snapshot.value = pendingUpdate
+    if (pendingUpdate !== null && isCurrentLive(generation)) {
+      snapshot.value = pendingUpdate
+      void refreshEffects(pendingUpdate, generation)
+    }
   }
   catch { if (generation === requestGeneration) { markSnapshotReconnecting(); unavailable.value = true } }
 }
 
+async function refreshAfterSuccessor(value: { predecessorTaskRunId: string, taskRunId: string }) {
+  if (snapshot.value?.taskRunId === value.predecessorTaskRunId && taskRunId.value === value.predecessorTaskRunId) {
+    await refreshTaskRun(value.predecessorTaskRunId, requestGeneration)
+  }
+}
+
+async function refreshEffects(timeline: TaskRunTimeline, generation: number) {
+  const request = ++effectsRequest
+  effects.value = null
+  effectsUnavailable.value = false
+  effectsMismatch.value = false
+  effectsPending.value = true
+  try {
+    let next = await props.loadEffects(timeline.taskRunId)
+    if (!isCurrentLive(generation) || request !== effectsRequest) return
+    if (next.streamVersion !== timeline.streamVersion) {
+      const freshTimeline = await props.loadTaskRun(timeline.taskRunId)
+      if (!isCurrentLive(generation) || request !== effectsRequest) return
+      snapshot.value = freshTimeline
+      next = await props.loadEffects(timeline.taskRunId)
+      if (!isCurrentLive(generation) || request !== effectsRequest) return
+      if (next.streamVersion !== freshTimeline.streamVersion) {
+        effectsMismatch.value = true
+        return
+      }
+    } else if (snapshot.value?.streamVersion !== next.streamVersion) {
+      effectsMismatch.value = true
+      return
+    }
+    effects.value = next
+  } catch {
+    if (request === effectsRequest) effectsUnavailable.value = true
+  } finally {
+    if (request === effectsRequest) effectsPending.value = false
+  }
+}
+
 watch([taskRunId, runtimeStatus], async ([id, status]) => {
   const generation = ++requestGeneration
+  cancelling.value = false
   resyncOperation += 1
   resyncing.value = false
   if (runtimeSession === undefined || status !== 'live') {
@@ -124,6 +179,7 @@ async function resyncTaskRun() {
     const next = await currentSession.resync()
     if (!isCurrentLive(generation) || session !== currentSession) return
     snapshot.value = next
+    void refreshEffects(next, generation)
     if (next.recovery === 'live') {
       await detachSession()
       if (!isCurrentLive(generation) || session !== null) return
@@ -131,13 +187,16 @@ async function resyncTaskRun() {
       let pendingUpdate: TaskRunTimeline | null = null
       const nextSession = await props.subscribeTaskRun(next.taskRunId, next, (value) => {
         if (!isCurrentLive(generation)) return
-        if (acceptsUpdates) snapshot.value = value
+        if (acceptsUpdates) { snapshot.value = value; void refreshEffects(value, generation) }
         else pendingUpdate = value
       })
       if (!isCurrentLive(generation)) { pendingUpdate = null; await nextSession.unsubscribe(); return }
       session = nextSession
       acceptsUpdates = true
-      if (pendingUpdate !== null && isCurrentLive(generation)) snapshot.value = pendingUpdate
+      if (pendingUpdate !== null && isCurrentLive(generation)) {
+        snapshot.value = pendingUpdate
+        void refreshEffects(pendingUpdate, generation)
+      }
     }
   }
   catch { if (generation === requestGeneration) { markSnapshotReconnecting(); unavailable.value = true } }
@@ -145,11 +204,21 @@ async function resyncTaskRun() {
 }
 
 async function requestCancellation() {
-  if (snapshot.value === null || snapshot.value.recovery !== 'live' || runtimeStatus.value !== 'live' || cancelling.value) return
+  const current = snapshot.value
+  if (current === null || current.recovery !== 'live' || runtimeStatus.value !== 'live' || cancelling.value) return
+  const generation = requestGeneration
   cancelling.value = true
-  try { await cancelTaskRun(snapshot.value.taskRunId, snapshot.value.streamVersion); snapshot.value = { ...snapshot.value, state: 'cancelling' } }
-  catch { unavailable.value = true }
-  finally { cancelling.value = false }
+  try {
+    const acknowledgement = await cancelTaskRun(current.taskRunId, current.streamVersion)
+    if (isCurrentLive(generation) && snapshot.value?.taskRunId === current.taskRunId
+        && snapshot.value.streamVersion < acknowledgement.streamVersion) {
+      await refreshTaskRun(current.taskRunId, generation)
+    }
+  }
+  catch {
+    if (generation === requestGeneration && snapshot.value?.taskRunId === current.taskRunId) unavailable.value = true
+  }
+  finally { if (generation === requestGeneration) cancelling.value = false }
 }
 
 onBeforeUnmount(() => { requestGeneration += 1; resyncOperation += 1; resyncing.value = false; void detachSession() })
@@ -170,6 +239,21 @@ onBeforeUnmount(() => { requestGeneration += 1; resyncOperation += 1; resyncing.
       :terminal="snapshot.terminal"
       :recovery="snapshot.recovery"
       :approval-attention="approvalAttention"
+    />
+    <TaskRunEffectsPanel
+      :effects="effects?.streamVersion === snapshot.streamVersion ? effects : null"
+      :pending="effectsPending"
+      :unavailable="effectsUnavailable"
+      :stale="effectsMismatch || (effects !== null && effects.streamVersion !== snapshot.streamVersion)"
+    />
+    <TaskRunSuccessorAction
+      v-if="effects?.streamVersion === snapshot.streamVersion && ['running', 'cancelling', 'unrecoverable', 'cancelled'].includes(snapshot.state)"
+      :key="snapshot.taskRunId"
+      :task-run-id="snapshot.taskRunId"
+      :expected-version="snapshot.streamVersion"
+      :eligibility="effects?.streamVersion === snapshot.streamVersion ? effects.successor : 'blocked'"
+      :runtime-live="runtimeStatus === 'live'"
+      @created="refreshAfterSuccessor"
     />
     <p v-if="snapshot.entries.length === 0" role="status">
       {{ translate('taskRun.noRecordedEvents') }}

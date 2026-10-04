@@ -49,9 +49,10 @@ pub use broker::{
     NativeLegacySourceReadback, NativeProviderCredentialReaderParts,
     NativeProviderCredentialReaders, NativeProviderCredentialVerificationMaterializer,
     ProviderCredentialDispatchMaterializer, ProviderCredentialDispatchRead,
-    ProviderCredentialReadback, ProviderCredentialVerificationMaterializer,
-    ProviderCredentialVerificationReadback, VerificationMaterializerAdapter,
-    VerificationNativeMaterializer, native_verification_materializer,
+    ProviderCredentialReadback, ProviderCredentialRecoveryRead,
+    ProviderCredentialVerificationMaterializer, ProviderCredentialVerificationReadback,
+    VerificationMaterializerAdapter, VerificationNativeMaterializer,
+    native_verification_materializer,
 };
 #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows", test))]
 pub mod source_update;

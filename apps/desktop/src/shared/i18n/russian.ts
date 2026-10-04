@@ -5,6 +5,7 @@ import targetSurfaces from './russian-target-surfaces'
 import runtimeRussian from './russian-runtime'
 import providerSurfaces from './provider-surfaces-ru'
 import projectTrustControl from './project-trust-control-ru'
+import taskRunEffects from './task-run-effects-ru'
 
 const russian: Record<keyof typeof english, string> = {
   'settings.title': 'Настройки',
@@ -286,6 +287,7 @@ const russian: Record<keyof typeof english, string> = {
   ...targetSurfaces,
   ...providerSurfaces,
   ...projectTrustControl,
+  ...taskRunEffects,
 }
 
 export default russian

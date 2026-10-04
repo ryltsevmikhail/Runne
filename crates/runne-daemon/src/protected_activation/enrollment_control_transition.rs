@@ -21,6 +21,8 @@ use crate::application::provider_credential_enrollment::broker::rendezvous::{
     DaemonBrokerAuthority, DaemonOwnedUnixBrokerRendezvous,
 };
 
+mod fanout;
+
 pub(crate) type EnrollmentTicketClock =
     Arc<dyn Fn() -> Result<u64, LaunchAuthorityError> + Send + Sync>;
 
@@ -39,6 +41,10 @@ pub(crate) struct EnrollmentControlComposition {
     pub(super) enrollment_control: Option<Arc<
         crate::application::provider_credential_enrollment::DaemonProviderCredentialEnrollmentControl,
     >>,
+    pub(super) enrollment_controls: Vec<(
+        String,
+        Arc<crate::application::provider_credential_enrollment::DaemonProviderCredentialEnrollmentControl>,
+    )>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -71,6 +77,7 @@ impl EnrollmentControlComposition {
             runtime_root,
             ticket_clock,
             enrollment_control,
+            enrollment_controls: Vec::new(),
         }
     }
 

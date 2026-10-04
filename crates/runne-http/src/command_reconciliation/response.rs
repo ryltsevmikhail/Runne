@@ -63,6 +63,11 @@ pub(super) enum OutcomeWire<'a> {
         task_run_id: String,
         new_version: u64,
     },
+    SupersedeUnknownTaskRun {
+        predecessor_task_run_id: String,
+        successor_task_run_id: String,
+        new_version: u64,
+    },
     ApprovalDecision {
         approval_id: String,
         task_run_id: String,
@@ -170,6 +175,22 @@ pub(super) fn durable(value: &AuthoritativeCommandOutcome) -> Option<OutcomeWire
             task_run_id: value.taskrun_id.to_string(),
             new_version: value.new_version,
         },
+        AuthoritativeCommandOutcomeRef::UnknownSuccessorCreated(value) => {
+            let runne_api::TaskRunCommandAckKind::UnknownSuccessorCreated {
+                predecessor_taskrun_id,
+                predecessor_version,
+                successor_taskrun_id,
+                ..
+            } = &value.kind
+            else {
+                return None;
+            };
+            OutcomeWire::SupersedeUnknownTaskRun {
+                predecessor_task_run_id: predecessor_taskrun_id.to_string(),
+                successor_task_run_id: successor_taskrun_id.to_string(),
+                new_version: *predecessor_version,
+            }
+        }
         AuthoritativeCommandOutcomeRef::ApprovalDecision(value) => OutcomeWire::ApprovalDecision {
             approval_id: value.approval_id().to_string(),
             task_run_id: value.task_run_id().to_string(),

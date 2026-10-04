@@ -95,6 +95,29 @@ pub fn initialize_store(
     .map(|store| (store, identity))
 }
 
+pub fn initialize_store_with_database_authority(
+    db_path: &str,
+    database_authority_id: [u8; 16],
+    runtime_authority_id: RuntimeAuthorityId,
+    prohibited_content: Arc<dyn ProhibitedContentPort>,
+) -> Result<(StoreTransaction, MainDatabaseIdentity), CommitError> {
+    let writer =
+        open_managed_connection(Path::new(db_path), ConnectionMode::Writer).map_err(unavailable)?;
+    apply_migrations(&writer).map_err(corrupt)?;
+    ensure_authority_id(&writer, &database_authority_id).map_err(corrupt)?;
+    let _ = ensure_event_log_lineage_id(&writer).map_err(corrupt)?;
+    let identity = read_main_database_identity(&writer).map_err(corrupt)?;
+    let reader = open_reader(db_path).map_err(unavailable)?;
+    StoreTransaction::open_with_connections(
+        db_path,
+        writer,
+        reader,
+        runtime_authority_id,
+        prohibited_content,
+    )
+    .map(|store| (store, identity))
+}
+
 pub fn reopen_store(
     db_path: &str,
     identity: MainDatabaseIdentity,
@@ -212,9 +235,11 @@ pub(super) fn open_validated_connection(
 fn read_main_database_identity(
     connection: &Connection,
 ) -> Result<MainDatabaseIdentity, SqliteError> {
+    let authority_id = read_authority_id(connection)?.ok_or(SqliteError::InvalidQuery)?;
+    let lineage_id = read_event_log_lineage_id(connection)?.ok_or(SqliteError::InvalidQuery)?;
     Ok(MainDatabaseIdentity {
-        authority_id: read_authority_id(connection)?.ok_or(SqliteError::InvalidQuery)?,
-        lineage_id: read_event_log_lineage_id(connection)?.ok_or(SqliteError::InvalidQuery)?,
+        authority_id,
+        lineage_id,
     })
 }
 
@@ -222,7 +247,8 @@ fn validate_main_database_identity(
     connection: &Connection,
     identity: MainDatabaseIdentity,
 ) -> Result<(), SqliteError> {
-    if read_main_database_identity(connection)? == identity {
+    let actual = read_main_database_identity(connection)?;
+    if actual == identity {
         Ok(())
     } else {
         Err(SqliteError::InvalidQuery)

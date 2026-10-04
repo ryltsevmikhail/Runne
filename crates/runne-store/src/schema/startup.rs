@@ -22,6 +22,7 @@ pub(crate) fn run_startup_gates_raw(conn: &Connection, _db_path: &str) -> Sqlite
     if schema_version >= 17 {
         crate::store::snapshot::validate_all_replay_snapshots(conn)?;
     }
+    validate_no_admission_cancellation_receipts(conn)?;
 
     // PRAGMA profile verification
     verify_pragma(conn, "journal_mode", "wal")?;

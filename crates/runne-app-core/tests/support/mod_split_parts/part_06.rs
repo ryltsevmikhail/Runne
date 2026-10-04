@@ -40,17 +40,35 @@ fn v2_taskrun_baseline() -> Result<Value, ()> {
     )
     .map_err(|_| ())?;
     let mut fields = runne_api::UnauthenticatedReplayRetentionBaselineFieldsV2 {
-        schema_version: 2, authority_id: uuid(&session.authority_id)?, principal_id: session.principal_id,
-        lineage_id: uuid(&session.event_log_lineage_id)?, runtime_session_binding_digest: binding.canonical_digest(),
-        replay_scope_digest: runne_api::canonical_aggregate_replay_scope_digest(runne_api::ApiReplayAggregateKind::TaskRun, &id),
-        aggregate_kind: runne_api::ApiReplayAggregateKind::TaskRun, aggregate_id: id,
-        sequence: 1, version: 1, baseline_global_position: 1,
-        head_event_id: uuid("018f2e3a-7000-7000-8002-000000000151")?, head_integrity_digest: [0x44; 32],
-        promotion_codec: 1, promotion_projection_digest: promotion_digest(&projection, &id), promotion_projection_bytes: projection,
-        retained_floor: 1, captured_high_water: 1, retention_generation: 1, retention_manifest_digest: [0x45; 32],
-        issued_at_unix_ms: issued, expires_at_unix_ms: issued + 20_000, witness_mac: [0; 32],
+        schema_version: 2,
+        authority_id: uuid(&session.authority_id)?,
+        principal_id: session.principal_id,
+        lineage_id: uuid(&session.event_log_lineage_id)?,
+        runtime_session_binding_digest: binding.canonical_digest(),
+        replay_scope_digest: runne_api::canonical_aggregate_replay_scope_digest(
+            runne_api::ApiReplayAggregateKind::TaskRun,
+            &id,
+        ),
+        aggregate_kind: runne_api::ApiReplayAggregateKind::TaskRun,
+        aggregate_id: id,
+        sequence: 1,
+        version: 1,
+        baseline_global_position: 1,
+        head_event_id: uuid("018f2e3a-7000-7000-8002-000000000151")?,
+        head_integrity_digest: [0x44; 32],
+        promotion_codec: 1,
+        promotion_projection_digest: promotion_digest(&projection, &id),
+        promotion_projection_bytes: projection,
+        retained_floor: 1,
+        captured_high_water: 1,
+        retention_generation: 1,
+        retention_manifest_digest: [0x45; 32],
+        issued_at_unix_ms: issued,
+        expires_at_unix_ms: issued + 20_000,
+        witness_mac: [0; 32],
     };
-    let unsigned = runne_api::ReplayRetentionBaselineWireV2::from_unauthenticated_fields(fields.clone());
+    let unsigned =
+        runne_api::ReplayRetentionBaselineWireV2::from_unauthenticated_fields(fields.clone());
     fields.witness_mac = baseline_mac(&binding, &unsigned)?;
     Ok(baseline_json(&fields))
 }
@@ -84,5 +102,22 @@ fn resume_taskrun_from_baseline(baseline: &Value) -> Response<Body> {
 fn taskrun_cursor(aggregate: &str, event: &str, sequence: u64) -> String {
     let id = hex::decode(aggregate).expect("taskrun id");
     let value = json!({"scope":{"Aggregate":{"aggregate_id":id,"aggregate_type":1}},"event_id":event,"sequence":sequence,"global_position":sequence});
-    format!("gocode-replay-cursor-v1.{}", hex::encode(serde_json::to_vec(&value).expect("taskrun cursor")))
+    format!(
+        "gocode-replay-cursor-v1.{}",
+        hex::encode(serde_json::to_vec(&value).expect("taskrun cursor"))
+    )
+}
+
+impl MockRuntime {
+    pub fn set_task_run_snapshots(&self, snapshots: Vec<Value>) {
+        self.state
+            .inner
+            .lock()
+            .expect("mock state")
+            .task_run_snapshots = snapshots;
+    }
+
+    pub fn set_task_run_events(&self, events: Vec<Value>) {
+        self.state.inner.lock().expect("mock state").task_run_events = events;
+    }
 }

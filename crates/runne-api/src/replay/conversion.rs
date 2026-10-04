@@ -54,6 +54,16 @@ impl From<&ConversationEvent> for CanonicalReplayPayloadV1 {
                 attempt_id: attempt_id.to_string(),
                 reason: generation_failure_reason(*reason).to_owned(),
             },
+            ConversationEvent::GenerationSupersededUnknown {
+                taskrun_id,
+                attempt_id,
+                successor_taskrun_id,
+                ..
+            } => Self::ConversationGenerationSupersededUnknown {
+                task_run_id: taskrun_id.to_string(),
+                attempt_id: attempt_id.to_string(),
+                successor_task_run_id: successor_taskrun_id.to_string(),
+            },
             ConversationEvent::ConversationClosed => Self::ConversationClosed,
         }
     }
@@ -104,6 +114,12 @@ impl TryFrom<&TaskRunEvent> for CanonicalReplayPayloadV1 {
             TaskRunEvent::ReconciliationStarted => Self::TaskRunReconciliationStarted,
             TaskRunEvent::Reconciled => Self::TaskRunReconciliationCompleted,
             TaskRunEvent::Unrecoverable => Self::TaskRunUnrecoverable,
+            TaskRunEvent::UserSupersedeUnknown {
+                successor_taskrun_id,
+                ..
+            } => Self::TaskRunSupersededUnknown {
+                successor_task_run_id: successor_taskrun_id.to_string(),
+            },
             TaskRunEvent::TaskRunCancelled => Self::TaskRunCancelled,
             TaskRunEvent::LoopCycleStarted {
                 cycle_id,

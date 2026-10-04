@@ -1,7 +1,6 @@
 use std::sync::{Arc, Barrier};
 
 use runne_application::provider::ProviderAuthorityIssueRequest;
-use runne_domain::id::{AttemptId, ConversationId, TaskRunId};
 use runne_provider::{
     DispatchAttemptId, ProviderCallDigestVersion, ProviderCallId, ProviderDispatchRepository,
     ProviderId, ProviderPreEffectRejection, ProviderStreamId,
@@ -37,6 +36,7 @@ fn legacy_claim(call_byte: u8) -> ProviderDispatchClaim {
 fn issue_dispatch(
     database: &validated_reopen::ProviderTestDatabase,
     call_byte: u8,
+    receipt: &runne_application::ports::TextGenerationReceipt,
 ) -> runne_provider::ProviderDispatchClaim {
     let record = prepared(call_byte);
     let execution = database.execution();
@@ -45,26 +45,29 @@ fn issue_dispatch(
         .unwrap();
     crate::online_proof::arm(&execution, 1);
     let ProviderAuthorityIssueOutcome::Winner(admitted) = execution
-        .issue(&launch, &ProviderAuthorityIssueRequest {
-            provider_id: ProviderId::new("fixture-provider").unwrap(),
-            principal_id: "provider-dispatch-test-principal".to_owned(),
-            conversation_id: ConversationId::from_bytes([call_byte.wrapping_add(30); 16]),
-            taskrun_id: TaskRunId::from_bytes([call_byte.wrapping_add(40); 16]),
-            execution_attempt_id: AttemptId::from_bytes([call_byte.wrapping_add(50); 16]),
-            prepared: runne_provider::PreparedProviderRecord {
-                call_id: record.call_id,
-                call_digest_version: record.call_digest_version,
-                prepared_digest: record.prepared_digest,
-                render_digest: record.render_digest,
-                profile_digest: record.profile_digest,
+        .issue(
+            &launch,
+            &ProviderAuthorityIssueRequest {
+                provider_id: ProviderId::new("fixture-provider").unwrap(),
+                principal_id: "provider-dispatch-test-principal".to_owned(),
+                conversation_id: receipt.conversation_id,
+                taskrun_id: receipt.taskrun_id,
+                execution_attempt_id: receipt.attempt_id,
+                prepared: runne_provider::PreparedProviderRecord {
+                    call_id: record.call_id,
+                    call_digest_version: record.call_digest_version,
+                    prepared_digest: record.prepared_digest,
+                    render_digest: record.render_digest,
+                    profile_digest: record.profile_digest,
+                },
+                pricing_revision_digest: [22; 32],
+                requested_input_tokens: 1,
+                requested_output_tokens: 1,
+                max_cost_micros: 1,
+                currency: "USD".to_owned(),
+                provider_idempotency_key: format!("provider-dispatch-test-{call_byte}"),
             },
-            pricing_revision_digest: [22; 32],
-            requested_input_tokens: 1,
-            requested_output_tokens: 1,
-            max_cost_micros: 1,
-            currency: "USD".to_owned(),
-            provider_idempotency_key: format!("provider-dispatch-test-{call_byte}"),
-        })
+        )
         .unwrap()
     else {
         panic!("fresh runtime issuance must win")
@@ -74,7 +77,7 @@ fn issue_dispatch(
 
 #[test]
 fn persist_prepared_exact_replay_is_idempotent_and_changed_digest_conflicts() {
-    let (_database, store, launch) = fresh_store("persist-replay");
+    let (_database, store, launch, _receipt) = fresh_store("persist-replay");
     let record = prepared(1);
 
     assert_eq!(
@@ -97,7 +100,7 @@ fn persist_prepared_exact_replay_is_idempotent_and_changed_digest_conflicts() {
 
 #[test]
 fn prepared_outer_digest_domains_are_versioned_and_mismatch_fails_closed() {
-    let (database, store, launch) = fresh_store("prepared-domains");
+    let (database, store, launch, _receipt) = fresh_store("prepared-domains");
     let mut v1 = prepared(1);
     v1.call_digest_version = ProviderCallDigestVersion::V1;
     let v2 = prepared(2);
@@ -144,9 +147,9 @@ fn prepared_outer_digest_domains_are_versioned_and_mismatch_fails_closed() {
 
 #[test]
 fn impossible_dispatch_state_shape_is_corrupt_not_recoverable() {
-    let (database, store, launch) = fresh_store("corrupt-state-shape");
+    let (database, store, launch, receipt) = fresh_store("corrupt-state-shape");
     store.persist_prepared(&launch, &prepared(1)).unwrap();
-    let dispatch_claim = issue_dispatch(&database, 1);
+    let dispatch_claim = issue_dispatch(&database, 1, &receipt);
 
     let connection = database.connection();
     connection
@@ -170,9 +173,9 @@ fn impossible_dispatch_state_shape_is_corrupt_not_recoverable() {
 
 #[test]
 fn v2_dispatch_cannot_downgrade_to_legacy_settlement_without_stream_evidence() {
-    let (database, store, launch) = fresh_store("legacy-settlement-downgrade");
+    let (database, store, launch, receipt) = fresh_store("legacy-settlement-downgrade");
     store.persist_prepared(&launch, &prepared(1)).unwrap();
-    let dispatch_claim = issue_dispatch(&database, 1);
+    let dispatch_claim = issue_dispatch(&database, 1, &receipt);
 
     let connection = database.connection();
     connection
@@ -206,7 +209,7 @@ fn v2_dispatch_cannot_downgrade_to_legacy_settlement_without_stream_evidence() {
 
 #[test]
 fn legacy_caller_selected_claim_is_typed_and_leaves_no_effect_rows() {
-    let (database, store, launch) = fresh_store("claim-disabled");
+    let (database, store, launch, _receipt) = fresh_store("claim-disabled");
     store.persist_prepared(&launch, &prepared(1)).unwrap();
 
     assert_eq!(
@@ -234,8 +237,8 @@ fn legacy_caller_selected_claim_is_typed_and_leaves_no_effect_rows() {
 
 #[test]
 fn dispatch_lifecycle_replays_exactly_and_reopens_incomplete_as_uncertain() {
-    let (database, store, _launch) = fresh_store("lifecycle");
-    let dispatch_claim = stream_dispatch(&database, 1);
+    let (database, store, _launch, receipt) = fresh_store("lifecycle");
+    let dispatch_claim = stream_dispatch(&database, 1, &receipt);
 
     let streaming = MarkProviderStreaming {
         attempt_id: dispatch_claim.attempt_id,
@@ -243,8 +246,18 @@ fn dispatch_lifecycle_replays_exactly_and_reopens_incomplete_as_uncertain() {
         stream_id: ProviderStreamId::from_bytes([10; 16]),
     };
     // Exact coordinator replay is asserted by stream_dispatch; clockless publication is denied.
-    assert_eq!(store.mark_streaming(&streaming), Err(ProviderStoreError::StaleFencingToken));
-    assert_eq!(store.get_dispatch(dispatch_claim.attempt_id).unwrap().unwrap().state, ProviderDispatchState::Streaming);
+    assert_eq!(
+        store.mark_streaming(&streaming),
+        Err(ProviderStoreError::StaleFencingToken)
+    );
+    assert_eq!(
+        store
+            .get_dispatch(dispatch_claim.attempt_id)
+            .unwrap()
+            .unwrap()
+            .state,
+        ProviderDispatchState::Streaming
+    );
     drop(store);
 
     let reopened = database.dispatch();

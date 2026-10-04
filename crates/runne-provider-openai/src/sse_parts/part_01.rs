@@ -36,8 +36,8 @@ pub enum OpenAiStreamError {
     /// EOF arrived without one allowed terminal event.
     #[error("OpenAI stream ended without terminal evidence")]
     TerminalMissing,
-    /// A successful terminal omitted or contradicted usage evidence.
-    #[error("OpenAI completed response usage is invalid")]
+    /// A present usage object was malformed or internally inconsistent.
+    #[error("OpenAI response usage is invalid")]
     InvalidUsage,
 }
 
@@ -45,6 +45,8 @@ pub enum OpenAiStreamError {
 enum LifecycleStage {
     Start,
     Created,
+    CreatedQueued,
+    Queued,
     InProgress,
     ItemAdded,
     PartAdded,
@@ -57,10 +59,12 @@ enum LifecycleStage {
 #[derive(Debug)]
 struct Lifecycle {
     stage: LifecycleStage,
+    background: bool,
     response_id: Option<String>,
     item_id: Option<String>,
     text: String,
     normalized: Vec<ProviderStreamEvent>,
+    next_normalized_sequence: u64,
     next_remote_sequence: u64,
 }
 
@@ -68,10 +72,12 @@ impl Default for Lifecycle {
     fn default() -> Self {
         Self {
             stage: LifecycleStage::Start,
+            background: false,
             response_id: None,
             item_id: None,
             text: String::new(),
             normalized: Vec::new(),
+            next_normalized_sequence: 0,
             next_remote_sequence: 0,
         }
     }
@@ -231,6 +237,7 @@ impl Lifecycle {
             .ok_or(OpenAiStreamError::StreamLimitExceeded)?;
         match event_type {
             "response.created" => self.accept_created(object),
+            "response.queued" => self.accept_queued(object),
             "response.in_progress" => self.accept_in_progress(object),
             "response.output_item.added" => self.accept_item_added(object),
             "response.content_part.added" => self.accept_part_added(object),
@@ -245,7 +252,6 @@ impl Lifecycle {
             _ => Err(OpenAiStreamError::UnknownEvent),
         }
     }
-
 }
 impl Lifecycle {
     fn accept_created(&mut self, event: &Map<String, Value>) -> Result<(), OpenAiStreamError> {
@@ -254,19 +260,25 @@ impl Lifecycle {
             return Err(OpenAiStreamError::IllegalTransition);
         }
         let response = required_object(event, "response")?;
-        self.bind_response(response, "in_progress")?;
+        let queued = self.bind_created_response(response)?;
         require_empty_output(response)?;
         require_null_or_missing(response, "usage")?;
         self.ensure_started()?;
-        self.stage = LifecycleStage::Created;
+        self.stage = if queued {
+            LifecycleStage::CreatedQueued
+        } else {
+            LifecycleStage::Created
+        };
         Ok(())
     }
-
 }
 impl Lifecycle {
     fn accept_in_progress(&mut self, event: &Map<String, Value>) -> Result<(), OpenAiStreamError> {
         require_keys(event, &["response", "sequence_number", "type"])?;
-        if self.stage != LifecycleStage::Created {
+        if !matches!(
+            self.stage,
+            LifecycleStage::Created | LifecycleStage::CreatedQueued | LifecycleStage::Queued
+        ) {
             return Err(OpenAiStreamError::IllegalTransition);
         }
         let response = required_object(event, "response")?;
@@ -276,5 +288,4 @@ impl Lifecycle {
         self.stage = LifecycleStage::InProgress;
         Ok(())
     }
-
 }

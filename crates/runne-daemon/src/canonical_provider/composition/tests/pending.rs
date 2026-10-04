@@ -3,10 +3,10 @@ use runne_application::provider::ProviderAuthorityIssueRequest;
 use runne_provider::{
     CancelDisposition, CancelRequest, DispatchError, DispatchRequest, ModelRef, PrepareError,
     PreparedProviderRecord as ContractPreparedProviderRecord, PreparedRequest, ProviderCall,
-    ProviderCallId, ProviderFinishReason, ProviderFuture, ProviderId, ProviderPort,
-    ProviderStreamEvent, ProviderStreamEventKind, ProviderStreamId, ProviderStreamItem,
-    ProviderTerminalDisposition, ProviderUsage, ReconcileRequest, ReconciliationDisposition,
-    StreamCursor, StreamError, TextProviderProfile,
+    ProviderCallId, ProviderCapability, ProviderFinishReason, ProviderFuture, ProviderId,
+    ProviderInputRole, ProviderPort, ProviderStreamEvent, ProviderStreamEventKind,
+    ProviderStreamId, ProviderStreamItem, ProviderTerminalDisposition, ProviderUsage,
+    ReconcileRequest, ReconciliationDisposition, StreamCursor, StreamError, TextProviderProfile,
 };
 use runne_runtime::provider_execution::{ProviderEventJournalContext, RuntimeProviderExecution};
 use runne_store::provider::PreparedProviderRecord;
@@ -21,17 +21,23 @@ pub(super) async fn create(
     let call = ProviderCall::new(
         ProviderCallId::from_bytes([1; 16]),
         ModelRef::new(
-            ProviderId::new("fixture-provider").unwrap(),
-            "fixture-model",
-            "v1",
+            ProviderId::new(service.provider_id.as_ref()).unwrap(),
+            service.model_id.as_ref(),
+            service.model_revision.as_ref(),
         )
         .unwrap(),
         [2; 32],
         1_024,
-        serde_json::Value::Null,
+        service.profile.call_binding_extension(),
     )
-    .unwrap();
-    let prepared = PreparedRequest::from_call(&call).unwrap();
+    .unwrap()
+    .with_text_inputs(vec![
+        runne_provider::ProviderTextInput::new(ProviderInputRole::User, "pending recovery fixture")
+            .unwrap(),
+    ])
+    .unwrap()
+    .with_required_capabilities(vec![ProviderCapability::Streaming]);
+    let prepared = service.adapter.prepare(&call).unwrap();
     let record = PreparedProviderRecord {
         call_id: call.call_id(),
         call_digest_version: prepared.request_ref().digest_version(),
@@ -69,6 +75,7 @@ pub(super) async fn create(
         call,
         &request,
         Some(ProviderStreamId::from_bytes([3; 16])),
+        None,
     );
     let matcher = ProhibitedContentCredentialMatcher::new(service.prohibited_content.as_ref());
     let redaction = ProviderEventRedactionBoundary::new(

@@ -125,6 +125,30 @@ pub(super) fn correlate_task_run(
         ) => Ok(CommandReconciliationOutcome::TaskRunSubmitted(
             TaskRunSubmitAcknowledgement::observed(actual, 2),
         )),
+        (
+            CommandReconciliationWitness::SupersedeUnknownTaskRun {
+                predecessor_task_run_id,
+                expected_version,
+            },
+            OutcomeWire::SupersedeUnknownTaskRun {
+                predecessor_task_run_id: actual_predecessor,
+                successor_task_run_id,
+                new_version,
+            },
+        ) if *predecessor_task_run_id == actual_predecessor
+            && successor_task_run_id != actual_predecessor
+            && (*expected_version == new_version
+                || expected_version.checked_add(1) == Some(new_version)) =>
+        {
+            Ok(CommandReconciliationOutcome::UnknownSuccessorCreated(
+                super::super::super::TaskRunSuccessorAcknowledgement::observed(
+                    actual_predecessor,
+                    successor_task_run_id,
+                    new_version,
+                    2,
+                ),
+            ))
+        }
         _ => Err(invalid_response()),
     }
 }

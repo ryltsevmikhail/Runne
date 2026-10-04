@@ -120,3 +120,27 @@
 
         assert_eq!(codec.decode(&bytes).unwrap(), original);
     }
+
+    #[test]
+    fn idempotency_scope_codec_roundtrips_successor_and_rejects_next_tag() {
+        let codec = IdempotencyScopeCodec;
+        let original = IdempotencyScope {
+            runtime_authority_id: runne_application::ports::RuntimeAuthorityId("host-1".into()),
+            principal_id: runne_application::ports::PrincipalId("user-1".into()),
+            operation: OperationTag::SupersedeUnknownTaskRun,
+            aggregate_scope: AggregateScope::ExistingTaskRun {
+                taskrun_id: TR_ID.parse().unwrap(),
+            },
+        };
+        let mut bytes = codec.encode(&original).unwrap();
+        assert_eq!(codec.decode(&bytes).unwrap(), original);
+        let operation_offset = 2 + 2 + "host-1".len() + 2 + "user-1".len();
+        bytes[operation_offset] = 25;
+        assert!(matches!(
+            codec.decode(&bytes),
+            Err(StoreCodecError::UnknownTag {
+                tag: 25,
+                context: "OperationTag"
+            })
+        ));
+    }

@@ -35,10 +35,8 @@ pub(crate) fn run_control_loop_v2(
     #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
     let mut status_guard =
         status_guard::SessionRevocationGuard::new(*owned_launch.session_id(), |session| {
-            if let Some((composition, _)) = enrollment_transition.as_ref()
-                && let Some(control) = composition.enrollment_control.as_ref()
-            {
-                control.clear_http_facts(session);
+            if let Some((composition, _)) = enrollment_transition.as_ref() {
+                composition.clear_http_facts(session);
             }
         });
     channel.enter_control_loop()?;
@@ -116,6 +114,7 @@ pub(crate) fn run_control_loop_v2(
                         rendezvous,
                         installed_facts,
                     )
+                    .with_http_controls(composition.session_controls())
                     .with_round_profile(composition.profile_directory.clone(), installation),
                 );
             }
@@ -136,6 +135,7 @@ pub(crate) fn run_control_loop_v2(
                         composition.enrollment_control.clone(),
                         rendezvous,
                     )
+                    .with_http_controls(composition.session_controls())
                     .with_linux_writer_capability(
                         linux_writer_capability.ok_or(LaunchAuthorityError::OwnershipMismatch)?,
                     ),

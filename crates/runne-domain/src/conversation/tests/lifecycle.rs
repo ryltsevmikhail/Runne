@@ -209,3 +209,49 @@
         assert_eq!(replayed.messages().len(), 1);
         assert_eq!(replayed.messages()[0].role, MessageRole::User);
     }
+
+    #[test]
+    fn explicit_unknown_supersession_releases_only_the_exact_active_generation() {
+        let created = make_envelope(
+            1,
+            ConversationEvent::ConversationCreated {
+                workspace_id: workspace_id(),
+            },
+            conversation_aggregate_id(),
+            conversation_aggregate_id(),
+        );
+        let user = make_envelope(
+            2,
+            ConversationEvent::UserMessageAppended {
+                message_id: user_message_id(),
+                taskrun_id: taskrun_id(),
+                attempt_id: attempt_id(),
+                text: MessageText::new("run command").unwrap(),
+            },
+            conversation_aggregate_id(),
+            conversation_aggregate_id(),
+        );
+        let active = Conversation::replay(&[created.clone(), user.clone()]).unwrap();
+        let digest = IntegrityDigest::from_bytes([0x5a; 32]);
+        let successor = "018f0000-0000-7000-8000-000000000002".parse().unwrap();
+        let draft = active
+            .decide(ConversationCommand::SupersedeGenerationUnknown {
+                taskrun_id: taskrun_id(),
+                attempt_id: attempt_id(),
+                successor_taskrun_id: successor,
+                acknowledgement_digest: digest,
+            })
+            .unwrap()
+            .remove(0);
+        assert_eq!(draft.sensitivity(), &Sensitivity::Public);
+        let marker = make_envelope(
+            3,
+            draft.into_payload(),
+            conversation_aggregate_id(),
+            conversation_aggregate_id(),
+        );
+
+        let replayed = Conversation::replay(&[created, user, marker]).unwrap();
+        assert_eq!(replayed.active_generation(), None);
+        assert_eq!(replayed.messages().len(), 1);
+    }

@@ -2,7 +2,6 @@ use runne_application::provider::{
     ProviderAdmissionError, ProviderAuthorityIssueRequest, ProviderExecutionStore,
     ProviderJournalKeyBinding,
 };
-use runne_domain::id::{AttemptId, ConversationId, TaskRunId};
 use runne_provider::{
     ModelRef, PreparedProviderRecord as ContractPreparedProviderRecord, PreparedRequest,
     ProviderCall, ProviderCallId, ProviderId,
@@ -35,8 +34,7 @@ fn config() -> ProviderRuntimeAuthorityConfig {
         approval_revocation_epoch: 1,
         profile_digest: [2; 32],
         pricing_revision_digest: [3; 32],
-        activation_binding_kind:
-            runne_application::provider::ProviderLeaseBindingKind::ProtectedV2,
+        activation_binding_kind: runne_application::provider::ProviderLeaseBindingKind::ProtectedV2,
         activation_binding_digest: [4; 32],
         token_budget_limit: 10_000,
         cost_budget_limit_micros: 1_000_000,
@@ -79,13 +77,16 @@ fn prepared() -> (
     };
     (store_record, contract_record, call)
 }
-fn issue_request(prepared: ContractPreparedProviderRecord) -> ProviderAuthorityIssueRequest {
+fn issue_request(
+    prepared: ContractPreparedProviderRecord,
+    started: &runne_application::ports::TextGenerationReceipt,
+) -> ProviderAuthorityIssueRequest {
     ProviderAuthorityIssueRequest {
         provider_id: ProviderId::new("fixture-provider").unwrap(),
         principal_id: "principal-1".to_owned(),
-        conversation_id: ConversationId::from_bytes([6; 16]),
-        taskrun_id: TaskRunId::from_bytes([7; 16]),
-        execution_attempt_id: AttemptId::from_bytes([8; 16]),
+        conversation_id: started.conversation_id,
+        taskrun_id: started.taskrun_id,
+        execution_attempt_id: started.attempt_id,
         prepared,
         pricing_revision_digest: [3; 32],
         requested_input_tokens: 512,
@@ -106,11 +107,22 @@ fn initialize(
     ProviderAuthorityIssueRequest,
 ) {
     let (prepared, contract, _) = prepared();
+    let started = provider_taskrun_start::begin(
+        database.path(),
+        [1; 16],
+        "principal-1",
+        "provider execution store fixture",
+    );
+    let receipt = started.receipt.clone();
+    drop(started);
     let execution = database.execution();
     let launch = Arc::new(execution.activate_runtime_launch(&config()).unwrap());
     arm(&execution);
-    database.dispatch().persist_prepared(&launch, &prepared).unwrap();
-    (execution, launch, issue_request(contract))
+    database
+        .dispatch()
+        .persist_prepared(&launch, &prepared)
+        .unwrap();
+    (execution, launch, issue_request(contract, &receipt))
 }
 #[test]
 fn issuance_atomically_commits_claim_reservations_authority_audit_intent_and_permit() {
@@ -220,16 +232,31 @@ fn policy_approval_budget_pricing_and_generation_denials_leave_no_claim() {
     ];
 
     for (index, (mutate, expected)) in mutations.into_iter().enumerate() {
-        let database = validated_reopen::ProviderTestDatabase::new(&format!("provider-denial-{index}"));
+        let database =
+            validated_reopen::ProviderTestDatabase::new(&format!("provider-denial-{index}"));
         let (prepared, contract, _) = prepared();
+        let started = provider_taskrun_start::begin(
+            database.path(),
+            [1; 16],
+            "principal-1",
+            "provider execution denial fixture",
+        );
+        let receipt = started.receipt.clone();
+        drop(started);
         let store = database.execution();
         let mut runtime = config();
         mutate(&mut runtime);
         let launch = store.activate_runtime_launch(&runtime).unwrap();
         arm(&store);
-        database.dispatch().persist_prepared(&launch, &prepared).unwrap();
+        database
+            .dispatch()
+            .persist_prepared(&launch, &prepared)
+            .unwrap();
 
-        assert_eq!(store.issue(&launch, &issue_request(contract)), Err(expected));
+        assert_eq!(
+            store.issue(&launch, &issue_request(contract, &receipt)),
+            Err(expected)
+        );
         assert_eq!(store.admitted_count().unwrap(), 0);
     }
 

@@ -6,9 +6,15 @@ fn v47_adds_durable_text_only_lineage_and_reopens() {
     assert!(v46_matches(&connection, 46).unwrap());
 
     apply_migrations(&connection).unwrap();
-    assert_eq!(schema_marker(&connection), 48);
-    assert!(v48_matches(&connection, 48).unwrap(), "v46 inherited schema");
-    assert!(v47_triggers_match(&connection).unwrap(), "v47 trigger definitions");
+    assert_eq!(schema_marker(&connection), CURRENT_SCHEMA_VERSION);
+    assert!(
+        v63_matches(&connection, CURRENT_SCHEMA_VERSION).unwrap(),
+        "v46 inherited schema"
+    );
+    assert!(
+        v47_triggers_match(&connection).unwrap(),
+        "v47 trigger definitions"
+    );
     assert!(v47_rows_match(&connection).unwrap(), "v47 lineage rows");
     assert!(v47_matches(&connection, 47).unwrap());
     assert!(classify_existing_connection(&connection).is_ok());

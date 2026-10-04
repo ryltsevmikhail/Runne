@@ -1,7 +1,7 @@
 {
         let mut pos = 0usize;
         let version = read_u16_be(bytes, &mut pos)?;
-        if version != Self::CODEC_VERSION {
+        if !(1..=Self::CODEC_VERSION).contains(&version) {
             return Err(StoreCodecError::UnsupportedVersion {
                 found: version,
                 supported: Self::CODEC_VERSION,
@@ -14,20 +14,7 @@
         pos += 1;
 
         let event = match tag {
-            TAG_TASK_RUN_SUBMITTED => {
-                let conversation_id = runne_domain::id::ConversationId::from_bytes(read_uuid(bytes, &mut pos)?);
-                let workspace_id = runne_domain::id::WorkspaceId::from_bytes(read_uuid(bytes, &mut pos)?);
-                if pos + 4 > bytes.len() { return Err(StoreCodecError::Truncated); }
-                let length = u32::from_be_bytes(bytes[pos..pos + 4].try_into().map_err(|_| StoreCodecError::Truncated)?) as usize;
-                pos += 4;
-                let end = pos.checked_add(length).ok_or(StoreCodecError::Truncated)?;
-                let prompt = std::str::from_utf8(bytes.get(pos..end).ok_or(StoreCodecError::Truncated)?)
-                    .map_err(|_| StoreCodecError::Truncated)?.to_owned();
-                pos = end;
-                let input = runne_domain::task_run::TaskRunInput::new(prompt)
-                    .map_err(|_| StoreCodecError::Truncated)?;
-                TaskRunEvent::TaskRunSubmitted { conversation_id, workspace_id, input }
-            }
+            TAG_TASK_RUN_SUBMITTED => submitted::decode(bytes, &mut pos, version)?,
             TAG_TASK_RUN_CREATED => TaskRunEvent::TaskRunCreated,
             TAG_TASK_RUN_QUEUED => TaskRunEvent::TaskRunQueued,
             TAG_TASK_RUN_ADMITTED => TaskRunEvent::TaskRunAdmitted,
@@ -74,6 +61,19 @@
             TAG_RECONCILIATION_STARTED => TaskRunEvent::ReconciliationStarted,
             TAG_RECONCILED => TaskRunEvent::Reconciled,
             TAG_UNRECOVERABLE => TaskRunEvent::Unrecoverable,
+            TAG_USER_SUPERSEDE_UNKNOWN if version == Self::CODEC_VERSION => {
+                TaskRunEvent::UserSupersedeUnknown {
+                    predecessor_attempt_id: AttemptId::from_bytes(read_uuid(bytes, &mut pos)?),
+                    successor_taskrun_id: TaskRunId::from_bytes(read_uuid(bytes, &mut pos)?),
+                    acknowledgement_digest: read_digest(bytes, &mut pos)?,
+                }
+            }
+            TAG_USER_SUPERSEDE_UNKNOWN => {
+                return Err(StoreCodecError::UnknownTag {
+                    tag,
+                    context: "UserSupersedeUnknown requires TaskRun codec v6",
+                });
+            }
             TAG_TASK_RUN_CANCELLED => TaskRunEvent::TaskRunCancelled,
             TAG_LOOP_CYCLE_STARTED => {
                 let cycle_id = CycleId::from_bytes(read_uuid(bytes, &mut pos)?);

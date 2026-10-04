@@ -21,7 +21,7 @@ mod tests {
 
     #[test]
     fn managed_record_is_bound_to_the_exact_session_and_bootstrap_authority() {
-        let (mut control, _) = super::super::protected_session_tests::control();
+        let (mut control, _) = super::super::test_modules::protected_session_tests::control();
         let (owned, _, _) = crate::protected_activation::test_enrollment_owned_and_sessions();
         let root = tempfile::tempdir().unwrap();
         let mut facts = LinuxInstallationFacts {
@@ -139,6 +139,22 @@ mod tests {
 }
 
 impl DaemonProviderCredentialEnrollmentControl {
+    #[cfg(all(test, target_os = "linux", feature = "desktop-protected"))]
+    pub(crate) fn test_set_runtime_authority(&mut self, authority: [u8; 16]) {
+        self.runtime_authority = authority;
+    }
+
+    #[cfg(all(test, target_os = "linux", feature = "desktop-protected"))]
+    pub(crate) fn test_linux_preadmission_allows(
+        &self,
+        session: [u8; 16],
+        runtime_authority: [u8; 16],
+        provider: runne_api::ProviderCredentialProviderV2,
+    ) -> bool {
+        self.linux_preadmission_for(session, runtime_authority)
+            .is_ok_and(|gate| gate.enforce(provider).is_ok())
+    }
+
     pub(crate) fn rebind_idle_linux_preadmission(
         &self,
         old_session: [u8; 16],
@@ -159,12 +175,13 @@ impl DaemonProviderCredentialEnrollmentControl {
             .linux_preadmission
             .lock()
             .map_err(|_| ProviderCredentialEnrollmentHostError::Unavailable)?;
-        if let Some(bound) = slot.as_mut() {
-            if bound.session != old_session {
-                return Err(ProviderCredentialEnrollmentHostError::AccessDenied);
-            }
-            bound.session = new_session;
+        let Some(bound) = slot.as_mut() else {
+            return Err(ProviderCredentialEnrollmentHostError::AccessDenied);
+        };
+        if bound.session != old_session {
+            return Err(ProviderCredentialEnrollmentHostError::AccessDenied);
         }
+        bound.session = new_session;
         Ok(())
     }
 
@@ -186,11 +203,22 @@ impl DaemonProviderCredentialEnrollmentControl {
             .linux_preadmission
             .lock()
             .map_err(|_| ProviderCredentialEnrollmentHostError::Unavailable)?;
+        if slot.is_some() {
+            return Err(ProviderCredentialEnrollmentHostError::Conflict);
+        }
         *slot = Some(SessionGate {
             session: *owned.session_id(),
             gate,
         });
         Ok(())
+    }
+
+    pub(crate) fn clear_linux_preadmission(&self, session: [u8; 16]) {
+        if let Ok(mut slot) = self.linux_preadmission.lock()
+            && slot.as_ref().is_some_and(|bound| bound.session == session)
+        {
+            *slot = None;
+        }
     }
 
     pub(super) fn linux_preadmission_for(

@@ -12,6 +12,8 @@ use tokio::{
 mod error_responses;
 #[path = "command_reconciliation/response_limits.rs"]
 mod response_limits;
+#[path = "command_reconciliation/taskrun_failure_reasons.rs"]
+mod taskrun_failure_reasons;
 
 fn identity() -> CommandIdentity {
     CommandIdentity::new(

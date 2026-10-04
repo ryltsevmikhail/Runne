@@ -32,6 +32,8 @@ mod online_credential_fixture;
 mod online_proof;
 #[path = "support/provider_native_effect/positive.rs"]
 mod positive;
+#[path = "support/provider_taskrun_start.rs"]
+mod provider_taskrun_start;
 #[path = "support/validated_reopen.rs"]
 mod validated_reopen;
 

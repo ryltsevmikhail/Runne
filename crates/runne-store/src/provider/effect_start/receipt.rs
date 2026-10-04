@@ -7,7 +7,6 @@
 ///     let _ = receipt.clone();
 /// }
 /// ```
-#[derive(PartialEq, Eq)]
 pub struct ProviderEffectStartReceipt {
     expires_at: i64,
     attempt_id: [u8; 16],
@@ -26,7 +25,32 @@ pub struct ProviderEffectStartReceipt {
     credential_owner: [u8; 16],
     credential_expires_at: i64,
     credential_fencing_token: u64,
+    final_send: Option<crate::provider::ProviderFinalSendAuthority>,
 }
+
+impl PartialEq for ProviderEffectStartReceipt {
+    fn eq(&self, other: &Self) -> bool {
+        self.expires_at == other.expires_at
+            && self.deadline == other.deadline
+            && self.attempt_id == other.attempt_id
+            && self.permit_id == other.permit_id
+            && self.provider_idempotency_key == other.provider_idempotency_key
+            && self.prepared_digest == other.prepared_digest
+            && self.render_digest == other.render_digest
+            && self.profile_digest == other.profile_digest
+            && self.fencing_token == other.fencing_token
+            && self.token_reservation_id == other.token_reservation_id
+            && self.cost_reservation_id == other.cost_reservation_id
+            && self.credential_provider == other.credential_provider
+            && self.credential_version == other.credential_version
+            && self.credential_ref_digest == other.credential_ref_digest
+            && self.credential_owner == other.credential_owner
+            && self.credential_expires_at == other.credential_expires_at
+            && self.credential_fencing_token == other.credential_fencing_token
+    }
+}
+
+impl Eq for ProviderEffectStartReceipt {}
 
 impl std::fmt::Debug for ProviderEffectStartReceipt {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -40,6 +64,22 @@ impl std::fmt::Debug for ProviderEffectStartReceipt {
 }
 
 impl ProviderEffectStartReceipt {
+    /// Moves out the mandatory one-use gate for the external effect boundary.
+    pub fn take_final_send_authority(
+        &mut self,
+    ) -> Result<crate::provider::ProviderFinalSendAuthority, ProviderAdmissionError> {
+        self.final_send
+            .take()
+            .ok_or(ProviderAdmissionError::AuthorityDenied)
+    }
+
+    pub(crate) fn install_final_send_authority(
+        &mut self,
+        authority: crate::provider::ProviderFinalSendAuthority,
+    ) {
+        self.final_send = Some(authority);
+    }
+
     /// Absolute Unix-second effect expiry loaded after the committed CAS.
     pub const fn expires_at(&self) -> i64 {
         self.expires_at

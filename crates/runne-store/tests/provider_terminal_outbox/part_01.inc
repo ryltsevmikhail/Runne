@@ -4,7 +4,6 @@ use runne_application::provider::{
     ProviderJournalAppendRequest, ProviderJournalKeyBinding, ProviderPollRequest,
     ProviderTerminalCommitOutcome,
 };
-use runne_domain::id::{AttemptId, ConversationId, TaskRunId};
 use runne_provider::{
     ModelRef, PreparedProviderRecord as ContractPreparedProviderRecord, PreparedRequest,
     ProviderCall, ProviderCallId, ProviderId, ProviderStreamId, ProviderUsage,
@@ -13,9 +12,8 @@ use runne_runtime::provider_execution::{
     ProviderTerminalCommitRequest, ProviderTerminalPersistence,
 };
 use runne_store::provider::{
-    PreparedProviderRecord,
-    ProviderRuntimeAuthorityConfig, ProviderRuntimeLaunchCapability, SqliteProviderDispatchStore,
-    SqliteProviderExecutionStore,
+    PreparedProviderRecord, ProviderRuntimeAuthorityConfig, ProviderRuntimeLaunchCapability,
+    SqliteProviderDispatchStore, SqliteProviderExecutionStore,
 };
 use rusqlite::Connection;
 struct Fixture {
@@ -26,9 +24,19 @@ struct Fixture {
     fencing_token: u64,
     key: ProviderJournalKeyBinding,
     database: validated_reopen::ProviderTestDatabase,
+    denied_receipt: runne_application::ports::TextGenerationReceipt,
 }
 fn fixture() -> Fixture {
     let database = validated_reopen::ProviderTestDatabase::new("provider-terminal");
+    let mut receipts = online_stream_fixture::begin_taskruns(
+        &database,
+        [1; 16],
+        "principal-1",
+        "provider terminal fixture",
+        &[82, 0x92],
+    );
+    let taskrun_receipt = receipts.remove(0);
+    let denied_receipt = receipts.remove(0);
     let call = ProviderCall::new(
         ProviderCallId::from_bytes([4; 16]),
         ModelRef::new(
@@ -86,26 +94,34 @@ fn fixture() -> Fixture {
         .persist_prepared(&launch, &prepared_record)
         .unwrap();
     let request = ProviderAuthorityIssueRequest {
-                provider_id: ProviderId::new("fixture-provider").unwrap(),
-                principal_id: "principal-1".to_owned(),
-                conversation_id: ConversationId::from_bytes([6; 16]),
-                taskrun_id: TaskRunId::from_bytes([7; 16]),
-                execution_attempt_id: AttemptId::from_bytes([8; 16]),
-                prepared: ContractPreparedProviderRecord {
-                    call_id: prepared_record.call_id,
-                    call_digest_version: prepared_record.call_digest_version,
-                    prepared_digest: prepared_record.prepared_digest,
-                    render_digest: prepared_record.render_digest,
-                    profile_digest: prepared_record.profile_digest,
-                },
-                pricing_revision_digest: [3; 32],
-                requested_input_tokens: 512,
-                requested_output_tokens: 1_024,
-                max_cost_micros: 50_000,
-                currency: "USD".to_owned(),
-                provider_idempotency_key: "provider-terminal-1".to_owned(),
+        provider_id: ProviderId::new("fixture-provider").unwrap(),
+        principal_id: "principal-1".to_owned(),
+        conversation_id: taskrun_receipt.conversation_id,
+        taskrun_id: taskrun_receipt.taskrun_id,
+        execution_attempt_id: taskrun_receipt.attempt_id,
+        prepared: ContractPreparedProviderRecord {
+            call_id: prepared_record.call_id,
+            call_digest_version: prepared_record.call_digest_version,
+            prepared_digest: prepared_record.prepared_digest,
+            render_digest: prepared_record.render_digest,
+            profile_digest: prepared_record.profile_digest,
+        },
+        pricing_revision_digest: [3; 32],
+        requested_input_tokens: 512,
+        requested_output_tokens: 1_024,
+        max_cost_micros: 50_000,
+        currency: "USD".to_owned(),
+        provider_idempotency_key: "provider-terminal-1".to_owned(),
     };
-    let (binding, _) = online_stream_fixture::start(&database, &execution, &launch, call, &request, ProviderStreamId::from_bytes([9; 16]), 82);
+    let (binding, _) = online_stream_fixture::start(
+        &database,
+        &execution,
+        &launch,
+        call,
+        &request,
+        ProviderStreamId::from_bytes([9; 16]),
+        82,
+    );
     Fixture {
         execution,
         launch,
@@ -114,6 +130,7 @@ fn fixture() -> Fixture {
         fencing_token: binding.execution().fencing_token(),
         key,
         database,
+        denied_receipt,
     }
 }
 fn encrypted(nonce_byte: u8, plaintext_byte: u8) -> ProviderEncryptedPayload {

@@ -51,6 +51,33 @@ impl AppCore {
         }
     }
 
+    /// Creates a linked successor after explicit duplicate-execution and cost acknowledgment.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the ID, expected version, mutation anchor, runtime
+    /// response, or authoritative acknowledgement is invalid.
+    pub async fn supersede_unknown_task_run(
+        &self,
+        task_run_id: &str,
+        expected_version: u64,
+        acknowledgment: runne_runtime_client::UnknownSuccessorAcknowledgment,
+    ) -> Result<runne_runtime_client::TaskRunSuccessorAcknowledgement, AppCoreError> {
+        let task_run_id =
+            CanonicalId::parse(task_run_id).map_err(|_| AppCoreError::InvalidMutation)?;
+        let lease = self
+            .prepare_mutation(MutationRequest::supersede_unknown_task_run(
+                task_run_id,
+                expected_version,
+                acknowledgment,
+            )?)
+            .await?;
+        match self.dispatch_prepared_mutation(lease).await? {
+            MutationDispatchResult::TaskRunUnknownSuccessorCreated(value) => Ok(value),
+            _ => Err(AppCoreError::InvalidMutation),
+        }
+    }
+
     /// Queries and durably replays one authoritative `TaskRun` timeline.
     ///
     /// # Errors
@@ -67,6 +94,30 @@ impl AppCore {
         let context = self.task_run_read_context()?;
         self.reconcile_task_run_under_operation(&context, task_run_id, |_| {})
             .await
+    }
+
+    /// Reads the versioned local and remote effect facts for one `TaskRun`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the authenticated runtime is unavailable or its
+    /// effect projection is invalid.
+    pub async fn get_task_run_effects(
+        &self,
+        task_run_id: &str,
+    ) -> Result<runne_runtime_client::TaskRunEffectsV1, AppCoreError> {
+        let task_run_id =
+            CanonicalId::parse(task_run_id).map_err(|_| AppCoreError::RuntimeUnavailable)?;
+        let _operation = self.runtime_operation.lock().await;
+        let context = self.task_run_read_context()?;
+        self.require_current_operation_context(&context)?;
+        let effects = context
+            .client
+            .get_task_run_effects(task_run_id)
+            .await
+            .map_err(|_| AppCoreError::RuntimeUnavailable)?;
+        self.require_current_operation_context(&context)?;
+        Ok(effects)
     }
 
     /// Performs only an authenticated read/replay recovery for a `TaskRun`.

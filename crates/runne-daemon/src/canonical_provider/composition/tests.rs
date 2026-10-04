@@ -12,18 +12,12 @@ use runne_application::conversation_service::ConversationService;
 use runne_application::conversation_text_service::{
     ConversationTextCommandService, ConversationTextService,
 };
-use runne_application::ports::{
-    ApplicationCommandContext, Clock, ClockError, PrincipalId, RuntimeAuthorityId,
-};
+use runne_application::ports::{ApplicationCommandContext, Clock, ClockError, RuntimeAuthorityId};
 use runne_application::prohibited_content::ProhibitedContentPort;
 use runne_application::project_trust::ProjectTrustPersistence;
 use runne_application::provider::ProviderExecutionStore;
 use runne_domain::timestamp::Timestamp;
-use runne_domain::{
-    event::Actor,
-    id::{IdempotencyKey, WorkspaceId},
-    message::MessageText,
-};
+use runne_domain::{id::WorkspaceId, message::MessageText};
 use runne_runtime::provider_execution::ProviderTerminalPersistence;
 use runne_secure_store::ProviderJournalKeyring;
 use runne_security::SecretBroker;
@@ -38,13 +32,15 @@ use crate::operational_telemetry::compose_operational_telemetry_query;
 use crate::provider_activation::ProviderActivation;
 use std::borrow::Cow;
 
+mod command_context;
 mod managed_connection;
 mod online_dispatch;
 mod pending;
 mod provider_fixture;
 mod recovery_audit;
 mod workspace;
-use managed_connection::managed_test_connection;
+pub(in crate::canonical_provider::composition::tests) use command_context::command_context;
+use managed_connection::{managed_test_connection, try_managed_test_connection};
 use provider_fixture::{Keyring, fixture_adapter_factory, openai_profile};
 use workspace::seed_canonical_workspace;
 
@@ -207,6 +203,7 @@ async fn composed_service_keeps_recovery_state_when_telemetry_generation_is_mism
         runtime_generation: generation,
         activation_provenance: provenance,
         expected_profile_digest: profile_digest,
+        secondary_catalog: None,
         conversation_store: store,
         conversation_service,
         prohibited_content: prohibited,
@@ -217,7 +214,7 @@ async fn composed_service_keeps_recovery_state_when_telemetry_generation_is_mism
         model_id: Cow::Borrowed(runne_provider_openai::OPENAI_MODEL_ID),
         model_revision: Cow::Borrowed(runne_provider_openai::OPENAI_MODEL_REVISION),
         scope: Cow::Borrowed("provider.openai.responses.text"),
-        credential_id: ProviderCredentialId::OpenAi,
+        credential_id: ProviderCredentialId::Generic("openai"),
         quota_store: Arc::new(runne_provider_quota::QuotaStateStore::new()),
         dependencies: ProtectedProviderDependencyCapsule::from_loopback_fixture(
             effect,
@@ -285,13 +282,4 @@ async fn composed_service_keeps_recovery_state_when_telemetry_generation_is_mism
     );
     // BootstrapOutcome must outlive compose/recovery; dropped at scenario end.
     drop(verified);
-}
-
-fn command_context(command: &str, key: &str) -> ApplicationCommandContext {
-    ApplicationCommandContext {
-        command_id: command.parse().unwrap(),
-        idempotency_key: IdempotencyKey::new(key).unwrap(),
-        principal_id: PrincipalId("local-owner".into()),
-        actor: Actor::new("test").unwrap(),
-    }
 }

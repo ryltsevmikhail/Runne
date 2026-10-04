@@ -3,6 +3,7 @@
 
 //! Exact-profile `OpenAI` Responses text adapter contracts.
 
+mod background_response;
 pub mod canary;
 mod credential;
 mod profile;
@@ -11,10 +12,17 @@ mod response_decode;
 mod sse;
 mod transport;
 
-pub use credential::{OpenAiCredentialError, OpenAiCredentialMaterializer};
+pub use background_response::{
+    OPENAI_MAX_BACKGROUND_STATUS_BYTES, OPENAI_MAX_BACKGROUND_TEXT_BYTES, OpenAiBackgroundResponse,
+    OpenAiValidatedBackgroundTerminal,
+};
+pub use credential::{
+    OpenAiBackgroundCredentialMaterializer, OpenAiCredentialError, OpenAiCredentialMaterializer,
+};
 pub use profile::{
-    OPENAI_MODEL_ID, OPENAI_MODEL_REVISION, OPENAI_REQUEST_MODEL, OPENAI_RESPONSES_PROFILE_ID,
-    OPENAI_SERVICE_TIER, OpenAiProfileError, OpenAiResponsesTextProfile,
+    OPENAI_MODEL_ID, OPENAI_MODEL_REVISION, OPENAI_REQUEST_MODEL,
+    OPENAI_RESPONSES_BACKGROUND_PROFILE_ID, OPENAI_RESPONSES_PROFILE_ID, OPENAI_SERVICE_TIER,
+    OpenAiProfileError, OpenAiResponsesTextProfile,
 };
 pub use render::{OpenAiRenderError, OpenAiResponsesTextRenderer};
 pub use response_decode::decode_transport_response;

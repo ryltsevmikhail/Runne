@@ -18,6 +18,7 @@ const providerSurfaces = {
   'providers.quotaRefreshPending': 'Quota refresh in progress',
   'providers.quotaRefreshFailed': 'Quota refresh failed: {code}',
   'providers.integrationPlanned': 'Catalog entry is not runtime-qualified',
+  'providers.background.explanation': 'Pairing only saves this separate API credential and budget. To use it, read its exact profileId and profileDigest from authenticated GET /v1/runtime/profile and pass both in the profile field of a new /v2/task-runs/submit request. Existing chats and requests without profile selection keep their current provider.',
   'providers.subscriptionLimited': 'Provider subscription limits apply',
   'providers.readiness.ready': 'Ready',
   'providers.readiness.credential_missing': 'Credential missing',

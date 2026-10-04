@@ -1,15 +1,20 @@
 use super::online_helpers::{encode_hex, online_clock_error, online_sql_error};
 use super::online_proof::verify_issuance;
-use super::online_receipt::{OnlineEffectReadback, ProviderOnlineEffectStartReceipt};
+use super::online_receipt::ProviderOnlineEffectStartReceipt;
 use crate::provider::ProviderRuntimeLaunchCapability;
 use crate::provider::execution_store::online_effect_proof::{
     CommittedEffectProofFields, OnlineEffectProofState,
 };
 use crate::provider::{OnlineEffectStartBinding, credential_lifecycle};
 use crate::schema::ManagedConnection;
-use runne_application::provider::{ProviderAdmissionError, ProviderJournalKeyBinding};
+use runne_application::provider::ProviderAdmissionError;
 use runne_provider::ProviderDispatchClaim;
 use rusqlite::{OptionalExtension, TransactionBehavior, params};
+
+mod final_send;
+mod readback;
+pub(super) use final_send::verify_final_send;
+
 pub(crate) fn start_online_effect(
     connection: &mut ManagedConnection,
     launch: &ProviderRuntimeLaunchCapability,
@@ -31,6 +36,11 @@ pub(crate) fn start_online_effect(
         .ok_or(ProviderAdmissionError::AuthorityDenied)?;
     proof.ensure_current_active(&transaction)?;
     launch.verify_current_admission(&transaction, claim)?;
+    crate::store::taskrun_provider_start::verify_admitted_running_attempt(
+        &transaction,
+        claim.attempt_id.as_bytes(),
+    )
+    .map_err(|_| ProviderAdmissionError::AuthorityDenied)?;
     let observed = now();
     credential_lifecycle::advance_provider_clock(&transaction, binding.provider(), observed)
         .map_err(online_clock_error)?;
@@ -73,8 +83,32 @@ pub(crate) fn start_online_effect(
               AND runtime.approval_expires_at=admission.approval_expires_at
               AND runtime.approval_revocation_epoch=admission.approval_revocation_epoch
               AND runtime.approval_revocation_observed=admission.approval_revocation_observed
-              AND runtime.profile_digest=admission.profile_digest
-              AND runtime.pricing_revision_digest=admission.pricing_revision_digest
+              AND (
+                (NOT EXISTS(SELECT 1 FROM provider_secondary_profile_attempts binding
+                    WHERE binding.dispatch_attempt_id=admission.dispatch_attempt_id)
+                 AND runtime.profile_digest=admission.profile_digest
+                 AND runtime.pricing_revision_digest=admission.pricing_revision_digest)
+                OR EXISTS(SELECT 1 FROM provider_secondary_profile_attempts binding
+                    JOIN provider_secondary_profile_grants grant_row USING(grant_id)
+                    JOIN provider_secondary_profile_bindings grant_binding ON grant_binding.binding_id=binding.binding_id
+                    WHERE binding.dispatch_attempt_id=admission.dispatch_attempt_id
+                      AND grant_binding.grant_id=binding.grant_id
+                      AND binding.provider_idempotency_key=admission.provider_idempotency_key
+                      AND binding.profile_digest=admission.profile_digest
+                      AND binding.pricing_revision_digest=admission.pricing_revision_digest
+                      AND grant_row.enabled=1 AND grant_binding.closed_at IS NULL
+                      AND grant_row.runtime_authority_id=runtime.runtime_authority_id
+                      AND grant_row.database_generation=runtime.database_generation
+                      AND grant_binding.owner_id=runtime.owner_id
+                      AND grant_binding.authority_revision=runtime.state_revision
+                      AND grant_binding.scope=runtime.scope
+                      AND grant_binding.activation_binding_kind=runtime.activation_binding_kind
+                      AND grant_binding.activation_binding_digest=runtime.activation_binding_digest
+                      AND grant_row.provider_id=?11
+                      AND grant_row.credential_realm=?11
+                      AND grant_row.profile_digest=admission.profile_digest
+                      AND grant_row.pricing_revision_digest=admission.pricing_revision_digest)
+              )
               AND runtime.activation_binding_kind=admission.activation_binding_kind
               AND runtime.activation_binding_digest=admission.activation_binding_digest
               AND runtime.capability_allowed=1 AND runtime.approval_allowed=1
@@ -172,103 +206,5 @@ pub(crate) fn start_online_effect(
     if fail_readback {
         return Err(ProviderAdmissionError::PostClaimUncertain);
     }
-    connection.query_row(
-        "SELECT binding.dispatch_attempt_id, binding.provider_id, binding.launch_generation, binding.lifecycle_revision,
-                binding.credential_fence, binding.active_credential_version, binding.active_ref_digest,
-                effect.effect_started_at, effect.effect_expires_at, admission.permit_id, admission.provider_idempotency_key,
-                admission.prepared_digest, admission.render_digest, admission.profile_digest,
-                admission.fencing_token, admission.token_reservation_id, admission.cost_reservation_id,
-                version.lease_owner, version.lease_expires_at, version.lease_fencing_token, binding.effect_mac,
-                evidence.journal_key_id, evidence.journal_key_version,
-                evidence.journal_runtime_authority_id, evidence.journal_database_generation,
-                evidence.issuance_mac
-           FROM provider_effect_starts effect
-           JOIN provider_online_credential_effect_bindings binding ON binding.dispatch_attempt_id=effect.dispatch_attempt_id
-           JOIN provider_execution_admissions admission ON admission.dispatch_attempt_id=effect.dispatch_attempt_id
-           JOIN provider_online_dispatch_issuance_evidence evidence
-             ON evidence.dispatch_attempt_id=effect.dispatch_attempt_id
-            AND evidence.provider_id=binding.provider_id
-           JOIN provider_credential_versions version ON version.provider_id=binding.provider_id
-             AND version.credential_version=binding.active_credential_version AND version.ref_digest=binding.active_ref_digest
-          WHERE effect.dispatch_attempt_id=?1 AND effect.permit_id=?2 AND effect.effect_started_at=?3
-            AND effect.effect_expires_at=?4 AND effect.state=1",
-        params![claim.attempt_id.as_bytes().as_slice(), claim.permit_id.as_slice(), observed, expires],
-        |row| {
-            let attempt_id: Vec<u8> = row.get(0)?;
-            let attempt_id: [u8; 16] = attempt_id
-                .try_into()
-                .map_err(|_| rusqlite::Error::InvalidQuery)?;
-            let fixed = |index| -> rusqlite::Result<[u8; 16]> {
-                row.get::<_, Vec<u8>>(index)?.try_into().map_err(|_| rusqlite::Error::InvalidQuery)
-            };
-            let digest = |index| -> rusqlite::Result<[u8; 32]> {
-                row.get::<_, Vec<u8>>(index)?.try_into().map_err(|_| rusqlite::Error::InvalidQuery)
-            };
-            Ok(OnlineEffectReadback {
-                attempt_id,
-                provider: row.get(1)?,
-                launch_generation: u64::try_from(row.get::<_, i64>(2)?).map_err(|_| rusqlite::Error::InvalidQuery)?,
-                lifecycle_revision: u64::try_from(row.get::<_, i64>(3)?).map_err(|_| rusqlite::Error::InvalidQuery)?,
-                credential_fence: u64::try_from(row.get::<_, i64>(4)?).map_err(|_| rusqlite::Error::InvalidQuery)?,
-                credential_version: u64::try_from(row.get::<_, i64>(5)?).map_err(|_| rusqlite::Error::InvalidQuery)?,
-                ref_digest: digest(6)?,
-                effect_started_at: row.get(7)?,
-                effect_expires_at: row.get(8)?,
-                permit_id: fixed(9)?,
-                idempotency_key: row.get(10)?,
-                prepared_digest: digest(11)?,
-                render_digest: digest(12)?,
-                profile_digest: digest(13)?,
-                dispatch_fence: u64::try_from(row.get::<_, i64>(14)?).map_err(|_| rusqlite::Error::InvalidQuery)?,
-                token_reservation_id: fixed(15)?,
-                cost_reservation_id: fixed(16)?,
-                lease_owner: fixed(17)?,
-                lease_expires_at: row.get(18)?,
-                lease_fence: u64::try_from(row.get::<_, i64>(19)?).map_err(|_| rusqlite::Error::InvalidQuery)?,
-                effect_mac: digest(20)?,
-                proof_binding: ProviderJournalKeyBinding::new(
-                    fixed(21)?,
-                    u64::try_from(row.get::<_, i64>(22)?).map_err(|_| rusqlite::Error::InvalidQuery)?,
-                    fixed(23)?,
-                    u64::try_from(row.get::<_, i64>(24)?).map_err(|_| rusqlite::Error::InvalidQuery)?,
-                ).map_err(|_| rusqlite::Error::InvalidQuery)?,
-                issuance_mac: digest(25)?,
-            })
-        },
-    )
-    .optional()
-    .map_err(|_| ProviderAdmissionError::PostClaimUncertain)?
-    .ok_or(ProviderAdmissionError::PostClaimUncertain)
-    .and_then(|readback| {
-        let fields = CommittedEffectProofFields {
-            issuance_mac: readback.issuance_mac,
-            attempt_id: readback.attempt_id,
-            provider_id: readback.provider.clone(),
-            launch_generation: readback.launch_generation,
-            lifecycle_revision: readback.lifecycle_revision,
-            credential_fence: readback.credential_fence,
-            credential_version: readback.credential_version,
-            credential_ref_digest: readback.ref_digest,
-            lease_owner: readback.lease_owner,
-            lease_expires_at: readback.lease_expires_at,
-            lease_fence: readback.lease_fence,
-            effect_started_at: readback.effect_started_at,
-            effect_expires_at: readback.effect_expires_at,
-        };
-        if !proof.verify_effect(readback.proof_binding, &fields, &readback.effect_mac) {
-            return Err(ProviderAdmissionError::PostClaimUncertain);
-        }
-        let effective_now = now().max(readback.effect_started_at);
-        let remaining = readback
-            .effect_expires_at
-            .saturating_sub(effective_now)
-            .max(0);
-        let remaining = u64::try_from(remaining)
-            .map_err(|_| ProviderAdmissionError::PostClaimUncertain)?
-            .min(120);
-        if remaining == 0 {
-            return Err(ProviderAdmissionError::PostClaimUncertain);
-        }
-        Ok(ProviderOnlineEffectStartReceipt::from_readback(readback, remaining))
-    })
+    readback::load(connection, claim, proof, observed, expires, now)
 }

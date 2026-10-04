@@ -54,6 +54,10 @@ pub enum NormalizedMutationCommand {
         task_run_id: BoundedCanonicalId,
         expected_version: u64,
     },
+    SupersedeUnknownTaskRun {
+        predecessor_task_run_id: BoundedCanonicalId,
+        expected_version: u64,
+    },
     SubmitTaskRun {
         conversation_id: BoundedCanonicalId,
         workspace_id: BoundedCanonicalId,
@@ -221,6 +225,15 @@ impl NormalizedMutationCommand {
                 value.push(9);
                 codec::put_id(&mut value, task_run_id)?;
                 put_version(&mut value, *expected_version)?;
+            }
+            Self::SupersedeUnknownTaskRun {
+                predecessor_task_run_id,
+                expected_version,
+            } => {
+                value.push(24);
+                codec::put_id(&mut value, predecessor_task_run_id)?;
+                put_version(&mut value, *expected_version)?;
+                value.push(1); // duplicate_execution_and_cost_v1, mandatory explicit acknowledgment
             }
             Self::SubmitTaskRun {
                 conversation_id,

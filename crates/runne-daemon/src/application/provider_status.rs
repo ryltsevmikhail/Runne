@@ -59,6 +59,26 @@ pub(super) fn provider_statuses(
             .expect("selected provider activation metadata is valid"),
         );
     }
+    if !statuses
+        .iter()
+        .any(|status| status.provider_id() == "openai-background")
+    {
+        let background = runne_provider_openai::OpenAiResponsesTextProfile::from_json(
+            include_bytes!("../../../../docs/profiles/openai-responses-background-text-v1.json"),
+        )
+        .expect("embedded OpenAI background profile is exact");
+        statuses.push(
+            ProviderStatusSnapshotV1::new(
+                "openai-background",
+                "openai_responses_background_text_v1",
+                background.profile_id(),
+                background.profile_digest(),
+                ProviderReadinessStatusV1::NotSelected,
+                false,
+            )
+            .expect("embedded background profile metadata is valid"),
+        );
+    }
     statuses
 }
 
@@ -126,5 +146,42 @@ fn selected_readiness(
         ProviderActivationReadinessV1::SecureStoreUnavailable => {
             ProviderReadinessStatusV1::SecureStoreUnavailable
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use runne_api::ProviderActivationBindingV1;
+
+    #[test]
+    fn background_profile_is_metadata_only_and_never_selected_by_legacy_activation() {
+        let activation =
+            ProviderActivation::from_binding(ProviderActivationBindingV1::deterministic_v1());
+        let statuses = provider_statuses(&activation, ProviderActivationReadinessV1::Ready);
+        let background = statuses
+            .iter()
+            .find(|status| status.provider_id() == "openai-background")
+            .expect("background status row");
+        let profile = runne_provider_openai::OpenAiResponsesTextProfile::from_json(include_bytes!(
+            "../../../../docs/profiles/openai-responses-background-text-v1.json"
+        ))
+        .unwrap();
+
+        assert!(!background.selected());
+        assert_eq!(
+            background.readiness(),
+            ProviderReadinessStatusV1::NotSelected
+        );
+        assert_eq!(background.mode(), "openai_responses_background_text_v1");
+        assert_eq!(background.profile_id(), profile.profile_id());
+        assert_eq!(
+            background.profile_digest(),
+            hex::encode(profile.profile_digest())
+        );
+        assert_eq!(
+            statuses.iter().filter(|status| status.selected()).count(),
+            1
+        );
     }
 }

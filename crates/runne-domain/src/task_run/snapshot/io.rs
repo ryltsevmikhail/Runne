@@ -46,6 +46,9 @@ impl Out {
     pub(super) fn digest(&mut self, value: IntegrityDigest) {
         self.push(value.as_bytes());
     }
+    pub(super) fn fixed32(&mut self, value: &[u8; 32]) {
+        self.push(value);
+    }
     pub(super) fn string(&mut self, value: &str) -> Result<(), TaskRunSnapshotError> {
         validate_string(value)?;
         self.u32(u32::try_from(value.len()).map_err(|_| TaskRunSnapshotError::InvalidEncoding)?);
@@ -129,6 +132,11 @@ impl<'a> In<'a> {
                 .try_into()
                 .map_err(|_| TaskRunSnapshotError::InvalidEncoding)?,
         ))
+    }
+    pub(super) fn fixed32(&mut self) -> Result<[u8; 32], TaskRunSnapshotError> {
+        self.take(32)?
+            .try_into()
+            .map_err(|_| TaskRunSnapshotError::InvalidEncoding)
     }
     pub(super) fn string(&mut self) -> Result<String, TaskRunSnapshotError> {
         let length =

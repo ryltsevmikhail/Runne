@@ -70,6 +70,11 @@ pub(super) enum OutcomeWire {
         task_run_id: CanonicalId,
         new_version: u64,
     },
+    SupersedeUnknownTaskRun {
+        predecessor_task_run_id: CanonicalId,
+        successor_task_run_id: CanonicalId,
+        new_version: u64,
+    },
     SubmitTaskRun {
         task_run_id: CanonicalId,
         new_version: u64,
@@ -136,9 +141,17 @@ impl<'de, T: Deserialize<'de>> Deserialize<'de> for StrictOptional<T> {
 }
 
 #[derive(Deserialize)]
-#[serde(rename_all = "snake_case")]
 pub(super) enum FailureReasonWire {
-    ProviderOutputRejected,
+    #[serde(rename = "provider_output_rejected")]
+    OutputRejected,
+    #[serde(rename = "provider_execution_rejected")]
+    ExecutionRejected,
+    #[serde(rename = "provider_execution_failed")]
+    ExecutionFailed,
+    #[serde(rename = "provider_accounting_unknown")]
+    AccountingUnknown,
+    #[serde(rename = "cancelled")]
+    Cancelled,
 }
 
 #[derive(Deserialize)]

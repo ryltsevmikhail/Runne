@@ -1,7 +1,30 @@
-
 /// Loads the fixed external source, treating its absence as no selection.
 pub fn load_external_config() -> Result<ConfigurationSnapshot, DaemonError> {
     load_external_config_at(&external_config_path())
+}
+
+/// Snapshot read from the fixed owner-private source through the checked loader.
+/// The private field prevents callers from minting source-verification evidence.
+pub(crate) struct VerifiedFixedExternalConfig {
+    snapshot: ConfigurationSnapshot,
+}
+
+impl VerifiedFixedExternalConfig {
+    pub(crate) const fn snapshot(&self) -> &ConfigurationSnapshot {
+        &self.snapshot
+    }
+
+    #[cfg(test)]
+    pub(crate) fn from_test_snapshot(snapshot: ConfigurationSnapshot) -> Self {
+        Self { snapshot }
+    }
+}
+
+pub(crate) fn load_verified_fixed_external_config()
+-> Result<VerifiedFixedExternalConfig, DaemonError> {
+    Ok(VerifiedFixedExternalConfig {
+        snapshot: load_external_config()?,
+    })
 }
 
 /// Loads an injected fixed external source for native-entry tests.
@@ -22,10 +45,12 @@ fn read_explicit_config(path: &Path) -> Result<String, DaemonError> {
             .custom_flags(libc::O_NOFOLLOW)
             .open(path)?;
         let metadata = file.metadata()?;
-        if !metadata.is_file()
-            || metadata.uid() != rustix::process::geteuid().as_raw()
-            || metadata.permissions().mode() & 0o077 != 0
-        {
+        if !owner_private_config_metadata(
+            metadata.is_file(),
+            metadata.uid(),
+            metadata.permissions().mode(),
+            rustix::process::geteuid().as_raw(),
+        ) {
             return Err(DaemonError::Config(
                 "external config is not owner-private".into(),
             ));
@@ -54,3 +79,17 @@ fn read_explicit_config(path: &Path) -> Result<String, DaemonError> {
         ))
     }
 }
+
+#[cfg(unix)]
+fn owner_private_config_metadata(
+    is_file: bool,
+    owner: u32,
+    mode: u32,
+    expected_owner: u32,
+) -> bool {
+    is_file && owner == expected_owner && mode & 0o077 == 0
+}
+
+#[cfg(all(test, unix))]
+#[path = "load_security_tests.rs"]
+mod security_tests;

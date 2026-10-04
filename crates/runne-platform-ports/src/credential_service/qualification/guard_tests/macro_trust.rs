@@ -35,6 +35,7 @@ pub(super) fn trusted_external_path(path: &syn::Path) -> Option<String> {
             | "tokio::test"
             | "tracing::error"
             | "tracing::info"
+            | "tracing::warn"
     )
     .then_some(joined)
 }

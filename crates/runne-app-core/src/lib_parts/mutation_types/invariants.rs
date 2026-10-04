@@ -88,6 +88,11 @@ fn command_matches(request: &MutationRequest) -> bool {
             CanonicalMutationCommand::CancelTaskRun { task_run_id },
         ) => request.expected_version != 0 && target_matches(target, *task_run_id),
         (
+            Operation::TaskRunUnknownSuccessor,
+            target,
+            CanonicalMutationCommand::SupersedeUnknownTaskRun { predecessor_task_run_id },
+        ) => request.expected_version != 0 && target_matches(target, *predecessor_task_run_id),
+        (
             Operation::ApprovalRespond,
             target,
             CanonicalMutationCommand::ApprovalRespond {

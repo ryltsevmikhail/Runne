@@ -1,3 +1,5 @@
+use runne_local_store::ClientMutationDisposition as State;
+
 impl AppCore {
     async fn dispatch_prepared_mutation_under_operation(
         &self,
@@ -23,10 +25,39 @@ impl AppCore {
         let state = lease.anchored_record.disposition();
         self.prepare_and_dispatch(lease, state, possible_send, recovery)
             .await?;
+        self.fence_stale_network_result(lease, recovery)?;
         let observed = self.reconcile_anchored_command(lease, recovery).await;
+        self.fence_stale_network_result(lease, recovery)?;
         let disposition = lease.anchored_record.disposition();
         self.finish_dispatch(lease, observed, disposition, defer_workspace_open_outcome)
             .await
+    }
+
+    fn fence_stale_network_result(
+        &self,
+        lease: &mut PreparedMutationLease,
+        recovery: bool,
+    ) -> Result<(), AppCoreError> {
+        let current = if recovery {
+            self.recovery_dispatch_client(lease)
+        } else {
+            self.final_dispatch_client(lease)
+        };
+        if current.is_ok() {
+            return Ok(());
+        }
+        if matches!(
+            lease.anchored_record.disposition(),
+            State::Dispatching | State::Observing
+        ) {
+            self.transition_v7_under_operation(
+                lease,
+                runne_local_store::V7MutationTransition::Indeterminate {
+                    timestamp: unix_timestamp(),
+                },
+            )?;
+        }
+        Err(AppCoreError::RuntimeUnavailable)
     }
 
     async fn prepare_and_dispatch(
@@ -54,11 +85,13 @@ impl AppCore {
                 )?;
                 if Self::can_resend_bind(lease) {
                     Self::mark_possible_send(&mut possible_send);
-                    self.send_or_classify_prohibited_input(lease, recovery).await?;
+                    self.send_or_classify_prohibited_input(lease, recovery)
+                        .await?;
                 }
             }
             State::Retryable => {
-                self.retry_mutation(lease, &mut possible_send, recovery).await?;
+                self.retry_mutation(lease, &mut possible_send, recovery)
+                    .await?;
             }
             _ => {}
         }
@@ -85,7 +118,8 @@ impl AppCore {
         }
         self.resend_v7_under_operation(lease, unix_timestamp())?;
         Self::mark_possible_send(possible_send);
-        self.send_or_classify_prohibited_input(lease, recovery).await?;
+        self.send_or_classify_prohibited_input(lease, recovery)
+            .await?;
         Ok(())
     }
 
@@ -99,7 +133,10 @@ impl AppCore {
                 if lease.anchored_record.disposition()
                     == runne_local_store::ClientMutationDisposition::Dispatching
                     && lease.anchored_record.resend_count() == 0
-                    && matches!(&lease.request.semantic_command, CanonicalMutationCommand::GenerateText { .. }) =>
+                    && matches!(
+                        &lease.request.semantic_command,
+                        CanonicalMutationCommand::GenerateText { .. }
+                    ) =>
             {
                 self.transition_v7_under_operation(
                     lease,
@@ -112,7 +149,24 @@ impl AppCore {
             // A resend (resend_count > 0) is past the one valid refusal
             // transition; the pre-effect provider rejection is still an
             // error and is never swallowed into a successful dispatch.
-            Err(AppCoreError::ProhibitedInputRejected) => Err(AppCoreError::ProhibitedInputRejected),
+            Err(AppCoreError::ProhibitedInputRejected) => {
+                Err(AppCoreError::ProhibitedInputRejected)
+            }
+            Err(AppCoreError::GenerationOutcomeUnknown) => {
+                if matches!(
+                    lease.anchored_record.disposition(),
+                    runne_local_store::ClientMutationDisposition::Dispatching
+                        | runne_local_store::ClientMutationDisposition::Observing
+                ) {
+                    self.transition_v7_under_operation(
+                        lease,
+                        runne_local_store::V7MutationTransition::Indeterminate {
+                            timestamp: unix_timestamp(),
+                        },
+                    )?;
+                }
+                Err(AppCoreError::GenerationOutcomeUnknown)
+            }
             // A previous send may have committed, so keep the normal reconciliation path.
             _ => Ok(()),
         }

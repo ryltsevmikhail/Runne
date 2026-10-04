@@ -1,11 +1,11 @@
-#[path = "task5_fixture.rs"]
-mod task5_fixture;
-#[path = "task5_support.rs"]
-mod task5_support;
 #[path = "task5_cleanup_failure.rs"]
 mod task5_cleanup_failure;
+#[path = "task5_fixture.rs"]
+mod task5_fixture;
 #[path = "task5_pending.rs"]
 mod task5_pending;
+#[path = "task5_support.rs"]
+mod task5_support;
 
 #[tokio::test(flavor = "current_thread")]
 async fn terminal_scanner_failure_has_no_publication() {
@@ -73,7 +73,11 @@ async fn terminal_scanner_failure_has_no_publication() {
     );
 
     assert_eq!(provider.polls(), 2, "frozen retry repolled the adapter");
-    assert_eq!(*provider.cancelled.lock().unwrap(), vec![*fixture.stream(); 2], "policy failure and frozen retry each request cleanup");
+    assert_eq!(
+        *provider.cancelled.lock().unwrap(),
+        vec![*fixture.stream(); 2],
+        "policy failure and frozen retry each request cleanup"
+    );
     assert_eq!(
         recovery
             .load(fixture.attempt())
@@ -101,7 +105,10 @@ async fn terminal_scanner_failure_has_no_publication() {
         fixture.retry_idempotency_state(),
         ProviderRepositoryState::Uncertain
     );
-    assert_eq!(recovery.canonical_publication_counts().unwrap(), (0, 0));
+    assert_eq!(
+        recovery.canonical_publication_counts().unwrap(),
+        (fixture.canonical_event_baseline(), 0)
+    );
     assert_eq!(tails.tail_count(), 0);
     fixture.assert_secret_absent_from_durable_files();
 }

@@ -7,7 +7,7 @@ use super::syntax::normalized_ident;
 #[path = "macro_token_provenance.rs"]
 mod macro_token_provenance;
 pub(super) use macro_token_provenance::{
-    macro_attribute_names, qualified_attribute_roots, qualified_macro_roots,
+    macro_attribute_names, qualified_attribute_roots, qualified_macro_paths, qualified_macro_roots,
 };
 
 pub(super) fn macro_mentions_qualification(tokens: &TokenStream) -> bool {
@@ -62,16 +62,12 @@ pub(super) fn macro_mentions_variable_qualification(tokens: &TokenStream) -> boo
 }
 
 pub(super) fn macro_contains_opaque_expansion(tokens: &TokenStream) -> bool {
-    let tokens = tokens.clone().into_iter().collect::<Vec<_>>();
-    let qualified_macro = tokens.windows(5).any(|window| {
-        matches!(window, [TokenTree::Ident(root), TokenTree::Punct(a), TokenTree::Punct(b), TokenTree::Ident(name), TokenTree::Punct(c)]
-            if a.as_char() == ':' && b.as_char() == ':' && c.as_char() == '!'
-                && !trusted_qualified_macro(&normalized_ident(root), &normalized_ident(name)))
-    });
-    let source_edge = tokens
+    let flat = tokens.clone().into_iter().collect::<Vec<_>>();
+    let qualified_macro = has_untrusted_qualified_macro(tokens);
+    let source_edge = flat
         .iter()
         .any(|token| matches!(token, TokenTree::Ident(ident) if normalized_ident(ident) == "mod"));
-    let opaque_attribute = tokens.windows(2).any(|window| {
+    let opaque_attribute = flat.windows(2).any(|window| {
         matches!(window, [TokenTree::Punct(punct), TokenTree::Group(group)] if punct.as_char() == '#'
             && group.delimiter() == proc_macro2::Delimiter::Bracket
             && attribute_tokens_are_opaque(&group.stream()))
@@ -79,7 +75,7 @@ pub(super) fn macro_contains_opaque_expansion(tokens: &TokenStream) -> bool {
     qualified_macro
         || source_edge
         || opaque_attribute
-        || tokens.iter().any(|token| match token {
+        || flat.iter().any(|token| match token {
             TokenTree::Group(group) => macro_contains_opaque_expansion(&group.stream()),
             _ => false,
         })
@@ -87,14 +83,11 @@ pub(super) fn macro_contains_opaque_expansion(tokens: &TokenStream) -> bool {
 
 pub(super) fn macro_contains_untrusted_nested_call(tokens: &TokenStream) -> bool {
     let flat = tokens.clone().into_iter().collect::<Vec<_>>();
-    let qualified = flat.windows(5).any(|window| {
-        matches!(window, [TokenTree::Ident(root), TokenTree::Punct(a), TokenTree::Punct(b), TokenTree::Ident(name), TokenTree::Punct(c)]
-            if a.as_char() == ':' && b.as_char() == ':' && c.as_char() == '!'
-                && !trusted_qualified_macro(&normalized_ident(root), &normalized_ident(name)))
-    });
-    let bare = flat.windows(2).any(|window| {
+    let qualified = has_untrusted_qualified_macro(tokens);
+    let bare = flat.windows(2).enumerate().any(|(index, window)| {
         matches!(window, [TokenTree::Ident(name), TokenTree::Punct(punct)]
-            if punct.as_char() == '!'
+            if punct.as_char() == '!' && punct.spacing() == proc_macro2::Spacing::Alone
+                && !is_qualified_macro_name(&flat, index)
                 && normalized_ident(name) != "if"
                 && !super::macro_definitions::is_compiler_builtin_macro(&normalized_ident(name))
                 && super::macro_trust::trusted_bare_root(&normalized_ident(name)).is_none())
@@ -215,14 +208,20 @@ fn attribute_tokens_are_opaque(tokens: &TokenStream) -> bool {
     )
 }
 
-fn trusted_qualified_macro(root: &str, name: &str) -> bool {
+fn has_untrusted_qualified_macro(tokens: &TokenStream) -> bool {
+    qualified_macro_paths(tokens).into_iter().any(|path| {
+        syn::parse_str::<syn::Path>(&path)
+            .ok()
+            .and_then(|path| super::macro_trust::trusted_external_path(&path))
+            .is_none()
+    })
+}
+
+fn is_qualified_macro_name(tokens: &[TokenTree], index: usize) -> bool {
     matches!(
-        (root, name),
-        ("std", "matches" | "include" | "thread_local")
-            | ("mem", "offset_of")
-            | ("serde_json", "json")
-            | ("tokio", "join" | "pin" | "select" | "test")
-            | ("tracing" | "log", "error" | "info")
+        index.checked_sub(3).and_then(|start| tokens.get(start..index)),
+        Some([TokenTree::Ident(_), TokenTree::Punct(first), TokenTree::Punct(second)])
+            if first.as_char() == ':' && second.as_char() == ':'
     )
 }
 

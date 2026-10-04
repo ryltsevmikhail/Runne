@@ -36,19 +36,20 @@ fn released_v8_upgrades_atomically_through_provider_v11() {
 
     apply_migrations(&conn).unwrap();
 
-    assert_eq!(CURRENT_SCHEMA_VERSION, 48);
+    assert_eq!(CURRENT_SCHEMA_VERSION, 63);
     assert_eq!(
         conn.query_row("SELECT MAX(version) FROM schema_version", [], |row| row
             .get::<_, i64>(0))
             .unwrap(),
         CURRENT_SCHEMA_VERSION
     );
-    assert!(conn
-        .execute(
+    assert!(
+        conn.execute(
             "INSERT INTO consumption_intents VALUES (?1, 'key', 'Reserved', ?2, ?2, ?2)",
             params![[1_u8; 15].as_slice(), [2_u8; 32].as_slice()]
         )
-        .is_err());
+        .is_err()
+    );
     assert!(conn.execute("INSERT INTO verification_evidence VALUES (?1, ?1, ?1, ?2, 6, 0, ?2, 'blob:test', 'store', 'producer', 0, 'sqlite')", params![[1_u8; 16].as_slice(), [2_u8; 32].as_slice()]).is_err());
 }
 
@@ -67,7 +68,10 @@ fn every_supported_schema_upgrades_to_current() {
             CURRENT_SCHEMA_VERSION,
             "source V{source}"
         );
-        assert!(v48_matches(&conn, 48).unwrap(), "source V{source}");
+        assert!(
+            v63_matches(&conn, CURRENT_SCHEMA_VERSION).unwrap(),
+            "source V{source}"
+        );
     }
 }
 

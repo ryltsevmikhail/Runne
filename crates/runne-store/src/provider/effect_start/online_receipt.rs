@@ -53,6 +53,13 @@ impl fmt::Debug for ProviderOnlineEffectStartReceipt {
 }
 
 impl ProviderOnlineEffectStartReceipt {
+    pub(crate) fn install_final_send_authority(
+        &mut self,
+        authority: crate::provider::ProviderFinalSendAuthority,
+    ) {
+        self.effect.install_final_send_authority(authority);
+    }
+
     pub(super) fn from_readback(readback: OnlineEffectReadback, deadline_seconds: u64) -> Self {
         let provider = readback.provider;
         Self {
@@ -81,6 +88,7 @@ impl ProviderOnlineEffectStartReceipt {
                 credential_owner: readback.lease_owner,
                 credential_expires_at: readback.lease_expires_at,
                 credential_fencing_token: readback.lease_fence,
+                final_send: None,
             },
         }
     }

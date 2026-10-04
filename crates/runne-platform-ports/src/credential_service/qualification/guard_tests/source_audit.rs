@@ -8,6 +8,8 @@ mod call_provenance;
 mod calls;
 #[path = "implementer_names.rs"]
 mod implementer_names;
+#[path = "include_macro_resolution.rs"]
+mod include_macro_resolution;
 #[path = "macro_definitions.rs"]
 mod macro_definitions;
 #[path = "macro_scope.rs"]
@@ -18,6 +20,8 @@ mod macro_tokens;
 mod macro_trust;
 #[path = "metadata.rs"]
 mod metadata;
+#[path = "source_audit_macro_call.rs"]
+mod source_audit_macro_call;
 #[path = "source_parse.rs"]
 mod source_parse;
 #[path = "source_semantics.rs"]
@@ -134,25 +138,21 @@ pub(super) fn find_production_callers(sources: &[SourceUnit]) -> Vec<Finding> {
                     scope,
                     position,
                     payload,
-                } => {
-                    let disposition = resolved_macro_disposition(
+                } => source_audit_macro_call::is_relevant(
+                    source_audit_macro_call::Context {
                         source,
-                        &parsed,
-                        &macro_definitions,
-                        &name,
-                        trusted_path.as_deref(),
+                        parsed: &parsed,
+                        definitions: &macro_definitions,
+                    },
+                    source_audit_macro_call::Invocation {
+                        name,
+                        trusted_path,
                         disposition,
-                        &scope,
-                    );
-                    macro_definitions::is_relevant(
-                        &macro_definitions,
-                        &name,
-                        disposition,
-                        &scope,
+                        scope,
                         position,
-                        payload.as_ref(),
-                    )
-                }
+                        payload,
+                    },
+                ),
             };
             if relevant {
                 findings.push(Finding {

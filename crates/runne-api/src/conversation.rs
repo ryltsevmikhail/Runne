@@ -175,6 +175,8 @@ pub enum ConversationHostError {
     ProhibitedSecretMaterial,
     /// Provider-bound material was rejected without retaining it.
     ProviderOutputRejected,
+    /// A remote effect may have occurred, but its terminal outcome is unknown.
+    OutcomeUnknown,
     /// The Conversation does not exist.
     NotFound,
     /// Version, lifecycle, command identity, or idempotency conflicted.
@@ -197,6 +199,7 @@ impl ConversationHostError {
         match self {
             Self::ProhibitedSecretMaterial => "prohibited_secret_material",
             Self::ProviderOutputRejected => "provider_output_rejected",
+            Self::OutcomeUnknown => "conversation_outcome_unknown",
             Self::NotFound => "conversation_not_found",
             Self::Conflict => "conversation_conflict",
             Self::WriterFenced => "conversation_writer_fenced",
@@ -254,6 +257,10 @@ mod tests {
         assert_eq!(
             ConversationHostError::ProviderOutputRejected.code(),
             "provider_output_rejected"
+        );
+        assert_eq!(
+            ConversationHostError::OutcomeUnknown.code(),
+            "conversation_outcome_unknown"
         );
     }
 }

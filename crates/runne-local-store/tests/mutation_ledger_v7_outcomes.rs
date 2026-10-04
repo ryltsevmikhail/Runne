@@ -203,7 +203,7 @@ fn generation_with(
         task_run_id: task,
         attempt_id: attempt,
         conversation_stream_version: 2,
-        task_run_stream_version: 2,
+        task_run_stream_version: 5,
         user_message: user,
         assistant: Box::new(assistant),
     }

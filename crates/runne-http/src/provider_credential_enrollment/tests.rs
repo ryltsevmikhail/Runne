@@ -25,6 +25,7 @@ use tower::ServiceExt;
 use super::{
     ProviderCredentialEnrollmentHttpAdmission, ProviderCredentialEnrollmentHttpAdmissionResolver,
     ProviderCredentialEnrollmentHttpState, provider_credential_enrollment_router,
+    provider_credential_enrollment_router_for_provider,
 };
 
 mod resolver_support;
@@ -91,10 +92,10 @@ impl ProviderCredentialEnrollmentHostPort for Host {
         _: ProviderCredentialBaseRequestAuthority,
         _: ProviderCredentialIntentConsumptionProof,
         _: ProviderCredentialCommandContext,
-        _: BeginProviderCredentialEnrollment,
+        command: BeginProviderCredentialEnrollment,
     ) -> ProviderCredentialHostFuture<'a> {
         self.calls.fetch_add(1, Ordering::SeqCst);
-        Box::pin(async { Ok(operation()) })
+        Box::pin(async move { Ok(operation_for(command.provider())) })
     }
 
     fn resume<'a>(
@@ -110,10 +111,10 @@ impl ProviderCredentialEnrollmentHostPort for Host {
     fn status<'a>(
         &'a self,
         _: ProviderCredentialBaseRequestAuthority,
-        _: ProviderCredentialProviderV2,
+        provider: ProviderCredentialProviderV2,
     ) -> ProviderCredentialStatusFuture<'a> {
         self.calls.fetch_add(1, Ordering::SeqCst);
-        Box::pin(async { Ok(status()) })
+        Box::pin(async move { Ok(status_for(provider)) })
     }
 
     fn verify<'a>(
@@ -121,10 +122,10 @@ impl ProviderCredentialEnrollmentHostPort for Host {
         _: ProviderCredentialBaseRequestAuthority,
         _: ProviderCredentialIntentConsumptionProof,
         _: ProviderCredentialCommandContext,
-        _: VerifyProviderCredential,
+        command: VerifyProviderCredential,
     ) -> ProviderCredentialHostFuture<'a> {
         self.calls.fetch_add(1, Ordering::SeqCst);
-        Box::pin(async { Ok(operation()) })
+        Box::pin(async move { Ok(operation_for(command.provider())) })
     }
 }
 
@@ -185,10 +186,14 @@ fn begin_request(
 }
 
 fn operation() -> ProviderCredentialOperationSnapshotV2 {
+    operation_for(ProviderCredentialProviderV2::OpenAi)
+}
+
+fn operation_for(provider: ProviderCredentialProviderV2) -> ProviderCredentialOperationSnapshotV2 {
     ProviderCredentialOperationSnapshotV2::new(
         ProviderCredentialOperationHandleV2::from_bytes([1; 48]).unwrap(),
         None,
-        ProviderCredentialProviderV2::OpenAi,
+        provider,
         ProviderCredentialOperationKindV2::VerifyLocal,
         ProviderCredentialOperationStateV2::Completed,
         1,
@@ -199,9 +204,9 @@ fn operation() -> ProviderCredentialOperationSnapshotV2 {
     .unwrap()
 }
 
-fn status() -> ProviderCredentialSafeSnapshotV2 {
+fn status_for(provider: ProviderCredentialProviderV2) -> ProviderCredentialSafeSnapshotV2 {
     ProviderCredentialSafeSnapshotV2::new(
-        ProviderCredentialProviderV2::OpenAi,
+        provider,
         ProviderCredentialStateV2::Missing,
         runne_api::ProviderCredentialReadinessV2::Missing,
         1,

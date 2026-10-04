@@ -130,6 +130,7 @@ pub(super) fn validate_reject_text_payload(
     let taskrun_event = &payload.taskrun_events[0];
     if !scope_matches
         || rejection_reason.is_none()
+        || rejection_reason == Some(runne_domain::conversation::GenerationFailureReason::Cancelled)
         || !matches!(
             taskrun_event.payload(),
             TaskRunEvent::TaskRunFailed { reason }

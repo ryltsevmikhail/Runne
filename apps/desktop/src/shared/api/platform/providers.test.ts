@@ -65,6 +65,16 @@ describe('getProviderCatalog', () => {
     })).resolves.toEqual(catalog)
     await expect(getProviderCatalog(async () => [{ ...catalog[0], secret: 'token' }])).rejects.toThrow()
   })
+
+  it('accepts the opt-in background catalog row without extending the V1 wire shape', async () => {
+    const background = {
+      providerId: 'openai-background', displayName: 'OpenAI Background Responses', protocol: 'responses',
+      authOptions: ['api_key'], quota: 'payg', implementation: 'catalog_only',
+    }
+    await expect(getProviderCatalog(async () => [background])).resolves.toEqual([background])
+    await expect(getProviderCatalog(async () => [{ ...background, selectionPolicy: 'explicit_only' }]))
+      .rejects.toThrow('Invalid provider catalog')
+  })
 })
 
 describe('getProviderQuota', () => {

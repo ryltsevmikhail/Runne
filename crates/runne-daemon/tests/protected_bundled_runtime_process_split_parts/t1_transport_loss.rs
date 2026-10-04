@@ -113,7 +113,7 @@ async fn transport_loss_child() {
         .expect_err("lost provider reply");
     assert_eq!(
         first.kind(),
-        runne_runtime_client::RuntimeApiErrorKind::InvalidResponse
+        runne_runtime_client::RuntimeApiErrorKind::OutcomeUnknown
     );
     super::t1_support::assert_uncertain_provider_effect(&database);
     assert_fixture_count(&runtime_root, "fixture-provider-request-count", "1");
@@ -174,7 +174,7 @@ async fn transport_loss_child() {
     let retried = restarted_client.generate_text(request).await;
     assert_eq!(
         retried.expect_err("uncertain same-command retry").kind(),
-        runne_runtime_client::RuntimeApiErrorKind::InvalidResponse
+        runne_runtime_client::RuntimeApiErrorKind::OutcomeUnknown
     );
     assert_eq!(
         super::t1_support::current_project_trust(&database).status,

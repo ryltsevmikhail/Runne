@@ -4,14 +4,16 @@ use runne_domain::id::{AggregateId, CommandId, EventId, IdempotencyKey, Integrit
 use runne_domain::timestamp::Timestamp;
 use rusqlite::OptionalExtension;
 
-pub(in crate::store) struct VerifiedTaskRunStream {
-    pub(in crate::store) version: u64,
-    pub(in crate::store) state: TaskRunState,
-    pub(in crate::store) is_v2_submission: bool,
-    pub(in crate::store) has_immutable_input: bool,
+pub(crate) struct VerifiedTaskRunStream {
+    pub(crate) version: u64,
+    pub(crate) state: TaskRunState,
+    pub(crate) active_attempt: Option<AttemptId>,
+    pub(crate) is_v2_submission: bool,
+    pub(crate) has_immutable_input: bool,
+    pub(crate) events: Vec<EventEnvelope<TaskRunEvent>>,
 }
 
-pub(in crate::store) fn verify_stream(
+pub(crate) fn verify_stream(
     connection: &rusqlite::Connection,
     id: TaskRunId,
     expected: Option<u64>,
@@ -169,9 +171,27 @@ pub(in crate::store) fn verify_stream(
     Ok(VerifiedTaskRunStream {
         version,
         state: task.state(),
+        active_attempt: task.active_attempt().copied(),
         is_v2_submission,
         has_immutable_input,
+        events,
     })
+}
+
+/// Return the active attempt at one historical version after validating the
+/// complete current stream's envelopes, integrity chain, and domain replay.
+pub(crate) fn active_attempt_at_verified_version(
+    connection: &rusqlite::Connection,
+    id: TaskRunId,
+    version: u64,
+) -> Result<Option<AttemptId>, ClaimError> {
+    let verified = verify_stream(connection, id, None)?;
+    let end = usize::try_from(version).map_err(|_| ClaimError::CorruptData)?;
+    if version == 0 || version > verified.version || end > verified.events.len() {
+        return Err(ClaimError::CorruptData);
+    }
+    let prefix = TaskRun::replay(&verified.events[..end]).map_err(|_| ClaimError::CorruptData)?;
+    Ok(prefix.active_attempt().copied())
 }
 
 fn uuid_bytes(bytes: Vec<u8>) -> Result<[u8; 16], ClaimError> {

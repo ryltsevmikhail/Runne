@@ -57,6 +57,16 @@ use runne_secure_store::ProviderCredentialReadback;
 use runne_store::provider::SqliteProviderCredentialLifecycleStore;
 
 mod http;
+mod http_provider_router;
+#[cfg(any(
+    all(test, unix),
+    all(feature = "desktop-protected", target_os = "linux"),
+    all(
+        feature = "desktop-protected",
+        target_os = "macos",
+        target_arch = "aarch64"
+    )
+))]
 #[cfg(target_os = "linux")]
 mod linux_activation;
 
@@ -83,6 +93,15 @@ use super::{ProviderCredentialAdmission, begin::ProviderCredentialEnrollmentBegi
 mod protected_session;
 #[cfg(any(
     all(test, unix),
+    all(feature = "desktop-protected", target_os = "linux"),
+    all(
+        feature = "desktop-protected",
+        target_os = "macos",
+        target_arch = "aarch64"
+    )
+))]
+#[cfg(any(
+    all(test, unix),
     target_os = "linux",
     all(
         feature = "desktop-protected",
@@ -91,6 +110,7 @@ mod protected_session;
     )
 ))]
 mod session_facts;
+mod session_start;
 #[cfg(all(
     feature = "desktop-protected",
     target_os = "macos",
@@ -263,31 +283,5 @@ mod tests;
         feature = "desktop-protected"
     )
 ))]
-#[path = "control_facade_tests/http_admission.rs"]
-mod http_admission_tests;
-#[cfg(any(
-    all(test, unix),
-    all(
-        test,
-        target_os = "macos",
-        target_arch = "aarch64",
-        feature = "desktop-protected"
-    )
-))]
-#[path = "control_facade_tests/protected_session.rs"]
-mod protected_session_tests;
-#[cfg(any(
-    all(test, unix),
-    all(
-        test,
-        target_os = "macos",
-        target_arch = "aarch64",
-        feature = "desktop-protected"
-    )
-))]
-#[path = "control_facade_tests/verify.rs"]
-mod verify_tests;
-#[cfg(all(test, unix, feature = "desktop-protected"))]
-pub(crate) use http_admission_tests::test_http_status_facts_available;
-#[cfg(all(test, unix))]
-pub(crate) use protected_session_tests::control as test_control;
+#[path = "control_facade/test_modules.rs"]
+pub(crate) mod test_modules;

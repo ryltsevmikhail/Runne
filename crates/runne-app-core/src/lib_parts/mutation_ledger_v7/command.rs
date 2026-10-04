@@ -111,6 +111,12 @@ fn ledger_conversation_command(
             task_run_id: ledger_id(*task_run_id)?,
             expected_version: version,
         }),
+        CanonicalMutationCommand::SupersedeUnknownTaskRun { predecessor_task_run_id } => {
+            Ok(Stored::SupersedeUnknownTaskRun {
+                predecessor_task_run_id: ledger_id(*predecessor_task_run_id)?,
+                expected_version: version,
+            })
+        }
         CanonicalMutationCommand::SubmitTaskRun {
             conversation_id,
             workspace_id,

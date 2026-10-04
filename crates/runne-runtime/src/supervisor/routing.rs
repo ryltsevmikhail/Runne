@@ -1,4 +1,3 @@
-
 // ── reject_request ──────────────────────────────────────────────────────────
 
 fn reject_request(request: RuntimeRequest) {
@@ -6,6 +5,7 @@ fn reject_request(request: RuntimeRequest) {
         RuntimeRequest::Create { reply, .. }
         | RuntimeRequest::Submit { reply, .. }
         | RuntimeRequest::SubmitLegacy { reply, .. }
+        | RuntimeRequest::SupersedeUnknown { reply, .. }
         | RuntimeRequest::Queue { reply, .. }
         | RuntimeRequest::Admit { reply, .. }
         | RuntimeRequest::StartAttempt { reply, .. }
@@ -122,8 +122,20 @@ fn dispatch_admitted<E, U, I>(
             registry.spawn_submit_task(context, input, service, reply);
             drop(lease);
         }
-        RuntimeRequest::SubmitLegacy { context, input, reply } => {
+        RuntimeRequest::SubmitLegacy {
+            context,
+            input,
+            reply,
+        } => {
             registry.spawn_submit_legacy_task(context, input, service, reply);
+            drop(lease);
+        }
+        RuntimeRequest::SupersedeUnknown {
+            context,
+            input,
+            reply,
+        } => {
+            registry.spawn_supersede_unknown_task(context, input, service, reply);
             drop(lease);
         }
         RuntimeRequest::Queue {
@@ -212,7 +224,10 @@ fn dispatch_admitted<E, U, I>(
             reply,
         } => {
             registry.spawn_conversation_text_task(
-                ConversationTextCall::Finish { context, input },
+                ConversationTextCall::Finish {
+                    context,
+                    input: Box::new(input),
+                },
                 reply,
             );
             drop(lease);

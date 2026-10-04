@@ -24,6 +24,20 @@ mod deepseek_diagnostics;
 mod native;
 mod radius;
 
+#[cfg(test)]
+pub(crate) fn native_profile_for_fixture(
+    binding: &runne_api::ProviderActivationBindingV1,
+) -> Result<
+    (
+        runne_provider_native_wire::NativeWireProfile,
+        runne_daemon_native_effect::TrustedNativeEndpoint,
+        runne_daemon_native_effect::NativeAuthDescriptor,
+    ),
+    DaemonError,
+> {
+    native::profile_for_fixture(binding)
+}
+
 pub(super) struct SelectedProviderRuntime {
     pub(super) profile: Arc<SharedTextProviderProfile>,
     pub(super) adapter_factory: Arc<ProviderEffectFactory>,

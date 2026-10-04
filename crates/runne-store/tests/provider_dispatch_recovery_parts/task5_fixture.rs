@@ -4,7 +4,6 @@ use std::sync::Arc;
 use runne_application::provider::{
     ProviderAuthorityIssueRequest, ProviderJournalKeyBinding, ProviderLeaseBindingKind,
 };
-use runne_domain::id::{AttemptId, ConversationId, TaskRunId};
 use runne_provider::{
     DispatchAttemptId, ModelRef, PreparedProviderRecord as ContractPreparedProviderRecord,
     PreparedRequest, ProviderCall, ProviderCallId, ProviderId, ProviderRepositoryState,
@@ -12,8 +11,8 @@ use runne_provider::{
 };
 use runne_runtime::provider_execution::ProviderEventJournalContext;
 use runne_store::provider::{
-    PreparedProviderRecord, ProviderAuthorityIssueOutcome,
-    ProviderRuntimeAuthorityConfig, ProviderRuntimeLaunchCapability, SqliteProviderExecutionStore,
+    PreparedProviderRecord, ProviderAuthorityIssueOutcome, ProviderRuntimeAuthorityConfig,
+    ProviderRuntimeLaunchCapability, SqliteProviderExecutionStore,
 };
 
 use crate::validated_reopen::ProviderTestDatabase;
@@ -29,11 +28,23 @@ pub(super) struct Task5ProductionFixture {
     context: ProviderEventJournalContext,
     stream: ProviderStreamId,
     journal_key: ProviderJournalKeyBinding,
+    taskrun_event_count: i64,
 }
 
 impl Task5ProductionFixture {
     pub(super) fn new(keyring: &MemoryKeyring) -> Self {
         let database = ProviderTestDatabase::new("provider-task5-production");
+        let receipt = crate::online_stream_fixture::begin_taskrun(
+            &database,
+            [1; 16],
+            "principal-1",
+            "provider task5 fixture",
+            81,
+        );
+        let taskrun_event_count = database
+            .query_connection()
+            .query_row("SELECT COUNT(*) FROM events", [], |row| row.get(0))
+            .unwrap();
         let call = ProviderCall::new(
             ProviderCallId::from_bytes([4; 16]),
             ModelRef::new(
@@ -67,9 +78,9 @@ impl Task5ProductionFixture {
         let request = ProviderAuthorityIssueRequest {
             provider_id: call.model_ref().provider_id().clone(),
             principal_id: "principal-1".into(),
-            conversation_id: ConversationId::from_bytes([6; 16]),
-            taskrun_id: TaskRunId::from_bytes([7; 16]),
-            execution_attempt_id: AttemptId::from_bytes([8; 16]),
+            conversation_id: receipt.conversation_id,
+            taskrun_id: receipt.taskrun_id,
+            execution_attempt_id: receipt.attempt_id,
             prepared: ContractPreparedProviderRecord {
                 call_id: prepared_record.call_id,
                 call_digest_version: prepared_record.call_digest_version,
@@ -84,7 +95,15 @@ impl Task5ProductionFixture {
             currency: "USD".into(),
             provider_idempotency_key: "provider-task5-production-1".into(),
         };
-        let (binding, _) = crate::online_stream_fixture::start(&database, &execution, &launch, call, &request, ProviderStreamId::from_bytes([9; 16]), 81);
+        let (binding, _) = crate::online_stream_fixture::start_bound(
+            &database,
+            &execution,
+            &launch,
+            call,
+            &request,
+            ProviderStreamId::from_bytes([9; 16]),
+            81,
+        );
         let attempt = binding.execution().attempt_id();
         let fencing_token = binding.execution().fencing_token();
         let stream = binding.execution().stream_id();
@@ -104,6 +123,7 @@ impl Task5ProductionFixture {
             context,
             stream,
             journal_key,
+            taskrun_event_count,
         }
     }
 
@@ -112,23 +132,45 @@ impl Task5ProductionFixture {
     }
 
     pub(super) fn revoke(&self) {
-        use runne_provider::*;
         use runne_domain::id::{CommandId, IdempotencyKey};
-        let store = runne_store::provider::SqliteProviderCredentialLifecycleStore::open_with_connection(self.database.connection()).unwrap();
+        use runne_provider::*;
+        let store =
+            runne_store::provider::SqliteProviderCredentialLifecycleStore::open_with_connection(
+                self.database.connection(),
+            )
+            .unwrap();
         let (_, authority) = CredentialEnrollmentAuthorityPair::new().split();
-        let release = authority.issue_qualified_credential_release_tuple(authority.release_manifest_digest([201; 32]).unwrap()).unwrap();
-        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+        let release = authority
+            .issue_qualified_credential_release_tuple(
+                authority.release_manifest_digest([201; 32]).unwrap(),
+            )
+            .unwrap();
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
         let operation = CredentialOperationId::from_bytes([91; 16]).unwrap();
         let command = BeginCredentialOperation::new(
-            CommandId::from_bytes([111; 16]), IdempotencyKey::new("pending-poll-revoke").unwrap(),
-            operation, CredentialInstallationOwnerId::from_bytes([42; 32]).unwrap(),
-            self.request.provider_id.clone(), CredentialOperationAction::Revoke, None,
+            CommandId::from_bytes([111; 16]),
+            IdempotencyKey::new("pending-poll-revoke").unwrap(),
+            operation,
+            CredentialInstallationOwnerId::from_bytes([42; 32]).unwrap(),
+            self.request.provider_id.clone(),
+            CredentialOperationAction::Revoke,
+            None,
             Some(CredentialVersionRef::new(self.request.provider_id.clone(), 1).unwrap()),
-            CredentialLifecycleRevision::new(2).unwrap(), CredentialFence::new(2).unwrap(),
-            CredentialBindingDigest::from_measured([92; 32]).unwrap(), now + 600,
-        ).unwrap().with_qualified_release_tuple(release);
+            CredentialLifecycleRevision::new(2).unwrap(),
+            CredentialFence::new(2).unwrap(),
+            CredentialBindingDigest::from_measured([92; 32]).unwrap(),
+            now + 600,
+        )
+        .unwrap()
+        .with_qualified_release_tuple(release);
         ProviderCredentialEnrollmentStore::begin(&store, command).unwrap();
-        assert_eq!(store.load_operation(operation).unwrap().state(), CredentialOperationState::Prepared);
+        assert_eq!(
+            store.load_operation(operation).unwrap().state(),
+            CredentialOperationState::Prepared
+        );
     }
 
     pub(super) fn execution(&self) -> &SqliteProviderExecutionStore {
@@ -155,6 +197,10 @@ impl Task5ProductionFixture {
         self.journal_key
     }
 
+    pub(super) const fn canonical_event_baseline(&self) -> u64 {
+        self.taskrun_event_count as u64
+    }
+
     pub(super) fn persisted_counts(&self) -> (i64, i64, i64, i64) {
         let connection = self.database.query_connection();
         let count = |table: &str| {
@@ -167,7 +213,7 @@ impl Task5ProductionFixture {
         (
             count("provider_stream_journal"),
             count("provider_terminal_outbox"),
-            count("events"),
+            count("events") - self.taskrun_event_count,
             connection
                 .query_row(
                     "SELECT COUNT(*) FROM provider_poll_flights

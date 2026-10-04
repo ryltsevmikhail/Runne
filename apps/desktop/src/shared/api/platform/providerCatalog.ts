@@ -6,6 +6,7 @@ export const PROVIDER_CATALOG = [
   { id: 'ant-ling', displayName: 'Ant Ling', billing: 'payg', support: 'planned', credential: true, enrollment: true },
   { id: 'azure-openai-responses', displayName: 'Azure OpenAI Responses', billing: 'payg', support: 'planned', credential: true, enrollment: true },
   { id: 'openai', displayName: 'OpenAI', billing: 'payg', support: 'implemented', credential: true, enrollment: true },
+  { id: 'openai-background', displayName: 'OpenAI Background Responses', billing: 'payg', support: 'implemented', credential: true, enrollment: true },
   { id: 'deepseek', displayName: 'DeepSeek', billing: 'payg', support: 'implemented', credential: true, enrollment: true },
   { id: 'nvidia', displayName: 'NVIDIA NIM', billing: 'payg', support: 'planned', credential: true, enrollment: true },
   { id: 'google', displayName: 'Google Gemini', billing: 'payg', support: 'planned', credential: true, enrollment: true },

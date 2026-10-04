@@ -9,6 +9,9 @@ pub(crate) struct V3EnrollmentDispatch {
             crate::application::provider_credential_enrollment::DaemonProviderCredentialEnrollmentControl,
         >,
     >,
+    pub(super) http_controls: Vec<Arc<
+        crate::application::provider_credential_enrollment::DaemonProviderCredentialEnrollmentControl,
+    >>,
     #[cfg_attr(
         not(all(target_os = "macos", target_arch = "aarch64")),
         allow(dead_code)
@@ -31,6 +34,13 @@ pub(crate) struct V3EnrollmentDispatch {
 }
 
 impl V3EnrollmentDispatch {
+    #[cfg(not(target_os = "linux"))]
+    pub(crate) fn take_http_controls(
+        &mut self,
+    ) -> Vec<Arc<crate::application::provider_credential_enrollment::DaemonProviderCredentialEnrollmentControl>>{
+        std::mem::take(&mut self.http_controls)
+    }
+
     pub(crate) const fn new(
         control: Option<
             Arc<
@@ -46,6 +56,7 @@ impl V3EnrollmentDispatch {
             #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
             round_profile: None,
             control,
+            http_controls: Vec::new(),
             rendezvous,
             #[cfg(target_os = "linux")]
             linux_writer_capability: None,
@@ -58,6 +69,16 @@ impl V3EnrollmentDispatch {
             #[cfg(all(test, target_os = "macos", target_arch = "aarch64"))]
             qualification_verified: None,
         }
+    }
+
+    pub(crate) fn with_http_controls(
+        mut self,
+        controls: Vec<Arc<
+            crate::application::provider_credential_enrollment::DaemonProviderCredentialEnrollmentControl,
+        >>,
+    ) -> Self {
+        self.http_controls = controls;
+        self
     }
 
     #[cfg(target_os = "linux")]

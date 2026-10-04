@@ -1,7 +1,6 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use runne_application::provider::ProviderCoordinatorRequest;
-use runne_domain::id::{AttemptId, ConversationId, TaskRunId};
 use runne_provider::ProviderFuture;
 use runne_provider::{
     ModelRef, ProviderCall, ProviderCallId, ProviderCapability, ProviderId, ProviderInputRole,
@@ -19,6 +18,7 @@ use serde_json::Value;
 
 pub struct Fixture {
     pub(crate) _database: crate::validated_reopen::ProviderTestDatabase,
+    pub(crate) _taskrun_store: runne_store::store::StoreTransaction,
     pub(crate) dispatch: SqliteProviderDispatchStore,
     pub(crate) execution: SqliteProviderExecutionStore,
     pub(crate) credential: SqliteProviderCredentialLifecycleStore,
@@ -38,6 +38,8 @@ pub(crate) fn fixture(
     discriminator: u8,
 ) -> Fixture {
     let database = crate::validated_reopen::ProviderTestDatabase::new("native-effect");
+    let started =
+        crate::provider_taskrun_start::begin(database.path(), [1; 16], "principal", "hello");
     let dispatch = database.dispatch();
     let execution = database.execution();
     let credential =
@@ -86,6 +88,7 @@ pub(crate) fn fixture(
     .with_required_capabilities(vec![ProviderCapability::Streaming]);
     Fixture {
         _database: database,
+        _taskrun_store: started._store,
         dispatch,
         execution,
         credential,
@@ -93,9 +96,9 @@ pub(crate) fn fixture(
         request: ProviderCoordinatorRequest {
             call,
             principal_id: "principal".into(),
-            conversation_id: ConversationId::from_bytes([6; 16]),
-            taskrun_id: TaskRunId::from_bytes([7; 16]),
-            execution_attempt_id: AttemptId::from_bytes([8; 16]),
+            conversation_id: started.receipt.conversation_id,
+            taskrun_id: started.receipt.taskrun_id,
+            execution_attempt_id: started.receipt.attempt_id,
             profile_digest,
             pricing_revision_digest: pricing_digest,
             requested_input_tokens: 32,
@@ -139,6 +142,7 @@ impl runne_daemon_native_effect::NativeTransport for NativeFakeTransport {
         url: String,
         headers: reqwest::header::HeaderMap,
         _: Vec<u8>,
+        final_send: runne_store::provider::ProviderFinalSendAuthority,
     ) -> ProviderFuture<
         '_,
         Result<
@@ -146,6 +150,9 @@ impl runne_daemon_native_effect::NativeTransport for NativeFakeTransport {
             runne_daemon_native_effect::NativeTransportError,
         >,
     > {
+        if final_send.consume().is_err() {
+            return Box::pin(async { Err(runne_daemon_native_effect::NativeTransportError) });
+        }
         self.calls.fetch_add(1, Ordering::SeqCst);
         let credential_header = if self.anthropic {
             "x-api-key"
@@ -182,6 +189,7 @@ impl runne_daemon_radius_effect::RadiusTransport for RadiusFakeTransport {
         url: String,
         headers: reqwest::header::HeaderMap,
         _: Vec<u8>,
+        final_send: runne_store::provider::ProviderFinalSendAuthority,
     ) -> ProviderFuture<
         '_,
         Result<
@@ -189,6 +197,9 @@ impl runne_daemon_radius_effect::RadiusTransport for RadiusFakeTransport {
             runne_daemon_radius_effect::RadiusTransportError,
         >,
     > {
+        if final_send.consume().is_err() {
+            return Box::pin(async { Err(runne_daemon_radius_effect::RadiusTransportError) });
+        }
         self.calls.fetch_add(1, Ordering::SeqCst);
         let valid = url == "https://radius.pi.dev/messages"
             && headers

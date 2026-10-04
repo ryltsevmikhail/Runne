@@ -70,6 +70,7 @@ fn host_error_response(error: ConversationHostError, request_id: &RequestId) -> 
     let status = match error {
         ConversationHostError::ProhibitedSecretMaterial => StatusCode::UNPROCESSABLE_ENTITY,
         ConversationHostError::ProviderOutputRejected => StatusCode::BAD_GATEWAY,
+        ConversationHostError::OutcomeUnknown => StatusCode::BAD_GATEWAY,
         ConversationHostError::NotFound => StatusCode::NOT_FOUND,
         ConversationHostError::Conflict => StatusCode::CONFLICT,
         ConversationHostError::WriterFenced => StatusCode::CONFLICT,

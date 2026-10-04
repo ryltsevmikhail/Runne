@@ -1,8 +1,9 @@
 // Integration tests for schema v8: daemon tables, authority ID, and startup purge.
 
 use runne_store::schema::{
-    CURRENT_SCHEMA_VERSION, apply_migrations, ensure_authority_id, ensure_event_log_lineage_id,
-    generate_authority_id, purge_replay_subscriptions, read_authority_id,
+    CURRENT_SCHEMA_VERSION, apply_migrations, apply_migrations_through_v18_for_test,
+    ensure_authority_id, ensure_event_log_lineage_id, generate_authority_id,
+    purge_replay_subscriptions, read_authority_id,
 };
 use rusqlite::{Connection, params};
 
@@ -81,16 +82,16 @@ fn drop_v13_provider_execution(conn: &Connection) {
             .unwrap();
     }
     conn.execute_batch(
-        "DROP TABLE provider_online_credential_effect_bindings;
-         DROP TABLE provider_online_dispatch_claim_providers;
-         DROP TABLE provider_online_dispatch_issuance_evidence;
-         DROP TABLE provider_credential_ticket_attempts;
-         DROP TABLE provider_credential_readiness_observations;
-         DROP TABLE provider_credential_verification_observations;
-         DROP TABLE provider_credential_authority_heads;
-         DROP TABLE provider_credential_completion_receipts;
-         DROP TABLE provider_credential_process_attachments;
-         DROP TABLE provider_credential_operations;
+        "DROP TABLE IF EXISTS provider_online_credential_effect_bindings;
+         DROP TABLE IF EXISTS provider_online_dispatch_claim_providers;
+         DROP TABLE IF EXISTS provider_online_dispatch_issuance_evidence;
+         DROP TABLE IF EXISTS provider_credential_ticket_attempts;
+         DROP TABLE IF EXISTS provider_credential_readiness_observations;
+         DROP TABLE IF EXISTS provider_credential_verification_observations;
+         DROP TABLE IF EXISTS provider_credential_authority_heads;
+         DROP TABLE IF EXISTS provider_credential_completion_receipts;
+         DROP TABLE IF EXISTS provider_credential_process_attachments;
+         DROP TABLE IF EXISTS provider_credential_operations;
          DROP TABLE bootstrap_reservation_tombstones;
          DROP TABLE bootstrap_reservations;
          DROP TABLE bootstrap_last_observed_clock;
@@ -108,6 +109,32 @@ fn drop_v13_provider_execution(conn: &Connection) {
          DROP TABLE provider_budget_reservations;
          DROP TABLE provider_execution_admissions;
          DROP TABLE provider_runtime_authority_state;",
+    )
+    .unwrap();
+}
+
+fn drop_v16_v17_objects(conn: &Connection) {
+    let triggers = conn
+        .prepare("SELECT name FROM sqlite_master WHERE type='trigger' AND name LIKE 'bootstrap_%'")
+        .unwrap()
+        .query_map([], |row| row.get::<_, String>(0))
+        .unwrap()
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .unwrap();
+    for trigger in triggers {
+        let quoted = trigger.replace('"', "\"\"");
+        conn.execute_batch(&format!("DROP TRIGGER \"{quoted}\";"))
+            .unwrap();
+    }
+    conn.execute_batch(
+        "DROP INDEX IF EXISTS bootstrap_reservation_unexpired;
+         DROP TABLE IF EXISTS bootstrap_reservations;
+         DROP TABLE IF EXISTS bootstrap_reservation_tombstones;
+         DROP TABLE IF EXISTS bootstrap_last_observed_clock;
+         DROP TABLE IF EXISTS provider_credential_effect_bindings;
+         DROP TABLE IF EXISTS provider_credential_provisions;
+         DROP TABLE IF EXISTS provider_credential_clock_high_water;
+         DROP TABLE IF EXISTS provider_credential_versions;",
     )
     .unwrap();
 }

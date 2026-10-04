@@ -110,6 +110,8 @@ pub(super) const CO_TAG_RECOVERY_RESUMED: u8 = 0x0F;
 pub(super) const CO_TAG_LOOP_CHECKPOINT_COMMITTED: u8 = 0x10;
 pub(super) const CO_TAG_CANCELLATION_REQUESTED: u8 = 0x11;
 pub(super) const CO_TAG_SUBMITTED: u8 = 0x12;
+pub(super) const CO_TAG_CANCELLATION_COMPLETED: u8 = 0x13;
+pub(super) const CO_TAG_UNKNOWN_SUCCESSOR_CREATED: u8 = 0x14;
 
 /// Codec for [`CommandOutcome`] receipt BLOB.
 pub struct CommandOutcomeCodec;

@@ -1,15 +1,23 @@
 use super::claim::node_registration;
-use super::submit_fence::submit_task_run;
 use super::support::*;
-use runne_application::commands::{CancelTaskRunInput, CommandOutcome};
+use runne_application::commands::SubmitTaskRunInput;
+use runne_application::commands::{
+    BeginClaimedConversationTextInput, BeginConversationTextInput, CancelTaskRunInput,
+    CommandOutcome,
+};
+use runne_application::conversation_service::ConversationService;
+use runne_application::conversation_text_service::ConversationTextCommandService;
+use runne_application::conversation_text_service::ConversationTextService;
 use runne_application::ports::{
     BindPreparedTaskRunProviderEffect, ExecutionNodeId, PreparedTaskRunProviderRequest,
-    TaskRunAssignmentIdentity, TaskRunAssignmentPort, TaskRunClaimResult,
+    RuntimeAuthorityId, TaskRunAssignmentIdentity, TaskRunAssignmentPort, TaskRunClaimResult,
     TaskRunProviderBindingPort, TaskRunProviderBindingResult,
 };
 use runne_application::provider::ProviderAuthorityIssueRequest;
 use runne_application::service::ClaimTaskRunInput;
-use runne_domain::id::{AttemptId, ConversationId};
+use runne_application::service::TaskRunService;
+use runne_domain::id::{AttemptId, ConversationId, WorkspaceId};
+use runne_domain::message::MessageText;
 use runne_provider::{
     ModelRef, PreparedProviderRecord as ContractPreparedProviderRecord, PreparedRequest,
     ProviderCall, ProviderCallId, ProviderId,
@@ -23,7 +31,7 @@ fn provider_config() -> ProviderRuntimeAuthorityConfig {
     ProviderRuntimeAuthorityConfig {
         runtime_authority_id: [1; 16],
         database_generation: 7,
-        principal_id: "principal-1".into(),
+        principal_id: "owner".into(),
         owner_id: "runtime-owner-1".into(),
         scope: "provider.dispatch".into(),
         generation: 11,
@@ -50,6 +58,7 @@ fn provider_config() -> ProviderRuntimeAuthorityConfig {
 fn provider_request(
     taskrun_id: runne_domain::id::TaskRunId,
     attempt_id: AttemptId,
+    conversation_id: ConversationId,
 ) -> (
     PreparedProviderRecord,
     ContractPreparedProviderRecord,
@@ -85,8 +94,8 @@ fn provider_request(
     };
     let issue = ProviderAuthorityIssueRequest {
         provider_id: ProviderId::new("fixture-provider").unwrap(),
-        principal_id: "principal-1".into(),
-        conversation_id: ConversationId::from_bytes([0x46; 16]),
+        principal_id: "owner".into(),
+        conversation_id,
         taskrun_id,
         execution_attempt_id: attempt_id,
         prepared: contract,
@@ -107,17 +116,49 @@ struct Fixture {
 }
 
 fn fixture(name: &str) -> Fixture {
-    let database = Database::new(name);
+    let runtime_authority = RuntimeAuthorityId("01010101010101010101010101010101".into());
+    let database = Database::new_with_database_authority(name, runtime_authority.clone(), [1; 16]);
     let repository = database.repository();
     create_project(&repository);
     create_workspace(&repository);
-    let outcome = submit_task_run(&database, 0x47, "provider-binding-taskrun");
+    let conversation_id = ConversationId::from_bytes(command(0x57).into_bytes());
+    ConversationService::new(
+        database.store.clone(),
+        database.store.clone(),
+        runtime_authority.clone(),
+    )
+    .create_from_application(
+        &task_context(0x67, "provider-binding-conversation"),
+        runne_api::CreateConversationInput {
+            conversation_id,
+            workspace_id: WorkspaceId::from_bytes(WORKSPACE),
+            command_id: command(0x67),
+            idempotency_key: key("provider-binding-conversation"),
+            scope: runne_api::ConversationContextScope::Workspace,
+        },
+    )
+    .unwrap();
+    let task_runs = TaskRunService::new(
+        database.store.clone(),
+        database.store.clone(),
+        database.store.clone(),
+        runtime_authority.clone(),
+    );
+    let outcome = task_runs
+        .submit_task_run(
+            &task_context(0x47, "provider-binding-taskrun"),
+            SubmitTaskRunInput {
+                conversation_id,
+                workspace_id: WorkspaceId::from_bytes(WORKSPACE),
+                input: runne_domain::task_run::TaskRunInput::new("test prompt".into()).unwrap(),
+            },
+        )
+        .unwrap();
     let CommandOutcome::TaskRunSubmitted { taskrun_id, .. } = outcome else {
         panic!("TaskRun expected")
     };
     let (node_id, node_epoch) = node_registration(&database);
-    let TaskRunClaimResult::Committed(receipt) = database
-        .task_runs()
+    let TaskRunClaimResult::Committed(receipt) = task_runs
         .claim_task_run(
             &task_context(0x48, "provider-binding-claim"),
             ClaimTaskRunInput {
@@ -141,6 +182,28 @@ fn fixture(name: &str) -> Fixture {
         node_epoch,
         fence: receipt.fence,
     };
+    ConversationTextService::new(
+        database.store.clone(),
+        database.store.clone(),
+        runtime_authority,
+        guard(),
+    )
+    .begin_claimed_text(
+        &task_context(0x4b, "provider-binding-generation"),
+        BeginClaimedConversationTextInput {
+            original: BeginConversationTextInput {
+                conversation_id,
+                expected_version: 1,
+                text: MessageText::new("test prompt").unwrap(),
+            },
+            taskrun_id,
+            attempt_id: receipt.attempt_id,
+            taskrun_version: receipt.new_version,
+            workspace_id: WorkspaceId::from_bytes(WORKSPACE),
+            assignment: identity.clone(),
+        },
+    )
+    .unwrap();
     let dispatch =
         crate::validated_reopen::open_provider_dispatch(database.file.path(), database.identity)
             .unwrap();
@@ -153,7 +216,8 @@ fn fixture(name: &str) -> Fixture {
             .unwrap(),
     );
     crate::online_proof::arm(&execution, 7);
-    let (stored, contract, issue) = provider_request(taskrun_id, receipt.attempt_id);
+    let (stored, contract, issue) =
+        provider_request(taskrun_id, receipt.attempt_id, conversation_id);
     dispatch.persist_prepared(&launch, &stored).unwrap();
     assert!(matches!(
         execution.issue(&launch, &issue).unwrap(),

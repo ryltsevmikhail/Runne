@@ -117,3 +117,31 @@ async fn every_non_bind_mutation_posts_once_then_persists_typed_durable_reconcil
         );
     }
 }
+
+#[tokio::test]
+async fn uncertain_generation_is_exposed_as_unknown_without_generation_rejection_or_retry() {
+    let (project, workspace, conversation) = matrix_values();
+    let (origin, server) = matrix_server(vec![(
+        502,
+        r#"{"code":"conversation_outcome_unknown","requestId":"018f2e3a-7000-7000-8000-000000000929"}"#.into(),
+    )])
+    .await;
+    let (_directory, core) = matrix_core(&origin);
+    let request = NetworkMutationCase::GenerateCompleted.request(project, workspace, conversation);
+    let replay = request.clone();
+    let result = core
+        .dispatch_prepared_mutation(core.prepare_mutation(request).await.expect("prepare"))
+        .await;
+    assert!(matches!(result, Err(AppCoreError::GenerationOutcomeUnknown)));
+    assert_eq!(
+        core.prepare_mutation(replay)
+            .await
+            .expect("replay record")
+            .anchored_record
+            .disposition(),
+        runne_local_store::ClientMutationDisposition::Reconciling
+    );
+    let requests = server.await.expect("server");
+    assert_eq!(requests.len(), 1);
+    assert!(requests[0].starts_with("POST /v1/conversations/"));
+}

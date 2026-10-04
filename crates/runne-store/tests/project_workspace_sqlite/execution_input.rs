@@ -8,7 +8,7 @@ use runne_application::ports::{
     TaskRunExecutionInputError as Error, TaskRunExecutionInputPort,
 };
 
-fn claim(
+pub(super) fn claim(
     database: &Database,
     taskrun_id: runne_domain::id::TaskRunId,
     tail: u8,

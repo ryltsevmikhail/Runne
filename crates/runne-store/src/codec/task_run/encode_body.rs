@@ -1,15 +1,29 @@
 {
+        if let TaskRunEvent::TaskRunSubmitted { input, .. } = value {
+            input.validate_execution_selection().map_err(|_| StoreCodecError::Truncated)?;
+        }
         let mut buf = Vec::new();
-        write_u16_be(&mut buf, Self::CODEC_VERSION);
+        let codec_version = match value {
+            TaskRunEvent::TaskRunSubmitted { input, .. }
+                if input.local_command().is_some() => 5,
+            TaskRunEvent::UserSupersedeUnknown { .. } => Self::CODEC_VERSION,
+            TaskRunEvent::TaskRunSubmitted { input, .. }
+                if input.selected_profile().is_some() => 3,
+            TaskRunEvent::TaskRunSubmitted { input, .. }
+                if input.requested_model().is_some() => 2,
+            _ => 1,
+        };
+        write_u16_be(&mut buf, codec_version);
 
         match value {
             TaskRunEvent::TaskRunSubmitted { conversation_id, workspace_id, input } => {
-                buf.push(TAG_TASK_RUN_SUBMITTED);
-                write_uuid(&mut buf, conversation_id.as_bytes());
-                write_uuid(&mut buf, workspace_id.as_bytes());
-                let prompt = input.prompt().as_bytes();
-                buf.extend_from_slice(&(prompt.len() as u32).to_be_bytes());
-                buf.extend_from_slice(prompt);
+                submitted::encode(
+                    &mut buf,
+                    *conversation_id,
+                    *workspace_id,
+                    input,
+                    codec_version,
+                );
             }
             TaskRunEvent::TaskRunCreated => {
                 buf.push(TAG_TASK_RUN_CREATED);
@@ -72,6 +86,16 @@
             }
             TaskRunEvent::Unrecoverable => {
                 buf.push(TAG_UNRECOVERABLE);
+            }
+            TaskRunEvent::UserSupersedeUnknown {
+                predecessor_attempt_id,
+                successor_taskrun_id,
+                acknowledgement_digest,
+            } => {
+                buf.push(TAG_USER_SUPERSEDE_UNKNOWN);
+                write_uuid(&mut buf, predecessor_attempt_id.as_bytes());
+                write_uuid(&mut buf, successor_taskrun_id.as_bytes());
+                write_digest(&mut buf, acknowledgement_digest);
             }
             TaskRunEvent::TaskRunCancelled => {
                 buf.push(TAG_TASK_RUN_CANCELLED);

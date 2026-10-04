@@ -123,6 +123,45 @@ fn duplicate_release_rejects_validly_rehashed_key_cause_and_payload_tampering() 
 }
 
 #[test]
+fn release_fails_closed_when_submitted_origin_receipt_fingerprint_is_tampered() {
+    let database = Database::new("taskrun-release-submit-origin-fingerprint");
+    let repository = database.repository();
+    create_project(&repository);
+    create_workspace(&repository);
+    let outcome = submit_task_run(&database, 0x61, "release-submit-origin");
+    let CommandOutcome::TaskRunSubmitted { taskrun_id, .. } = outcome else {
+        panic!()
+    };
+    let (node, epoch) = node_registration(&database);
+    let (identity, version) = claim(&database, taskrun_id, 0x62, &node, epoch);
+    let request = release_request(&database, identity.clone(), version, 0x63);
+    let connection = database.connection();
+    connection
+        .execute(
+            "UPDATE command_receipts SET fingerprint=?1 WHERE command_id=(
+                SELECT command_id FROM events WHERE aggregate_type=1 AND aggregate_id=?2 AND sequence=1
+            )",
+            rusqlite::params![vec![0_u8; 32], taskrun_id.as_bytes()],
+        )
+        .unwrap();
+
+    assert_eq!(
+        database.store.release_taskrun_no_effect(request),
+        Err(TaskRunNoEffectReleaseError::CorruptData)
+    );
+    let stream = database.store.load_task_run(taskrun_id).unwrap();
+    assert_eq!(stream.current_version, version);
+    let state: String = connection
+        .query_row(
+            "SELECT state FROM taskrun_assignment_occupations WHERE taskrun_id=?1 AND fence=?2",
+            rusqlite::params![taskrun_id.as_bytes(), identity.fence.0 as i64],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(state, "active");
+}
+
+#[test]
 fn v45_admission_rejects_validly_rehashed_release_event_tampering() {
     let (database, identity, _, _) = released_fixture();
     mutate_valid_release_stream(&database, identity.taskrun_id, "key");

@@ -1,4 +1,27 @@
 impl Lifecycle {
+    fn bind_created_response(
+        &mut self,
+        response: &Map<String, Value>,
+    ) -> Result<bool, OpenAiStreamError> {
+        validate_response_guards(response, self.background)?;
+        let response_id = required_string(response, "id")?;
+        validate_identifier(response_id)?;
+        match self.response_id.as_deref() {
+            Some(existing) if existing != response_id => {
+                return Err(OpenAiStreamError::CorrelationMismatch);
+            }
+            None => self.response_id = Some(response_id.to_owned()),
+            Some(_) => {}
+        }
+        let status = required_string(response, "status")?;
+        if status != "in_progress" && !(self.background && status == "queued") {
+            return Err(OpenAiStreamError::IllegalTransition);
+        }
+        Ok(status == "queued")
+    }
+}
+
+impl Lifecycle {
     fn accept_item_added(&mut self, event: &Map<String, Value>) -> Result<(), OpenAiStreamError> {
         require_keys(event, &["item", "output_index", "sequence_number", "type"])?;
         if self.stage != LifecycleStage::InProgress || required_u64(event, "output_index")? != 0 {
@@ -12,7 +35,6 @@ impl Lifecycle {
         self.stage = LifecycleStage::ItemAdded;
         Ok(())
     }
-
 }
 impl Lifecycle {
     fn accept_part_added(&mut self, event: &Map<String, Value>) -> Result<(), OpenAiStreamError> {
@@ -35,7 +57,6 @@ impl Lifecycle {
         self.stage = LifecycleStage::PartAdded;
         Ok(())
     }
-
 }
 impl Lifecycle {
     fn accept_text_delta(&mut self, event: &Map<String, Value>) -> Result<(), OpenAiStreamError> {
@@ -80,7 +101,6 @@ impl Lifecycle {
             text: delta.to_owned(),
         })
     }
-
 }
 impl Lifecycle {
     fn accept_text_done(&mut self, event: &Map<String, Value>) -> Result<(), OpenAiStreamError> {
@@ -115,7 +135,6 @@ impl Lifecycle {
         self.stage = LifecycleStage::TextDone;
         Ok(())
     }
-
 }
 impl Lifecycle {
     fn accept_part_done(&mut self, event: &Map<String, Value>) -> Result<(), OpenAiStreamError> {
@@ -138,7 +157,6 @@ impl Lifecycle {
         self.stage = LifecycleStage::PartDone;
         Ok(())
     }
-
 }
 impl Lifecycle {
     fn accept_item_done(&mut self, event: &Map<String, Value>) -> Result<(), OpenAiStreamError> {
@@ -155,32 +173,6 @@ impl Lifecycle {
         self.stage = LifecycleStage::ItemDone;
         Ok(())
     }
-
-}
-impl Lifecycle {
-    fn accept_completed(&mut self, event: &Map<String, Value>) -> Result<(), OpenAiStreamError> {
-        require_keys(event, &["response", "sequence_number", "type"])?;
-        if self.stage != LifecycleStage::ItemDone {
-            return Err(OpenAiStreamError::IllegalTransition);
-        }
-        let response = required_object(event, "response")?;
-        self.bind_response(response, "completed")?;
-        validate_terminal_response_guards(response, false, false)?;
-        validate_output(response, self.item_id()?, &self.text, "completed", false)?;
-        let usage_value = response
-            .get("usage")
-            .filter(|value| !value.is_null())
-            .ok_or(OpenAiStreamError::InvalidUsage)?;
-        let usage = parse_usage(usage_value)?;
-        self.push_normalized(ProviderStreamEventKind::Usage { usage })?;
-        self.push_normalized(ProviderStreamEventKind::Finished {
-            disposition: ProviderTerminalDisposition::Completed,
-            reason: ProviderFinishReason::Stop,
-        })?;
-        self.stage = LifecycleStage::Terminal;
-        Ok(())
-    }
-
 }
 impl Lifecycle {
     fn accept_failed(&mut self, event: &Map<String, Value>) -> Result<(), OpenAiStreamError> {
@@ -198,7 +190,6 @@ impl Lifecycle {
         self.stage = LifecycleStage::Terminal;
         Ok(())
     }
-
 }
 impl Lifecycle {
     fn accept_incomplete(&mut self, event: &Map<String, Value>) -> Result<(), OpenAiStreamError> {
@@ -226,7 +217,6 @@ impl Lifecycle {
         self.stage = LifecycleStage::Terminal;
         Ok(())
     }
-
 }
 impl Lifecycle {
     fn accept_error(&mut self, event: &Map<String, Value>) -> Result<(), OpenAiStreamError> {
@@ -251,7 +241,6 @@ impl Lifecycle {
         self.stage = LifecycleStage::Terminal;
         Ok(())
     }
-
 }
 impl Lifecycle {
     fn bind_response(
@@ -259,7 +248,7 @@ impl Lifecycle {
         response: &Map<String, Value>,
         expected_status: &str,
     ) -> Result<(), OpenAiStreamError> {
-        validate_response_guards(response)?;
+        validate_response_guards(response, self.background)?;
         let response_id = required_string(response, "id")?;
         validate_identifier(response_id)?;
         match self.response_id.as_deref() {
@@ -274,5 +263,4 @@ impl Lifecycle {
         }
         Ok(())
     }
-
 }

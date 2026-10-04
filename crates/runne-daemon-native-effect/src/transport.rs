@@ -41,7 +41,7 @@ impl NativeEffect {
     pub(crate) async fn dispatch_authorized(
         &self,
         ready: super::port::AuthorizedReady,
-        receipt: ProviderEffectStartReceipt,
+        mut receipt: ProviderEffectStartReceipt,
     ) -> Result<ProviderStreamId, DispatchError> {
         if !receipt.matches_claim(ready.request.claim())
             || !receipt.matches_credential(&ready.credential)
@@ -93,6 +93,11 @@ impl NativeEffect {
                     url.clone(),
                     headers,
                     ready.request.prepared().rendered_bytes().to_vec(),
+                    receipt.take_final_send_authority().map_err(|_| {
+                        DispatchError::RejectedBeforeEffect(
+                            ProviderPreEffectRejection::AdapterRejected,
+                        )
+                    })?,
                 ),
             ),
         )
@@ -246,6 +251,7 @@ pub trait NativeTransport: Send + Sync {
         url: String,
         headers: HeaderMap,
         body: Vec<u8>,
+        final_send: runne_store::provider::ProviderFinalSendAuthority,
     ) -> ProviderFuture<'_, Result<NativeTransportResponse, NativeTransportError>>;
 }
 

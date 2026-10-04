@@ -118,9 +118,16 @@ impl ProviderEffectPort for Sender {
                 .into_any()
                 .downcast::<Ready>()
                 .map_err(|_| DispatchError::MaybeDispatched)?;
-            tokio::time::timeout_at(receipt.deadline().into(), self.execute(*ready, receipt))
-                .await
-                .map_err(|_| DispatchError::MaybeDispatched)?
+            let mut receipt = receipt;
+            let final_send = receipt.take_final_send_authority().map_err(|_| {
+                DispatchError::RejectedBeforeEffect(ProviderPreEffectRejection::AdapterRejected)
+            })?;
+            tokio::time::timeout_at(
+                receipt.deadline().into(),
+                self.execute(*ready, receipt, final_send),
+            )
+            .await
+            .map_err(|_| DispatchError::MaybeDispatched)?
         })
     }
 }

@@ -37,20 +37,27 @@ fn command_response(
 }
 
 fn ack_to_wire(ack: TaskRunCommandAck) -> TaskRunAckWire {
-    let (transition, attempt_id, terminal_result) = match ack.kind {
-        TaskRunCommandAckKind::Created => ("created", None, None),
-        TaskRunCommandAckKind::Submitted => ("submitted", None, None),
-        TaskRunCommandAckKind::Queued => ("queued", None, None),
+    let (transition, attempt_id, terminal_result, predecessor_task_run_id, predecessor_version) = match ack.kind {
+        TaskRunCommandAckKind::Created => ("created", None, None, None, None),
+        TaskRunCommandAckKind::Submitted => ("submitted", None, None, None, None),
+        TaskRunCommandAckKind::Queued => ("queued", None, None, None, None),
         TaskRunCommandAckKind::CancellationRequested => {
-            ("cancellation_requested", None, None)
+            ("cancellation_requested", None, None, None, None)
         }
-        TaskRunCommandAckKind::Admitted => ("admitted", None, None),
+        TaskRunCommandAckKind::Admitted => ("admitted", None, None, None, None),
         TaskRunCommandAckKind::AttemptStarted { attempt_id } => {
-            ("attempt_started", Some(attempt_id.to_string()), None)
+            ("attempt_started", Some(attempt_id.to_string()), None, None, None)
         }
         TaskRunCommandAckKind::Completed { result } => {
-            ("completed", None, Some(terminal_result_to_wire(result)))
+            ("completed", None, Some(terminal_result_to_wire(result)), None, None)
         }
+        TaskRunCommandAckKind::UnknownSuccessorCreated { predecessor_taskrun_id, predecessor_version, .. } => (
+            "unknown_successor_created",
+            None,
+            None,
+            Some(predecessor_taskrun_id.to_string()),
+            Some(predecessor_version),
+        ),
     };
     TaskRunAckWire {
         task_run_id: ack.taskrun_id.to_string(),
@@ -58,6 +65,8 @@ fn ack_to_wire(ack: TaskRunCommandAck) -> TaskRunAckWire {
         transition,
         attempt_id,
         terminal_result,
+        predecessor_task_run_id,
+        predecessor_version,
     }
 }
 

@@ -38,8 +38,7 @@ impl ProtectedBundledRuntimeSupervisor {
     pub fn test_take_captured_output(&mut self) -> Option<String> {
         let (stdout, stderr) = self
             .process
-            .as_mut()
-            .expect("supervised process is running")
+            .as_mut()?
             .take_captured_output_for_test()
             .ok()?;
         Some(format!(

@@ -1,7 +1,9 @@
 //! Conversation aggregate — session lifecycle state machine.
 
 use crate::event::{DomainEventDraft, EventEnvelope, Sensitivity};
-use crate::id::{AggregateId, AttemptId, ConversationId, MessageId, TaskRunId, WorkspaceId};
+use crate::id::{
+    AggregateId, AttemptId, ConversationId, IntegrityDigest, MessageId, TaskRunId, WorkspaceId,
+};
 use crate::message::{ConversationMessage, MessageRole, MessageText};
 
 pub use crate::command::ConversationCommand;

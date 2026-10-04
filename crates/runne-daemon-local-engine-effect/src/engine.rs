@@ -53,6 +53,6 @@ pub(crate) fn rejected_before_effect() -> DispatchError {
 }
 
 /// Receipt/binding verification shared by the dispatch paths.
-pub(crate) fn receipt_matches(_receipt: &ProviderEffectStartReceipt, _ready: &Staged) -> bool {
-    true
+pub(crate) fn receipt_matches(receipt: &ProviderEffectStartReceipt, ready: &Staged) -> bool {
+    receipt.matches_claim(ready.request.claim())
 }

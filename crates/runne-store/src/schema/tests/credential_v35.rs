@@ -147,13 +147,17 @@ fn write_v35_fence(
 #[test]
 fn v35_creates_reopens_and_upgrades_from_v34() {
     let directory = tempfile::tempdir().unwrap();
-    let path = { let daemon = directory.path().join("runne-daemon"); std::fs::create_dir_all(&daemon).unwrap(); daemon.join("qualification-v35.sqlite") };
+    let path = {
+        let daemon = directory.path().join("runne-daemon");
+        std::fs::create_dir_all(&daemon).unwrap();
+        daemon.join("qualification-v35.sqlite")
+    };
     let connection = Connection::open(&path).unwrap();
     apply_migrations_internal(&connection, 34).unwrap();
     assert!(v34_matches(&connection, 34).unwrap());
     apply_migrations(&connection).unwrap();
-    assert_eq!(CURRENT_SCHEMA_VERSION, 48);
-    assert!(v48_matches(&connection, 48).unwrap());
+    assert_eq!(CURRENT_SCHEMA_VERSION, 63);
+    assert!(v63_matches(&connection, CURRENT_SCHEMA_VERSION).unwrap());
     drop(connection);
     drop(open_managed_connection(&path, ConnectionMode::Writer).unwrap());
 }
@@ -165,15 +169,19 @@ fn v35_fence_is_unique_append_only_and_binds_an_issued_attempt() {
     seed_v35_ticket(&connection, 31, 1);
     insert_v35_fence(&connection, &V35FenceInsert::valid(31, 40)).unwrap();
     assert!(insert_v35_fence(&connection, &V35FenceInsert::valid(31, 60)).is_err());
-    assert!(connection
-        .execute(
-            "UPDATE provider_qualification_admission_fences SET committed_at=131",
-            [],
-        )
-        .is_err());
-    assert!(connection
-        .execute("DELETE FROM provider_qualification_admission_fences", [],)
-        .is_err());
+    assert!(
+        connection
+            .execute(
+                "UPDATE provider_qualification_admission_fences SET committed_at=131",
+                [],
+            )
+            .is_err()
+    );
+    assert!(
+        connection
+            .execute("DELETE FROM provider_qualification_admission_fences", [],)
+            .is_err()
+    );
 
     seed_v35_ticket(&connection, 32, 1);
     connection

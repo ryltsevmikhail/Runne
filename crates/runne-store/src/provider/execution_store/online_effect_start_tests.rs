@@ -12,6 +12,7 @@ use crate::provider::credential_lifecycle::online_claim_test_support::{
 };
 use crate::provider::credential_lifecycle::online_test_support::{complete_pair, provider};
 
+mod final_send_tests;
 mod online_materialization_fence_tests;
 mod online_revoke_fence_tests;
 

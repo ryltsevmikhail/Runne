@@ -52,18 +52,32 @@ mod dispatch_binding;
 mod dispatch_gate;
 mod dynamic_readiness;
 mod effect_adapter;
+#[path = "canonical_provider/composition/effects_projection.rs"]
+mod effects_projection;
 mod execution;
+mod execution_authority;
+mod execution_cancellation;
 mod execution_diagnostics;
+mod historical_model_resolver;
 mod loopback_tail;
 mod openai_profile;
+mod optional_catalog;
 mod projection;
+mod provider_failure_recovery;
 pub(crate) mod readiness;
 mod recovery;
+mod recovery_authorizer;
 mod redaction_diagnostics;
 mod runtime_launch;
 mod runtime_store;
+mod saved_remote_apply;
+mod saved_remote_gate;
+mod saved_remote_observe;
+mod saved_remote_recovery;
 mod selected_provider;
 mod shared_profile;
+
+pub(crate) use execution_cancellation::foreground_cancellation_result;
 
 use loopback_tail::LoopbackWithheldTailStore;
 
@@ -75,7 +89,9 @@ pub(crate) use effect_adapter::{
     local_engine_effect_adapter, native_effect_adapter, openai_effect_adapter,
     radius_effect_adapter, responses_effect_adapter,
 };
+pub(crate) use historical_model_resolver::CompiledHistoricalProviderModelResolver;
 pub(crate) use openai_profile::OpenAiTextProviderProfile;
+pub(crate) use optional_catalog::VerifiedSecondaryCatalog;
 pub(crate) use readiness::probe_provider_readiness;
 pub use readiness::{ProviderReadinessError, ProviderReadinessEvidence};
 pub use selected_provider::compose_selected_provider;

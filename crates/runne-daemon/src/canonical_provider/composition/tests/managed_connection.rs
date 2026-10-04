@@ -10,6 +10,15 @@ pub(super) fn managed_test_connection(
     lineage: EventLogLineageId,
     mode: ConnectionMode,
 ) -> ManagedConnection {
+    try_managed_test_connection(path, authority, lineage, mode).unwrap()
+}
+
+pub(super) fn try_managed_test_connection(
+    path: &str,
+    authority: [u8; 16],
+    lineage: EventLogLineageId,
+    mode: ConnectionMode,
+) -> rusqlite::Result<ManagedConnection> {
     reopen_managed_connection_validated(std::path::Path::new(path), mode, |connection| {
         if read_authority_id(connection)? == Some(authority)
             && read_event_log_lineage_id(connection)? == Some(lineage)
@@ -19,5 +28,4 @@ pub(super) fn managed_test_connection(
             Err(rusqlite::Error::InvalidQuery)
         }
     })
-    .unwrap()
 }

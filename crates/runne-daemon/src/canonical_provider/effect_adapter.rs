@@ -1,8 +1,9 @@
 use super::*;
 use runne_provider::{
     CancelDisposition, CancelRequest, DispatchError, DispatchRequest, PrepareError,
-    PreparedRequest, ProviderStreamId, ProviderStreamItem, ReconcileRequest,
-    ReconciliationDisposition, StreamError,
+    PreparedRequest, ProviderRecoveryCapabilities, ProviderRecoveryError, ProviderRecoveryRequest,
+    ProviderRemoteCheck, ProviderResumeRequest, ProviderStreamId, ProviderStreamItem,
+    ReconcileRequest, ReconciliationDisposition, StreamError,
 };
 
 /// Daemon-local object type for adapters that own both prepare/stream and
@@ -81,6 +82,10 @@ pub(crate) fn responses_effect_adapter(
 macro_rules! impl_provider_adapter {
     ($adapter:ty) => {
         impl ProviderPort for $adapter {
+            fn recovery_capabilities(&self) -> ProviderRecoveryCapabilities {
+                self.inner.recovery_capabilities()
+            }
+
             fn prepare(&self, call: &ProviderCall) -> Result<PreparedRequest, PrepareError> {
                 self.inner.prepare(call)
             }
@@ -124,6 +129,36 @@ macro_rules! impl_provider_adapter {
             ) -> runne_provider::ProviderFuture<'_, Result<ReconciliationDisposition, DispatchError>>
             {
                 self.inner.reconcile(request)
+            }
+
+            fn check_remote_status(
+                &self,
+                request: ProviderRecoveryRequest,
+            ) -> runne_provider::ProviderFuture<
+                '_ ,
+                Result<ProviderRemoteCheck, ProviderRecoveryError>,
+            > {
+                self.inner.check_remote_status(request)
+            }
+
+            fn resume_remote_stream(
+                &self,
+                request: ProviderResumeRequest,
+            ) -> runne_provider::ProviderFuture<
+                '_ ,
+                Result<Vec<runne_provider::ProviderStreamEvent>, ProviderRecoveryError>,
+            > {
+                self.inner.resume_remote_stream(request)
+            }
+
+            fn cancel_remote(
+                &self,
+                request: ProviderRecoveryRequest,
+            ) -> runne_provider::ProviderFuture<
+                '_ ,
+                Result<ProviderRemoteCheck, ProviderRecoveryError>,
+            > {
+                self.inner.cancel_remote(request)
             }
         }
 

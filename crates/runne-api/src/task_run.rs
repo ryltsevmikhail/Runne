@@ -3,10 +3,17 @@
 use runne_domain::id::{
     AttemptId, CommandId, ConversationId, IdempotencyKey, TaskRunId, WorkspaceId,
 };
-pub use runne_domain::task_run::{MAX_TASK_RUN_PROMPT_BYTES, TaskRunInput};
+pub use runne_domain::task_run::{
+    MAX_TASK_RUN_PROMPT_BYTES, SelectedProviderProfile, TaskRunExecutable, TaskRunInput,
+    TaskRunLocalCommand,
+};
 
 mod query_port;
 pub use query_port::TaskRunQueryHostPort;
+mod effects;
+pub use effects::*;
+mod snapshot;
+pub use snapshot::{CanonicalTaskRunState, TaskRunSnapshot};
 
 use crate::{ApiActor, ApiPrincipalId};
 
@@ -85,6 +92,29 @@ pub struct CompleteTaskRunCommand {
     pub result: CanonicalTerminalResult,
 }
 
+/// Acknowledged successor creation; it accepts no replacement prompt or route.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SupersedeUnknownTaskRunCommand {
+    /// Exact unresolved predecessor.
+    pub predecessor_taskrun_id: TaskRunId,
+    /// Predecessor stream version shown with the warning.
+    pub expected_predecessor_version: u64,
+    /// Closed duplicate-execution and cost warning acknowledgement.
+    pub acknowledgment: UnknownSuccessorAcknowledgment,
+}
+
+/// Closed acknowledgment codes accepted by the public TaskRun API.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UnknownSuccessorAcknowledgment {
+    /// The unresolved predecessor may already have executed and incurred cost.
+    DuplicateExecutionAndCostV1,
+}
+
+impl UnknownSuccessorAcknowledgment {
+    /// Stable wire code required by the HTTP request.
+    pub const CODE: &'static str = "duplicate_execution_and_cost_v1";
+}
+
 /// Exact committed transition acknowledged by a command.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TaskRunCommandAckKind {
@@ -108,6 +138,17 @@ pub enum TaskRunCommandAckKind {
         /// Committed terminal result.
         result: CanonicalTerminalResult,
     },
+    /// An explicitly acknowledged successor was created.
+    UnknownSuccessorCreated {
+        /// Predecessor whose uncertain effect remains recorded.
+        predecessor_taskrun_id: TaskRunId,
+        /// Exact predecessor version after this transition.
+        predecessor_version: u64,
+        /// Successor TaskRun created from its authenticated historic intent.
+        successor_taskrun_id: TaskRunId,
+        /// Successor's initial stream version.
+        successor_version: u64,
+    },
 }
 
 /// Durable acknowledgement returned by a canonical mutation.
@@ -119,84 +160,6 @@ pub struct TaskRunCommandAck {
     pub new_version: u64,
     /// Exact transition that committed.
     pub kind: TaskRunCommandAckKind,
-}
-
-/// Closed TaskRun lifecycle representation for canonical clients.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CanonicalTaskRunState {
-    /// Created but not queued.
-    Created,
-    /// Waiting for admission.
-    Queued,
-    /// Admitted but not executing.
-    Admitted,
-    /// One attempt is active.
-    Running,
-    /// Waiting for approval or input.
-    Waiting,
-    /// Waiting for or executing a retry.
-    Retrying,
-    /// A checkpoint is being committed.
-    Checkpointing,
-    /// Cancellation is in progress.
-    Cancelling,
-    /// Effect reconciliation is in progress.
-    Reconciling,
-    /// Successful terminal state.
-    Succeeded,
-    /// Failed terminal state.
-    Failed,
-    /// Cancelled terminal state.
-    Cancelled,
-    /// Budget-exhausted terminal state.
-    BudgetExhausted,
-    /// Policy-denied terminal state.
-    PolicyDenied,
-    /// Unrecoverable terminal state.
-    Unrecoverable,
-}
-
-impl CanonicalTaskRunState {
-    /// Returns the stable wire spelling used by transport adapters.
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Created => "created",
-            Self::Queued => "queued",
-            Self::Admitted => "admitted",
-            Self::Running => "running",
-            Self::Waiting => "waiting",
-            Self::Retrying => "retrying",
-            Self::Checkpointing => "checkpointing",
-            Self::Cancelling => "cancelling",
-            Self::Reconciling => "reconciling",
-            Self::Succeeded => "succeeded",
-            Self::Failed => "failed",
-            Self::Cancelled => "cancelled",
-            Self::BudgetExhausted => "budget_exhausted",
-            Self::PolicyDenied => "policy_denied",
-            Self::Unrecoverable => "unrecoverable",
-        }
-    }
-}
-
-/// Non-mutating snapshot reconstructed from a committed TaskRun stream.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TaskRunSnapshot {
-    /// Queried TaskRun.
-    pub taskrun_id: TaskRunId,
-    /// Conversation bound at creation, when the run carries one.
-    pub conversation_id: Option<ConversationId>,
-    /// Workspace bound at creation, when the run carries one.
-    pub workspace_id: Option<WorkspaceId>,
-    /// Reconstructed lifecycle state.
-    pub state: CanonicalTaskRunState,
-    /// Current committed stream version.
-    pub stream_version: u64,
-    /// Active attempt, when the state has one.
-    pub active_attempt_id: Option<AttemptId>,
-    /// Terminal result for success/failure completion events.
-    pub terminal_result: Option<CanonicalTerminalResult>,
 }
 
 /// Closed redacted failures returned by canonical TaskRun hosts.
@@ -288,11 +251,19 @@ pub trait TaskRunCommandHostPort: Send + Sync {
         context: TaskRunCommandContext,
         command: ExistingTaskRunCommand,
     ) -> impl std::future::Future<Output = Result<TaskRunCommandAck, TaskRunHostError>> + Send;
-
     /// Completes one running TaskRun.
     fn complete_task_run(
         &self,
         context: TaskRunCommandContext,
         command: CompleteTaskRunCommand,
     ) -> impl std::future::Future<Output = Result<TaskRunCommandAck, TaskRunHostError>> + Send;
+
+    /// Creates a new explicitly warned successor for an unresolved remote effect.
+    fn supersede_unknown_task_run(
+        &self,
+        _context: TaskRunCommandContext,
+        _command: SupersedeUnknownTaskRunCommand,
+    ) -> impl std::future::Future<Output = Result<TaskRunCommandAck, TaskRunHostError>> + Send {
+        async { Err(TaskRunHostError::Unavailable) }
+    }
 }

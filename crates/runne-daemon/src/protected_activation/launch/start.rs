@@ -82,6 +82,10 @@ impl VerifiedProtectedRuntimeStart {
 }
 #[cfg(all(any(unix, windows), feature = "desktop-protected"))]
 impl VerifiedProtectedApplicationStart {
+    pub(crate) const fn config(&self) -> &ConfigurationSnapshot {
+        &self.config
+    }
+
     pub(crate) const fn provider_activation(&self) -> &ProviderActivation {
         &self.provider_activation
     }

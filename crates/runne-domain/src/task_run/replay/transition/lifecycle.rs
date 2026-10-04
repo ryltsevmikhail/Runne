@@ -130,6 +130,25 @@ impl TaskRun {
                 self.active_attempt = None;
                 self.state = TaskRunState::Unrecoverable;
             }
+            TaskRunEvent::UserSupersedeUnknown {
+                predecessor_attempt_id,
+                ..
+            } => {
+                if !matches!(self.state, TaskRunState::Running | TaskRunState::Cancelling) {
+                    return Err(DomainError::InvalidTransition {
+                        from: self.state,
+                        event: payload.kind(),
+                    });
+                }
+                if self.active_attempt != Some(*predecessor_attempt_id) {
+                    return Err(DomainError::InvalidTransition {
+                        from: self.state,
+                        event: payload.kind(),
+                    });
+                }
+                self.active_attempt = None;
+                self.state = TaskRunState::Unrecoverable;
+            }
             TaskRunEvent::TaskRunCancelled => {
                 // Valid from: admitted, queued, waiting, retrying
                 let valid = matches!(

@@ -11,4 +11,5 @@ pub struct AgentLoopAuthorities<T, R, W, C, V> {
 pub struct TaskRunService<E, U, I, A = NoAgentLoopAuthorities> {
     pipeline: Pipeline<E, U, I>,
     authorities: A,
+    unknown_successor_repository: Option<std::sync::Arc<dyn crate::ports::UnknownSuccessorRepository>>,
 }

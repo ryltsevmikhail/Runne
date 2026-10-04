@@ -1,4 +1,3 @@
-
 impl ProviderTerminalOutboxApplication for IdempotentTerminalApplication {
     fn complete_provider_terminal(
         &self,
@@ -7,9 +6,9 @@ impl ProviderTerminalOutboxApplication for IdempotentTerminalApplication {
     ) -> Result<[u8; 32], ProviderTerminalApplicationError> {
         self.calls.fetch_add(1, Ordering::SeqCst);
         assert_eq!(record.principal_id, "principal-1");
-        assert_eq!(record.conversation_id, ConversationId::from_bytes([6; 16]));
-        assert_eq!(record.taskrun_id, TaskRunId::from_bytes([7; 16]));
-        assert_eq!(record.execution_attempt_id, AttemptId::from_bytes([8; 16]));
+        assert_eq!(record.conversation_id, self.conversation_id);
+        assert_eq!(record.taskrun_id, self.taskrun_id);
+        assert_eq!(record.execution_attempt_id, self.execution_attempt_id);
         assert_eq!(record.fencing_token, 13);
         let mut committed = self
             .committed
@@ -56,7 +55,7 @@ async fn crash_after_application_commit_before_outbox_ack_replays_one_completion
         fail_acknowledgement: AtomicBool::new(true),
     };
     let recovery = runtime(&keyring, &store);
-    let application = IdempotentTerminalApplication::default();
+    let application = IdempotentTerminalApplication::for_fixture(&fixture);
     assert_eq!(
         recovery.apply_pending_terminal_outputs(&application, &IGNORING_RECOVERY_OBSERVER),
         Err(RuntimeProviderExecutionError::PersistenceUnavailable)

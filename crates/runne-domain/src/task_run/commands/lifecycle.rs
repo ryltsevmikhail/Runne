@@ -163,7 +163,29 @@ impl TaskRun {
                     TaskRunEvent::Unrecoverable,
                     Sensitivity::Public,
                 )])
-            },
+            }
+            TaskRunCommand::UserSupersedeUnknown {
+                predecessor_attempt_id,
+                successor_taskrun_id,
+                acknowledgement_digest,
+            } => {
+                if !matches!(self.state, TaskRunState::Running | TaskRunState::Cancelling)
+                    || self.active_attempt != Some(predecessor_attempt_id)
+                {
+                    return Err(DomainError::InvalidTransition {
+                        from: self.state,
+                        event: TaskRunEventKind::UserSupersedeUnknown,
+                    });
+                }
+                Ok(vec![draft(
+                    TaskRunEvent::UserSupersedeUnknown {
+                        predecessor_attempt_id,
+                        successor_taskrun_id,
+                        acknowledgement_digest,
+                    },
+                    Sensitivity::Public,
+                )])
+            }
             _ => unreachable!("lifecycle command dispatched to wrong handler"),
         }
     }

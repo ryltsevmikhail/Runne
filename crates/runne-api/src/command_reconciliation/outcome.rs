@@ -52,6 +52,7 @@ enum Outcome {
     ConversationText(AuthoritativeTextGenerationOutcome),
     TaskRunCancellationRequested(TaskRunCommandAck),
     TaskRunSubmitted(TaskRunCommandAck),
+    UnknownSuccessorCreated(TaskRunCommandAck),
     ApprovalDecision(ApprovalDecisionAck),
 }
 
@@ -123,6 +124,12 @@ impl AuthoritativeCommandOutcome {
         }
     }
     #[must_use]
+    pub const fn unknown_successor_created(value: TaskRunCommandAck) -> Self {
+        Self {
+            inner: Outcome::UnknownSuccessorCreated(value),
+        }
+    }
+    #[must_use]
     pub const fn approval_decision(value: ApprovalDecisionAck) -> Self {
         Self {
             inner: Outcome::ApprovalDecision(value),
@@ -143,6 +150,7 @@ impl AuthoritativeCommandOutcome {
             Outcome::ConversationText(_) => ReconciliationOperation::GenerateConversationText,
             Outcome::TaskRunCancellationRequested(_) => ReconciliationOperation::CancelTaskRun,
             Outcome::TaskRunSubmitted(_) => ReconciliationOperation::SubmitTaskRun,
+            Outcome::UnknownSuccessorCreated(_) => ReconciliationOperation::SupersedeUnknownTaskRun,
             Outcome::ApprovalDecision(_) => ReconciliationOperation::ApprovalDecision,
         }
     }
@@ -176,6 +184,9 @@ impl AuthoritativeCommandOutcome {
             Outcome::TaskRunSubmitted(value) => {
                 AuthoritativeCommandOutcomeRef::TaskRunSubmitted(value)
             }
+            Outcome::UnknownSuccessorCreated(value) => {
+                AuthoritativeCommandOutcomeRef::UnknownSuccessorCreated(value)
+            }
             Outcome::ApprovalDecision(value) => {
                 AuthoritativeCommandOutcomeRef::ApprovalDecision(value)
             }
@@ -196,6 +207,7 @@ pub enum AuthoritativeCommandOutcomeRef<'a> {
     ConversationText(AuthoritativeTextGenerationOutcomeRef<'a>),
     TaskRunCancellationRequested(&'a TaskRunCommandAck),
     TaskRunSubmitted(&'a TaskRunCommandAck),
+    UnknownSuccessorCreated(&'a TaskRunCommandAck),
     ApprovalDecision(&'a ApprovalDecisionAck),
 }
 #[derive(Debug, Clone, Copy)]

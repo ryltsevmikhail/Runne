@@ -1,4 +1,7 @@
-use runne_provider::{CredentialDispatchCapability, CredentialFence, CredentialLifecycleRevision};
+use runne_provider::{
+    CredentialDispatchCapability, CredentialFence, CredentialLifecycleRevision,
+    ProviderRemoteOperationProof,
+};
 
 use super::errors::BrokerError;
 use crate::{
@@ -16,6 +19,83 @@ pub trait ProviderCredentialDispatchMaterializer: Send + Sync {
         &self,
         read: ProviderCredentialDispatchRead<'_>,
     ) -> Result<ProviderCredentialMaterial, SecureStoreError>;
+
+    /// Materializes the current credential for one already store-issued
+    /// remote recovery operation. The daemon must validate the persisted proof
+    /// and current lifecycle head immediately before constructing this read.
+    ///
+    /// # Errors
+    ///
+    /// Returns an access error unless an implementation can securely
+    /// materialize recovery credentials.
+    fn materialize_recovery(
+        &self,
+        read: ProviderCredentialRecoveryRead<'_>,
+    ) -> Result<ProviderCredentialMaterial, SecureStoreError> {
+        let _ = read;
+        Err(SecureStoreError::CredentialAccessDenied)
+    }
+}
+
+/// Native-load metadata for a fresh exact recovery operation.
+pub struct ProviderCredentialRecoveryRead<'a> {
+    capability: &'a CredentialDispatchCapability,
+    lifecycle: CredentialLifecycleRevision,
+    fence: CredentialFence,
+    proof: &'a ProviderRemoteOperationProof,
+    credential_realm: &'a runne_provider::ProviderId,
+}
+
+impl<'a> ProviderCredentialRecoveryRead<'a> {
+    /// Binds a current native capability to the operation proof reserved by
+    /// the runtime store. This metadata does not itself authorize transport.
+    ///
+    /// # Errors
+    ///
+    /// Returns an access error when the capability does not name this realm or
+    /// the operation proof is invalid.
+    pub fn new(
+        capability: &'a CredentialDispatchCapability,
+        lifecycle: CredentialLifecycleRevision,
+        fence: CredentialFence,
+        proof: &'a ProviderRemoteOperationProof,
+        credential_realm: &'a runne_provider::ProviderId,
+    ) -> Result<Self, SecureStoreError> {
+        if capability.version_ref().provider() != credential_realm
+            || proof.nonce() == [0; 16]
+            || proof.expires_at_unix_seconds() == 0
+        {
+            return Err(BrokerError::AccessDenied.into());
+        }
+        Ok(Self {
+            capability,
+            lifecycle,
+            fence,
+            proof,
+            credential_realm,
+        })
+    }
+
+    #[must_use]
+    pub const fn capability(&self) -> &CredentialDispatchCapability {
+        self.capability
+    }
+    #[must_use]
+    pub const fn lifecycle(&self) -> CredentialLifecycleRevision {
+        self.lifecycle
+    }
+    #[must_use]
+    pub const fn fence(&self) -> CredentialFence {
+        self.fence
+    }
+    #[must_use]
+    pub const fn proof(&self) -> &ProviderRemoteOperationProof {
+        self.proof
+    }
+    #[must_use]
+    pub const fn credential_realm(&self) -> &runne_provider::ProviderId {
+        self.credential_realm
+    }
 }
 
 /// Exact non-secret authority accompanying one point-of-use material read.
@@ -93,6 +173,13 @@ where
     fn materialize_active(
         &self,
         read: ProviderCredentialDispatchRead<'_>,
+    ) -> Result<ProviderCredentialMaterial, SecureStoreError> {
+        self.native.load_version(read.capability(), &self.access)
+    }
+
+    fn materialize_recovery(
+        &self,
+        read: ProviderCredentialRecoveryRead<'_>,
     ) -> Result<ProviderCredentialMaterial, SecureStoreError> {
         self.native.load_version(read.capability(), &self.access)
     }

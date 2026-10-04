@@ -2,6 +2,7 @@ use super::super::component_guard::*;
 use super::super::event_guard::*;
 use super::super::parse_helpers::*;
 use super::super::snapshot::refresh_conversation_snapshot;
+use super::super::test_support_diagnostics as diagnostics;
 use super::super::*;
 use super::context_scope::{CreateReceiptCheck, check_create_receipts};
 
@@ -118,9 +119,12 @@ impl StoreTransaction {
             .checked_add(1)
             .ok_or(CommitError::GlobalPositionExhausted)?;
         let timestamp = Timestamp::from_unix_micros(now);
-        let payload_bytes = ConversationEventCodec
-            .encode(event.payload())
-            .map_err(|_| storage_failure(StorageFailureKind::IntegrityViolation))?;
+        let payload_bytes = diagnostics::on_error(
+            "conversation.create.event_encode",
+            ConversationEventCodec
+                .encode(event.payload())
+                .map_err(|_| storage_failure(StorageFailureKind::IntegrityViolation)),
+        )?;
         let envelope = EventEnvelope::from_parts(
             *event.event_id(),
             AggregateId::Conversation(conversation_id),
@@ -142,26 +146,32 @@ impl StoreTransaction {
             &payload_bytes,
         )
         .map_err(|_| storage_failure(StorageFailureKind::IntegrityViolation))?;
-        enforce_conversation_replay_size(
-            event,
-            conversation_id,
-            1,
-            global_position,
-            now,
-            &payload_bytes,
-            digest,
+        diagnostics::on_error(
+            "conversation.create.replay_size",
+            enforce_conversation_replay_size(
+                event,
+                conversation_id,
+                1,
+                global_position,
+                now,
+                &payload_bytes,
+                digest,
+            ),
         )?;
-        guard_event_components(
-            self.prohibited_content.as_ref(),
-            event,
-            CORRELATION_TYPE_CONVERSATION,
-            conversation_id.as_bytes(),
-            1,
-            global_position,
-            now,
-            &payload_bytes,
-            digest,
-            INTEGRITY_PROFILE_V2,
+        diagnostics::on_error(
+            "conversation.create.event_guard",
+            guard_event_components(
+                self.prohibited_content.as_ref(),
+                event,
+                CORRELATION_TYPE_CONVERSATION,
+                conversation_id.as_bytes(),
+                1,
+                global_position,
+                now,
+                &payload_bytes,
+                digest,
+                INTEGRITY_PROFILE_V2,
+            ),
         )?;
 
         tx.execute(
@@ -210,7 +220,10 @@ impl StoreTransaction {
         // The delivery-context marker is durable in the SAME transaction as
         // the creation event: provenance exists from the first commit.
         self.record_conversation_context_scope(&tx, conversation_id, payload.context_scope, now)?;
-        refresh_conversation_snapshot(&tx, conversation_id)?;
+        diagnostics::on_error(
+            "conversation.create.snapshot",
+            refresh_conversation_snapshot(&tx, conversation_id),
+        )?;
 
         let result = ConversationReceipt {
             conversation_id,

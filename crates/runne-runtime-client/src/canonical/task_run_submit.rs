@@ -61,6 +61,40 @@ struct SubmitTaskRunWire {
     prompt: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    profile: Option<SubmitProfileWire>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    local_command: Option<SubmitLocalCommandWire>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SubmitLocalCommandWire {
+    executable: SubmitExecutableWire,
+    cwd: String,
+    argv: Vec<String>,
+    env: Vec<SubmitEnvironmentWire>,
+}
+
+#[derive(Serialize)]
+#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
+enum SubmitExecutableWire {
+    WorkspaceRelative(String),
+    SystemProgram(String),
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SubmitEnvironmentWire {
+    key: String,
+    value: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SubmitProfileWire {
+    profile_id: String,
+    profile_digest: String,
 }
 
 #[derive(Serialize)]
@@ -86,6 +120,23 @@ impl AuthenticatedRuntimeClient {
         &self,
         request: SubmitTaskRunRequest,
     ) -> Result<TaskRunSubmitAcknowledgement, RuntimeApiError> {
+        let input = runne_api::TaskRunInput::new(request.prompt.clone())
+            .map_err(|_| RuntimeApiError::new(RuntimeApiErrorKind::InvalidRequest))?;
+        let input = match request.model.clone() {
+            Some(model) => input.with_requested_model(model),
+            None => Ok(input),
+        }
+        .map_err(|_| RuntimeApiError::new(RuntimeApiErrorKind::InvalidRequest))?;
+        let input = match request.selected_profile.clone() {
+            Some(profile) => input.with_selected_profile(profile),
+            None => Ok(input),
+        }
+        .map_err(|_| RuntimeApiError::new(RuntimeApiErrorKind::InvalidRequest))?;
+        if let Some(command) = request.local_command.clone() {
+            input
+                .with_local_command(command)
+                .map_err(|_| RuntimeApiError::new(RuntimeApiErrorKind::InvalidRequest))?;
+        }
         if !profile3_session_matches(self.session_info())
             || !self
                 .session_info()
@@ -101,6 +152,33 @@ impl AuthenticatedRuntimeClient {
             workspace_id: request.workspace_id,
             prompt: request.prompt,
             model: request.model,
+            profile: request.selected_profile.map(|profile| SubmitProfileWire {
+                profile_id: profile.profile_id().to_owned(),
+                profile_digest: hex::encode(profile.profile_digest()),
+            }),
+            local_command: request.local_command.map(|command| {
+                let executable = match command.executable() {
+                    runne_api::TaskRunExecutable::WorkspaceRelative(value) => {
+                        SubmitExecutableWire::WorkspaceRelative(value.clone())
+                    }
+                    runne_api::TaskRunExecutable::SystemProgram(value) => {
+                        SubmitExecutableWire::SystemProgram(value.clone())
+                    }
+                };
+                SubmitLocalCommandWire {
+                    executable,
+                    cwd: command.cwd().to_owned(),
+                    argv: command.argv().to_vec(),
+                    env: command
+                        .env()
+                        .iter()
+                        .map(|(key, value)| SubmitEnvironmentWire {
+                            key: key.clone(),
+                            value: value.clone(),
+                        })
+                        .collect(),
+                }
+            }),
         })
         .map_err(|_| RuntimeApiError::new(RuntimeApiErrorKind::InvalidRequest))?;
         let response = self

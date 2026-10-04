@@ -25,14 +25,13 @@ async fn dispatch_on(
         )
         .expect("fixture effect");
     #[cfg(not(feature = "linux-native-enrollment-qualification"))]
-    let (effect, authenticator) =
-        effect_from_loopback_fixture(client).expect("fixture effect");
-    let (request, receipt, credential) = durable_dispatch(&profile, effect.as_ref());
+    let (effect, authenticator) = effect_from_loopback_fixture(client).expect("fixture effect");
+    let fixture = durable_dispatch(&profile, effect.as_ref());
     let ready = effect
-        .stage_effect(request, credential)
+        .stage_effect(fixture.request, fixture.credential)
         .await
         .expect("stage admitted effect");
-    let dispatch = effect.dispatch_effect(ready, receipt).await;
+    let dispatch = effect.dispatch_effect(ready, fixture.receipt).await;
     let events = match dispatch {
         Ok(stream) => {
             let mut events = Vec::new();

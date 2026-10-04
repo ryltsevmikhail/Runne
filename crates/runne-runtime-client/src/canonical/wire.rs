@@ -218,6 +218,7 @@ async fn read_error(response: reqwest::Response) -> RuntimeApiError {
         (409, "trust_root_unavailable") => RuntimeApiErrorKind::RootUnavailable,
         (413, "process_output_too_large") => RuntimeApiErrorKind::ResponseTooLarge,
         (422, "prohibited_secret_material") => RuntimeApiErrorKind::ProhibitedInputRejected,
+        (502, "conversation_outcome_unknown") => RuntimeApiErrorKind::OutcomeUnknown,
         (429, "runtime_backpressure") => RuntimeApiErrorKind::Backpressure,
         (503, "runtime_unavailable" | "provider_credential_unsupported" | "provider_credential_unavailable" | "trust_control_unavailable") => RuntimeApiErrorKind::Unavailable,
         _ => RuntimeApiErrorKind::InvalidResponse,

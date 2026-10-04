@@ -1,6 +1,7 @@
 use super::ApprovalDecisionAcknowledgementDto;
 use super::TaskRunCancellationAcknowledgement;
 use super::TaskRunSubmitAcknowledgement;
+use super::TaskRunSuccessorAcknowledgement;
 use super::{
     CanonicalId, ConversationCreated, ConversationMessage, ConversationTextResult,
     ProjectCommandAcknowledgement, WorkspaceCommandAcknowledgement,
@@ -30,6 +31,7 @@ pub enum CommandReconciliationOutcome {
     ConversationTextProhibitedInputRejected(Box<ConversationTextRejection>),
     TaskRunCancellationRequested(TaskRunCancellationAcknowledgement),
     TaskRunSubmitted(TaskRunSubmitAcknowledgement),
+    UnknownSuccessorCreated(TaskRunSuccessorAcknowledgement),
     ApprovalDecision(ApprovalDecisionAcknowledgementDto),
 }
 
@@ -49,6 +51,10 @@ impl CommandReconciliationDisposition {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ConversationGenerationFailureReason {
     ProviderOutputRejected,
+    ProviderExecutionRejected,
+    ProviderExecutionFailed,
+    ProviderAccountingUnknown,
+    Cancelled,
 }
 
 /// Durable rejected generation. No assistant message is fabricated.

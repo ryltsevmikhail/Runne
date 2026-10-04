@@ -104,6 +104,24 @@ fn simple_matches(outcome: &CanonicalMutationOutcome, command: &NormalizedMutati
             },
         ) => result == task_run_id && expected_version.checked_add(1) == Some(*new_version),
         (
+            CanonicalMutationOutcome::TaskRunUnknownSuccessorCreated {
+                predecessor_task_run_id: result_predecessor,
+                successor_task_run_id,
+                predecessor_version,
+                successor_version,
+            },
+            NormalizedMutationCommand::SupersedeUnknownTaskRun {
+                predecessor_task_run_id,
+                expected_version,
+            },
+        ) => {
+            result_predecessor == predecessor_task_run_id
+                && successor_task_run_id != predecessor_task_run_id
+                && (expected_version.checked_add(1) == Some(*predecessor_version)
+                    || *predecessor_version == *expected_version)
+                && *successor_version == 2
+        }
+        (
             CanonicalMutationOutcome::TaskRunSubmitted { new_version, .. },
             NormalizedMutationCommand::SubmitTaskRun { .. }
             | NormalizedMutationCommand::LegacySubmitTaskRun { .. },
@@ -164,7 +182,38 @@ fn generation_matches(
     };
     result == conversation_id
         && expected_version.checked_add(2) == Some(*conversation_stream_version)
-        && *task_run_stream_version == 5
+        && matches!(
+            (&**assistant, *task_run_stream_version, *terminal),
+            (
+                super::outcome::GenerationAssistant::Rejected {
+                    reason: super::outcome::GenerationFailureReason::Cancelled,
+                    ..
+                },
+                6,
+                super::outcome::GenerationTerminal::Rejected,
+            ) | (
+                super::outcome::GenerationAssistant::Rejected {
+                    reason: super::outcome::GenerationFailureReason::ProviderOutputRejected
+                        | super::outcome::GenerationFailureReason::ProviderExecutionRejected
+                        | super::outcome::GenerationFailureReason::ProviderExecutionFailed,
+                    ..
+                },
+                5,
+                super::outcome::GenerationTerminal::Rejected
+                    | super::outcome::GenerationTerminal::Prohibited,
+            ) | (
+                super::outcome::GenerationAssistant::Rejected {
+                    reason: super::outcome::GenerationFailureReason::ProviderAccountingUnknown,
+                    ..
+                },
+                5,
+                super::outcome::GenerationTerminal::Rejected,
+            ) | (
+                super::outcome::GenerationAssistant::Completed(_),
+                5,
+                super::outcome::GenerationTerminal::Completed,
+            )
+        )
         && user_message.role == super::outcome::MessageRole::User
         && user_message.task_run_id == *task_run_id
         && user_message.attempt_id == *attempt_id
@@ -215,7 +264,15 @@ fn generation_assistant_matches(
             },
         ) => {
             *reserved_message_id != user.message_id
-                && *reason == super::outcome::GenerationFailureReason::ProviderOutputRejected
+                && (matches!(
+                    reason,
+                    super::outcome::GenerationFailureReason::ProviderOutputRejected
+                        | super::outcome::GenerationFailureReason::ProviderExecutionRejected
+                        | super::outcome::GenerationFailureReason::ProviderExecutionFailed
+                        | super::outcome::GenerationFailureReason::Cancelled
+                ) || (*reason
+                    == super::outcome::GenerationFailureReason::ProviderAccountingUnknown
+                    && terminal == super::outcome::GenerationTerminal::Rejected))
         }
         _ => false,
     }

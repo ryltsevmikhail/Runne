@@ -1,5 +1,6 @@
+use body::Request;
 use runne_daemon_openai_effect::FixtureRequestAuthenticator;
-use serde::Deserialize;
+mod body;
 
 const REQUIRED_HEADERS: [&str; 6] = [
     "host",
@@ -14,42 +15,6 @@ const EXPECTED_REQUEST_ID: &str = "gocode-provider-c436f15d42859a67270a2f39ff1c8
 pub(super) enum FixtureRequestKind {
     Pinned,
     ServicePointOfUse,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Request {
-    model: String,
-    service_tier: String,
-    input: Vec<Input>,
-    max_output_tokens: u64,
-    reasoning: Reasoning,
-    tools: Vec<serde::de::IgnoredAny>,
-    tool_choice: String,
-    background: bool,
-    store: bool,
-    stream: bool,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Input {
-    role: String,
-    content: Vec<InputContent>,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct InputContent {
-    #[serde(rename = "type")]
-    kind: String,
-    text: String,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Reasoning {
-    effort: String,
 }
 
 #[cfg(test)]
@@ -96,7 +61,7 @@ pub(crate) fn matches_expected_request(
         .map(|(_, value)| value.as_bytes());
     authorization.is_some_and(|value| authenticator.matches(value))
         && serde_json::from_slice::<Request>(&request[headers_end + 4..])
-            .is_ok_and(matches_expected_body)
+            .is_ok_and(|parsed| body::matches_expected_body(parsed, kind))
 }
 
 fn parse_headers(headers: &[u8], kind: FixtureRequestKind) -> Result<Vec<(String, &str)>, ()> {
@@ -154,21 +119,6 @@ fn request_id_matches(value: &str, kind: FixtureRequestKind) -> bool {
                         .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
             }),
     }
-}
-
-fn matches_expected_body(request: Request) -> bool {
-    request.model == "gpt-5.5-2026-04-23"
-        && request.service_tier == "default"
-        && request.max_output_tokens == 16_384
-        && request.reasoning.effort == "none"
-        && request.tools.is_empty()
-        && request.tool_choice == "none"
-        && !request.background
-        && !request.store
-        && request.stream
-        && matches!(request.input.as_slice(), [Input { role, content }]
-            if role == "user" && matches!(content.as_slice(), [InputContent { kind, text }]
-                if kind == "input_text" && text == "fixture input"))
 }
 
 #[cfg(test)]

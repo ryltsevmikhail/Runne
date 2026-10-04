@@ -13,7 +13,7 @@ async fn matrix_server(
             let mut bytes = [0; 8192];
             let used = stream.read(&mut bytes).await.expect("read");
             requests.push(String::from_utf8_lossy(&bytes[..used]).into_owned());
-            let request_id = if status == 409 {
+            let request_id = if matches!(status, 409 | 502) {
                 "x-request-id: 018f2e3a-7000-7000-8000-000000000929\r\n"
             } else {
                 ""

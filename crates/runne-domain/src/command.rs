@@ -54,6 +54,18 @@ pub enum ConversationCommand {
         /// Closed, non-sensitive terminal reason.
         reason: GenerationFailureReason,
     },
+    /// Release the exact active generation after an explicitly acknowledged
+    /// successor was atomically created for an unknown external effect.
+    SupersedeGenerationUnknown {
+        /// Predecessor TaskRun owning the active generation.
+        taskrun_id: TaskRunId,
+        /// Exact active attempt.
+        attempt_id: AttemptId,
+        /// Newly created successor TaskRun.
+        successor_taskrun_id: TaskRunId,
+        /// Digest of the closed duplicate-execution-and-cost acknowledgement.
+        acknowledgement_digest: IntegrityDigest,
+    },
     /// Close the conversation permanently.
     Close,
 }
@@ -181,6 +193,16 @@ pub enum TaskRunCommand {
 
     /// Mark the task run as unrecoverable (terminal).
     MarkUnrecoverable,
+
+    /// Mark an uncertain TaskRun as superseded by one explicit successor.
+    UserSupersedeUnknown {
+        /// Exact predecessor attempt whose outcome remains uncertain.
+        predecessor_attempt_id: AttemptId,
+        /// The successor TaskRun created in the same transaction.
+        successor_taskrun_id: TaskRunId,
+        /// Digest of the closed duplicate-execution-and-cost acknowledgement.
+        acknowledgement_digest: IntegrityDigest,
+    },
 
     /// Start an initial cycle or consume an exact successor reservation.
     StartLoopCycle { cycle_id: CycleId },

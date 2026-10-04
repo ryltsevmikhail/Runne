@@ -56,6 +56,7 @@ mod sourcecraft_persistence_tests {
         let expected_settlement =
             bytes("62260d0dbf86b0c7fe46e52ced397fb9309e596e619b4fbe4fad70e492ca14b6");
         let pricing = ProviderTerminalPricingBinding::with_reservation(
+            context.call_digest_version,
             [3; 32],
             "USD".to_owned(),
             500,
@@ -81,6 +82,7 @@ mod sourcecraft_persistence_tests {
         let record = ProviderTerminalOutboxRecord {
             outbox_id,
             attempt_id: context.attempt_id,
+            source: runne_application::provider::ProviderTerminalOutboxSource::StreamJournal,
             fencing_token: context.fencing_token,
             principal_id: "sourcecraft-principal".to_owned(),
             conversation_id: runne_domain::id::ConversationId::from_bytes([11; 16]),

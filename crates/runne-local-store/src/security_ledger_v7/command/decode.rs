@@ -56,6 +56,14 @@ impl NormalizedMutationCommand {
                 task_run_id: codec::id(&mut input)?,
                 expected_version: version(&mut input)?,
             },
+            24 => {
+                let predecessor_task_run_id = codec::id(&mut input)?;
+                let expected_version = version(&mut input)?;
+                if codec::byte(&mut input)? != 1 {
+                    return Err(SecurityStateError::InvalidTransition);
+                }
+                Self::SupersedeUnknownTaskRun { predecessor_task_run_id, expected_version }
+            }
             12 => Self::LegacySubmitTaskRun {
                 conversation_id: codec::id(&mut input)?,
                 workspace_id: codec::id(&mut input)?,

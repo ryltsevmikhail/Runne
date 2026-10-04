@@ -108,7 +108,7 @@ fn host_with_protected_replay_session(
         clock(),
         profile_state_with_capabilities(CAPABILITIES),
         TaskRunHttpState::new(
-            UnavailableTaskRunHost,
+            UnavailableTaskRunHost::default(),
             ApiActor::new("runne-http-test").unwrap(),
             None,
         ),

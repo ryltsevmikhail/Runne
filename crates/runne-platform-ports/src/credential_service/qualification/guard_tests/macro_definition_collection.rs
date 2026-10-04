@@ -47,6 +47,7 @@ pub(super) fn collect_items(items: &[Item], scope: &[String], index: &mut Index)
                         tokens: item.mac.tokens.clone(),
                         relevant: false,
                         context_relevant: false,
+                        conditional: has_conditional_attributes(&item.attrs),
                     });
                 }
             }
@@ -82,6 +83,7 @@ fn collect_block(block: &Block, scope: &[String], index: &mut Index) {
                         tokens: item.mac.tokens.clone(),
                         relevant: false,
                         context_relevant: false,
+                        conditional: has_conditional_attributes(&item.attrs),
                     });
                 }
             }
@@ -99,6 +101,12 @@ fn macro_rules_name(mac: &syn::Macro) -> Option<String> {
             proc_macro2::TokenTree::Ident(name) => Some(name.to_string()),
             _ => None,
         })
+}
+
+fn has_conditional_attributes(attributes: &[syn::Attribute]) -> bool {
+    attributes
+        .iter()
+        .any(|attribute| attribute.path().is_ident("cfg") || attribute.path().is_ident("cfg_attr"))
 }
 
 fn collect_imports(tree: &UseTree, scope: &[String], imports: &mut Vec<Import>) {
@@ -153,7 +161,8 @@ pub(super) fn resolve_relevance(index: &mut Index) {
             || macro_contains_import_item(&definition.tokens)
             || macro_contains_untrusted_nested_call(&definition.tokens)
             || qualified_root_risk
-            || imported_attribute_risk;
+            || imported_attribute_risk
+            || definition.conditional;
         definition.context_relevant = macro_mentions_variable_qualification(&definition.tokens);
     }
     loop {

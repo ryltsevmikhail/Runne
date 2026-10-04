@@ -10,6 +10,10 @@ use runne_store::provider::{
     SqliteProviderExecutionStore, VersionedProviderExecutionBinding,
 };
 
+use super::validated_reopen;
+#[path = "provider_taskrun_start.rs"]
+pub(crate) mod provider_taskrun_start;
+
 struct Ready;
 impl ProviderReadyEffect for Ready {
     fn into_any(self: Box<Self>) -> Box<dyn core::any::Any + Send> {
@@ -96,6 +100,10 @@ impl ProhibitedContentPort for Guard {
 }
 
 /// Uses production enrollment/admission/effect/publication; only transport is scripted.
+#[allow(
+    dead_code,
+    reason = "Shared fixture entrypoint used by terminal and dispatch stores"
+)]
 pub fn start(
     database: &super::validated_reopen::ProviderTestDatabase,
     execution: &SqliteProviderExecutionStore,
@@ -108,7 +116,7 @@ pub fn start(
     Box<VersionedProviderExecutionBinding>,
     ProviderDispatchClaim,
 ) {
-    let (binding, claim) = run(
+    let (binding, claim) = run_bound(
         database,
         execution,
         launch,
@@ -118,6 +126,85 @@ pub fn start(
         discriminator,
     );
     (binding.unwrap(), claim)
+}
+
+/// Rebinds an issue request to a TaskRun created through the public conversation
+/// and text-generation entrypoints. Keep the returned request for exact retries.
+#[allow(
+    dead_code,
+    reason = "Only recovery fixtures need rebinding to a canonical TaskRun"
+)]
+pub fn bind_started_request(
+    database: &super::validated_reopen::ProviderTestDatabase,
+    request: &ProviderAuthorityIssueRequest,
+    discriminator: u8,
+) -> ProviderAuthorityIssueRequest {
+    let authority_bytes: Vec<u8> = database
+        .query_connection()
+        .query_row(
+            "SELECT runtime_authority_id FROM provider_runtime_authority_state WHERE id=1",
+            [],
+            |row| row.get(0),
+        )
+        .expect("read the already-active provider runtime authority");
+    let runtime_authority: [u8; 16] = authority_bytes
+        .try_into()
+        .expect("runtime authority has its fixed-width identity");
+    let started = provider_taskrun_start::begin_with_discriminator(
+        database.path(),
+        runtime_authority,
+        &request.principal_id,
+        "provider online stream fixture",
+        discriminator,
+    );
+    let mut bound = request.clone();
+    bound.conversation_id = started.receipt.conversation_id;
+    bound.taskrun_id = started.receipt.taskrun_id;
+    bound.execution_attempt_id = started.receipt.attempt_id;
+    bound
+}
+
+/// Creates a canonical TaskRun before the caller opens provider-store handles.
+#[allow(
+    dead_code,
+    reason = "shared fixture entrypoint is consumed by other store integration harnesses"
+)]
+pub fn begin_taskrun(
+    database: &super::validated_reopen::ProviderTestDatabase,
+    runtime_authority: [u8; 16],
+    principal: &str,
+    text: &str,
+    discriminator: u8,
+) -> runne_application::ports::TextGenerationReceipt {
+    let started = provider_taskrun_start::begin_with_discriminator(
+        database.path(),
+        runtime_authority,
+        principal,
+        text,
+        discriminator,
+    );
+    started.receipt.clone()
+}
+
+/// Creates multiple independent TaskRuns using one application store lifetime.
+#[allow(
+    dead_code,
+    reason = "Only multi-attempt fixtures need several canonical TaskRuns"
+)]
+pub fn begin_taskruns(
+    database: &super::validated_reopen::ProviderTestDatabase,
+    runtime_authority: [u8; 16],
+    principal: &str,
+    text: &str,
+    discriminators: &[u8],
+) -> Vec<runne_application::ports::TextGenerationReceipt> {
+    provider_taskrun_start::begin_many(
+        database.path(),
+        runtime_authority,
+        principal,
+        text,
+        discriminators,
+    )
 }
 
 /// Drops the coordinator only after its real durable effect start reaches transport.
@@ -133,7 +220,7 @@ pub fn start_pending(
     request: &ProviderAuthorityIssueRequest,
     discriminator: u8,
 ) -> ProviderDispatchClaim {
-    let (binding, claim) = run(
+    let (binding, claim) = run_bound(
         database,
         execution,
         launch,
@@ -146,7 +233,65 @@ pub fn start_pending(
     claim
 }
 
-fn run(
+/// Starts a pending transport for an already-bound TaskRun request.
+#[allow(
+    dead_code,
+    reason = "Only terminal recovery fixtures need a bound pending transport"
+)]
+pub fn start_pending_bound(
+    database: &super::validated_reopen::ProviderTestDatabase,
+    execution: &SqliteProviderExecutionStore,
+    launch: &ProviderRuntimeLaunchCapability,
+    call: ProviderCall,
+    request: &ProviderAuthorityIssueRequest,
+    discriminator: u8,
+) -> ProviderDispatchClaim {
+    let (binding, claim) = run_bound(
+        database,
+        execution,
+        launch,
+        call,
+        request,
+        None,
+        discriminator,
+    );
+    assert!(binding.is_none());
+    claim
+}
+
+/// Starts an already-bound request and leaves its authoritative TaskRun IDs intact.
+#[allow(
+    dead_code,
+    reason = "shared fixture entrypoint is consumed by other store integration harnesses"
+)]
+pub fn start_bound(
+    database: &super::validated_reopen::ProviderTestDatabase,
+    execution: &SqliteProviderExecutionStore,
+    launch: &ProviderRuntimeLaunchCapability,
+    call: ProviderCall,
+    request: &ProviderAuthorityIssueRequest,
+    stream: ProviderStreamId,
+    discriminator: u8,
+) -> (
+    Box<VersionedProviderExecutionBinding>,
+    ProviderDispatchClaim,
+) {
+    let (binding, claim) = run_bound(
+        database,
+        execution,
+        launch,
+        call,
+        request,
+        Some(stream),
+        discriminator,
+    );
+    (
+        binding.expect("a completed fixture stream has a binding"),
+        claim,
+    )
+}
+
+fn run_bound(
     database: &super::validated_reopen::ProviderTestDatabase,
     execution: &SqliteProviderExecutionStore,
     launch: &ProviderRuntimeLaunchCapability,

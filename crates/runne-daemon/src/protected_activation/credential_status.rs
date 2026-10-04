@@ -15,10 +15,9 @@ pub(super) fn respond(
     let verified = request.verify_exact_view(owned, last_sequence, keys)?;
     super::startup_discovery::with_current(sessions, owned, || Ok(()))?;
     let claims = verified.prepare_claims();
-    let control = composition
-        .enrollment_control
-        .as_ref()
-        .ok_or(LaunchAuthorityError::OwnershipMismatch)?;
+    if composition.enrollment_control.is_none() && composition.enrollment_controls.is_empty() {
+        return Err(LaunchAuthorityError::OwnershipMismatch);
+    }
     let native =
         runne_platform_desktop::VerifiedDaemonNativeEnrollmentPrepare::verify_current_for_peer(
             &composition.profile_directory,
@@ -36,10 +35,9 @@ pub(super) fn respond(
         return Err(LaunchAuthorityError::OwnershipMismatch);
     }
     super::startup_discovery::with_current(sessions, owned, || {
-        control
+        composition
             .publish_verified_v2_status(
                 owned,
-                composition.installation_identity_digest,
                 installed.release(),
                 *claims.desktop_peer_binding_digest(),
                 claims.desktop_supervisor_generation(),

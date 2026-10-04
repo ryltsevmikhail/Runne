@@ -245,7 +245,7 @@ fn validate_node_id(id: &Identity) -> Result<[u8; 16], Error> {
     Ok(*parsed.as_bytes())
 }
 
-fn now_ms(tx: &rusqlite::Transaction<'_>) -> Result<i64, Error> {
+pub(super) fn now_ms(tx: &rusqlite::Transaction<'_>) -> Result<i64, Error> {
     tx.query_row(
         "SELECT CAST((julianday('now')-2440587.5)*86400000 AS INTEGER)",
         [],

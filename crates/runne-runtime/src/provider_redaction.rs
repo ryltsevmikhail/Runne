@@ -3,6 +3,7 @@ mod boundary;
 mod completion;
 mod diagnostics;
 mod session;
+mod snapshot;
 mod state;
 mod surfaces;
 mod types;
@@ -13,6 +14,7 @@ pub use boundary::{
 };
 pub use diagnostics::{ProviderRedactionObserver, RedactionFailureKind, RedactionFailureSite};
 pub use session::ProviderRedactionRecovery;
+pub use snapshot::scan_complete_provider_snapshot;
 pub use types::{
     ProviderRedactionError, ScannerRecoveryPersistence, ScannerRecoveryPersistenceError,
     ScannerRecoveryRecord,

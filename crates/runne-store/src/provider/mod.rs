@@ -9,9 +9,19 @@ mod dispatch_store;
 mod effect_port;
 mod effect_start;
 mod execution_store;
+mod final_send_authority;
 pub mod operational_telemetry;
 mod recovery_store;
 mod runtime_launch_capability;
+
+pub(crate) use execution_store::record_taskrun_provider_cancel_fence;
+pub(crate) use execution_store::taskrun_provider_cancel_fence_matches;
+pub(crate) use execution_store::{
+    ProviderRemoteObservationState, RemoteArtifactAckKind,
+    load_remote_effects_snapshot_in_transaction, load_unknown_effects_snapshot,
+    read_remote_observation_in_transaction, validate_remote_artifact_ack_for_readiness,
+    validate_remote_artifact_pending_application_for_readiness,
+};
 
 pub use dispatch_binding::{
     CredentialDispatchAuthority, CredentialDispatchBinding, ProviderExecutionBinding,
@@ -32,6 +42,7 @@ pub use authority_config::ProviderRuntimeAuthorityConfig;
 pub use credential_lifecycle::CredentialProvision;
 pub use credential_lifecycle::SUBSCRIPTION_LOCAL_TOKEN_BUDGET;
 pub use credential_lifecycle::SqliteProviderCredentialLifecycleStore;
+pub(crate) use credential_lifecycle::credential_safe_snapshot_in_transaction;
 #[cfg(any(test, feature = "test-support"))]
 #[doc(hidden)]
 pub use credential_lifecycle::online_claim_test_support;
@@ -43,7 +54,9 @@ pub use dispatch_store::{
 pub use effect_port::{ProviderEffectPort, ProviderReadyEffect};
 pub use effect_start::ProviderEffectStartReceipt;
 pub use execution_store::{
-    DurableProviderAdmission, ProviderAuthorityIssueOutcome, SqliteProviderExecutionStore,
+    DurableProviderAdmission, ProviderAuthorityIssueOutcome, ProviderSecondaryProfileGrant,
+    SqliteProviderExecutionStore,
 };
+pub use final_send_authority::ProviderFinalSendAuthority;
 pub use recovery_store::SqliteProviderRecoveryStore;
 pub use runtime_launch_capability::ProviderRuntimeLaunchCapability;

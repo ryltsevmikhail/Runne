@@ -1,7 +1,7 @@
 use crate::application::provider_credential_enrollment::test_control;
 use crate::protected_activation::{
-    ProtectedActivationChannel,
     enrollment_v3_tests::{owned_and_sessions, read_frame},
+    ProtectedActivationChannel,
 };
 use runne_api::ProtectedCredentialEnrollmentShutdownAckV3;
 

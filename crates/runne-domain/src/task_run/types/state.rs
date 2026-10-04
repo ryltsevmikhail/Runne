@@ -97,6 +97,8 @@ pub enum TaskRunEventKind {
     Reconciled,
     /// [`TaskRunEvent::Unrecoverable`]
     Unrecoverable,
+    /// [`TaskRunEvent::UserSupersedeUnknown`]
+    UserSupersedeUnknown,
     /// [`TaskRunEvent::TaskRunCancelled`]
     TaskRunCancelled,
     /// [`TaskRunEvent::LoopCycleStarted`]

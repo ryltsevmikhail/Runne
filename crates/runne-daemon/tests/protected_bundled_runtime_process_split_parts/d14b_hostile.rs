@@ -1,5 +1,8 @@
 use super::*;
 
+#[path = "d14b_hostile/rejection.rs"]
+mod rejection;
+
 /// D1.4b negative evidence (plan 18 §T1): a headless exec-style TaskRun plus
 /// resume/replay inside a hostile workspace stays text-only with zero provider
 /// dispatch — instructions, skills, hooks, helpers and local MCP content never
@@ -155,18 +158,31 @@ async fn exec_resume_replay_child() {
         .await
         .expect("atomic exec submit in hostile workspace");
     let task_run_id = submit.task_run_id();
-    let queued = client
-        .get_task_run(task_run_id)
-        .await
-        .expect("queued exec snapshot");
-    assert_eq!(
-        queued.state(),
-        runne_runtime_client::TaskRunState::Queued,
-        "the landed X2 surface queues the run; no automatic worker exists"
-    );
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
+    let rejected = loop {
+        let snapshot = client
+            .get_task_run(task_run_id)
+            .await
+            .expect("read hostile TaskRun snapshot");
+        if snapshot.state() == runne_runtime_client::TaskRunState::Failed {
+            break snapshot;
+        }
+        assert_eq!(
+            snapshot.state(),
+            runne_runtime_client::TaskRunState::Queued,
+            "hostile TextOnly execution must reject before provider dispatch"
+        );
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "worker did not reject hostile TaskRun"
+        );
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    };
+    assert!(rejected.stream_version() >= 4);
+    rejection::assert_taskrun_rejection_reason(&database, task_run_id);
 
     // Exec issued no provider effect at all.
-    assert_zero_dispatch_attempts(&database);
+    rejection::assert_zero_dispatch_attempts(&database);
     assert!(!runtime_root.join("fixture-provider-request-count").exists());
     assert!(
         !runtime_root
@@ -203,8 +219,9 @@ async fn exec_resume_replay_child() {
     supervisor.stop().expect("stop exec runtime");
     drop(core);
 
-    // Restart and replay: same conversation, run stays Queued, still zero
-    // provider dispatch, hostile content still absent from every sink.
+    // Restart and replay: same conversation and run identity. The runtime-owned
+    // worker may terminalize a proven pre-effect rejection, but it cannot
+    // dispatch this untrusted TextOnly request or persist hostile content.
     let mut restarted = super::t1_text_only_support::start_text_only_runtime(
         executable.path(),
         &runtime_root,
@@ -235,11 +252,12 @@ async fn exec_resume_replay_child() {
     );
     assert_eq!(
         runs[0].state(),
-        runne_runtime_client::TaskRunState::Queued,
-        "no automatic dispatch appears after restart"
+        runne_runtime_client::TaskRunState::Failed,
+        "restart worker records the proven no-effect rejection"
     );
+    rejection::assert_taskrun_rejection_reason(&database, task_run_id);
 
-    assert_zero_dispatch_attempts(&database);
+    rejection::assert_zero_dispatch_attempts(&database);
     assert!(
         !runtime_root.join("fixture-provider-request-count").exists(),
         "restart replay never dispatches the provider"
@@ -257,23 +275,4 @@ async fn exec_resume_replay_child() {
         &desktop_db,
     );
     restarted.stop().expect("stop restarted exec runtime");
-}
-
-fn assert_zero_dispatch_attempts(database: &Path) {
-    let connection = rusqlite::Connection::open_with_flags(
-        database,
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
-    )
-    .expect("daemon database reader");
-    let attempts: i64 = connection
-        .query_row(
-            "SELECT COUNT(*) FROM provider_dispatch_attempts",
-            [],
-            |row| row.get(0),
-        )
-        .expect("dispatch attempt count");
-    assert_eq!(
-        attempts, 0,
-        "exec in a hostile workspace issues no dispatch"
-    );
 }

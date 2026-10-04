@@ -9,6 +9,7 @@
 //! and the generation is terminally interrupted rather than uncertain.
 
 use runne_application::commands::BeginConversationTextInput;
+use runne_application::ports::RuntimeAuthorityId;
 use runne_application::ports::TextGenerationReceipt;
 use runne_domain::id::{CommandId, IdempotencyKey};
 
@@ -35,6 +36,7 @@ pub struct OrphanedTextGeneration {
 /// (fail-closed) rather than skipping settlement.
 pub fn scan_provably_effect_free_started_generations(
     connection: &rusqlite::Connection,
+    authority: &RuntimeAuthorityId,
 ) -> Result<Vec<OrphanedTextGeneration>, OrphanSettlementError> {
     let mut statement = connection
         .prepare(
@@ -60,13 +62,14 @@ pub fn scan_provably_effect_free_started_generations(
     for (command_id_bytes, key_bytes, scope_bytes, outcome_bytes) in rows {
         // Only generate-text receipts carry a TextGenerationReceipt outcome;
         // every other operation is not this settlement's concern.
-        if IdempotencyScopeCodec
+        let scope = IdempotencyScopeCodec
             .decode(&scope_bytes)
-            .map_err(|_| OrphanSettlementError::InvariantViolation)?
-            .operation
-            != runne_application::ports::OperationTag::GenerateConversationText
-        {
+            .map_err(|_| OrphanSettlementError::InvariantViolation)?;
+        if scope.operation != runne_application::ports::OperationTag::GenerateConversationText {
             continue;
+        }
+        if scope.runtime_authority_id != *authority {
+            return Err(OrphanSettlementError::InvariantViolation);
         }
         let command_id_bytes: [u8; 16] = command_id_bytes
             .as_slice()
@@ -83,12 +86,37 @@ pub fn scan_provably_effect_free_started_generations(
         if receipt.phase != runne_application::ports::TextGenerationPhase::Started {
             continue;
         }
+        if scope.aggregate_scope
+            != (runne_application::ports::AggregateScope::ExistingConversation {
+                conversation_id: receipt.conversation_id,
+            })
+        {
+            return Err(OrphanSettlementError::InvariantViolation);
+        }
         if provider_dispatch_attempt_exists(connection, receipt.taskrun_id)? {
             // A provider request was durably admitted: the outcome may be
             // uncertain, never settled blindly here.
             continue;
         }
         let original = begin_input_from_user_event(connection, &receipt)?;
+        match crate::store::taskrun_started_generation::classify_started_generation_taskrun(
+            connection,
+            &receipt,
+            &original,
+            command_id,
+            &idempotency_key,
+            &scope,
+            authority,
+        )
+        .map_err(|_| OrphanSettlementError::InvariantViolation)?
+        {
+            crate::store::taskrun_started_generation::StartedGenerationTaskRunState::Running => {}
+            crate::store::taskrun_started_generation::StartedGenerationTaskRunState::PendingCancellation => {
+                // A cancellation after text begin cannot be completed without
+                // stop proof; leave its conversation and assignment pending.
+                continue;
+            }
+        }
         orphans.push(OrphanedTextGeneration {
             command_id,
             idempotency_key,
@@ -143,7 +171,12 @@ fn begin_input_from_user_event(
         .decode(&payload)
         .map_err(|_| OrphanSettlementError::InvariantViolation)?
     {
-        runne_domain::conversation::ConversationEvent::UserMessageAppended { text, .. } => {
+        runne_domain::conversation::ConversationEvent::UserMessageAppended {
+            text,
+            taskrun_id,
+            attempt_id,
+            ..
+        } if taskrun_id == receipt.taskrun_id && attempt_id == receipt.attempt_id => {
             let expected_version = receipt
                 .conversation_version
                 .checked_sub(1)

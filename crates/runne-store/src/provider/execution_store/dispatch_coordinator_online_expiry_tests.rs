@@ -20,6 +20,7 @@ use crate::provider::{
 #[test]
 fn coordinator_never_dispatches_after_lease_expires_during_stage_effect() {
     let (directory, path, lifecycle) = setup(99, "stage-expiry");
+    let request = coordinator_request(99, "stage-expiry", &path);
     let text = path.to_str().unwrap();
     let dispatch =
         SqliteProviderDispatchStore::open_with_connection(text, configured_connection(&path))
@@ -36,8 +37,7 @@ fn coordinator_never_dispatches_after_lease_expires_during_stage_effect() {
     let (reached, release) = effect.pause_after_stage();
     let coordinator = coordinator(&dispatch, &execution, &lifecycle, &launch, &effect);
     std::thread::scope(|scope| {
-        let worker =
-            scope.spawn(|| block_on(coordinator.dispatch(coordinator_request(99, "stage-expiry"))));
+        let worker = scope.spawn(move || block_on(coordinator.dispatch(request)));
         reached.wait();
         expire_mirror(&path, 100);
         release.wait();
@@ -58,6 +58,7 @@ fn coordinator_freezes_without_dispatch_when_readback_is_expired() {
     let phase = Arc::new(AtomicUsize::new(0));
     let clock = Arc::clone(&phase);
     let (directory, path, lifecycle) = setup(100, "readback-expiry");
+    let request = coordinator_request(100, "readback-expiry", &path);
     let text = path.to_str().unwrap();
     let dispatch =
         SqliteProviderDispatchStore::open_with_connection(text, configured_connection(&path))
@@ -81,8 +82,7 @@ fn coordinator_freezes_without_dispatch_when_readback_is_expired() {
     let (reached, release) = effect.pause_after_stage();
     let coordinator = coordinator(&dispatch, &execution, &lifecycle, &launch, &effect);
     std::thread::scope(|scope| {
-        let worker = scope
-            .spawn(|| block_on(coordinator.dispatch(coordinator_request(100, "readback-expiry"))));
+        let worker = scope.spawn(move || block_on(coordinator.dispatch(request)));
         reached.wait();
         phase.store(1, Ordering::SeqCst);
         release.wait();

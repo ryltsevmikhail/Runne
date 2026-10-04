@@ -36,7 +36,7 @@ async fn pending_outbox_is_not_decrypted_or_applied_without_scanner_completed() 
         Err(RuntimeProviderExecutionError::PolicyDenied)
     ));
     assert_eq!(keyring.loads.load(Ordering::SeqCst), loads_before);
-    let application = IdempotentTerminalApplication::default();
+    let application = IdempotentTerminalApplication::for_fixture(&fixture);
     assert_eq!(
         blocked.apply_terminal_output_for_attempt(fixture.attempt_id, &application),
         Err(RuntimeProviderExecutionError::PolicyDenied)
@@ -184,15 +184,16 @@ fn redaction_failure_observer_reports_only_fixed_site_and_kind() {
         0,
     )
     .unwrap();
-    let mut session =
-        runne_runtime::provider_redaction::ProviderRedactionRecovery::start(
-            binding,
-            &restart_tails,
-            &restart_recovery,
-            &ExecutionMatcher,
-        )
+    let mut session = runne_runtime::provider_redaction::ProviderRedactionRecovery::start(
+        binding,
+        &restart_tails,
+        &restart_recovery,
+        &ExecutionMatcher,
+    )
+    .unwrap();
+    session
+        .ingest(b"checkpoint", &mut Zeroizing::new(Vec::new()))
         .unwrap();
-    session.ingest(b"checkpoint", &mut Zeroizing::new(Vec::new())).unwrap();
     restart_tails.fail_load.store(true, Ordering::SeqCst);
     let restart_observer = Observer::default();
     runne_runtime::provider_redaction::ProviderRedactionRecovery::restart_with_observer(

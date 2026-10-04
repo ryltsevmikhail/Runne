@@ -20,6 +20,16 @@ describe('TaskRun workspace', () => {
     expect(wrapper.text()).not.toContain('next authority slice')
   })
 
+  it('shows typed failure as a warning when workflow state succeeded', () => {
+    const wrapper = mount(TaskRunWorkspace, {
+      props: { state: 'succeeded', entries: [], activeAttemptId: null, terminal: 'failure', recovery: 'live' },
+    })
+    expect(wrapper.get('h1').text()).toBe('completed')
+    expect(wrapper.get('.gc-alert').text()).toContain('Terminal result: failure')
+    expect(wrapper.get('.gc-alert').classes()).toContain('gc-alert--warning')
+    expect(wrapper.get('.gc-alert').classes()).not.toContain('gc-alert--success')
+  })
+
   it('rejects unknown state and timeline kinds at the component boundary', () => {
     const wrapper = mount(TaskRunWorkspace, {
       props: { state: 'unknown', entries: [{ eventId: 'id', sequence: 1, committedAt: 1, kind: 'unknown', attemptId: null }], activeAttemptId: null, terminal: null, recovery: 'live' } as never,

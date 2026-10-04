@@ -1,44 +1,3 @@
-/// Builds the authority TaskRun route set: every runtime-owned transition
-/// plus the client-facing submit/list/get/cancel subset. Client profiles
-/// mount [`canonical_task_run_router`] instead.
-pub fn task_run_router<H>(state: TaskRunHttpState<H>) -> Router
-where
-    H: TaskRunCommandHostPort + TaskRunQueryHostPort + 'static,
-{
-    Router::new()
-        .route(
-            "/v1/task-runs",
-            get(list_task_runs::<H>).post(create_task_run::<H>),
-        )
-        .route(
-            "/v1/task-runs/submit",
-            post(submit_task_run_v1::<H>),
-        )
-        .route("/v1/task-runs/{taskrun_id}", get(get_task_run::<H>))
-        .route(
-            "/v1/task-runs/{taskrun_id}/queue",
-            post(queue_task_run::<H>),
-        )
-        .route(
-            "/v1/task-runs/{taskrun_id}/admit",
-            post(admit_task_run::<H>),
-        )
-        .route(
-            "/v1/task-runs/{taskrun_id}/cancel",
-            post(cancel_task_run::<H>),
-        )
-        .route(
-            "/v1/task-runs/{taskrun_id}/attempts",
-            post(start_attempt::<H>),
-        )
-        .route(
-            "/v1/task-runs/{taskrun_id}/complete",
-            post(complete_task_run::<H>),
-        )
-        .layer(DefaultBodyLimit::max(MAX_TASK_RUN_BODY_BYTES))
-        .with_state(state)
-}
-
 async fn create_task_run<H>(
     State(state): State<TaskRunHttpState<H>>,
     Extension(principal): Extension<AuthenticatedPrincipal>,
@@ -210,6 +169,8 @@ where
         taskrun_id,
         expected_version: body.expected_version,
     };
+    #[cfg(feature = "test-support")]
+    let taskrun_key = taskrun_id.to_string();
     let result = match operation {
         ExistingOperation::Queue => state.host.queue_task_run(context, command).await,
         ExistingOperation::Admit => state.host.admit_task_run(context, command).await,
@@ -221,6 +182,10 @@ where
         }
         ExistingOperation::StartAttempt => state.host.start_attempt(context, command).await,
     };
+    #[cfg(feature = "test-support")]
+    if matches!(operation, ExistingOperation::Cancel) && result.is_ok() {
+        test_support::pause_cancel_ack(&taskrun_key).await;
+    }
     command_response(result, &request_id)
 }
 

@@ -7,7 +7,6 @@ use runne_application::prohibited_content::{
     CanonicalContentBoundary, ContentDisposition, ContentGuardError, ProhibitedContentPort,
 };
 use runne_application::provider::ProviderCoordinatorRequest;
-use runne_domain::id::{AttemptId, ConversationId, TaskRunId};
 use runne_provider::{
     DispatchError, DispatchRequest, ModelRef, PrepareError, PreparedRequest, ProviderCall,
     ProviderCallId, ProviderFuture, ProviderId, ProviderPort, ProviderPreEffectRejection,
@@ -23,6 +22,8 @@ use runne_store::provider::{
 mod online_credential_fixture;
 #[path = "support/online_proof.rs"]
 mod online_proof;
+#[path = "support/provider_taskrun_start.rs"]
+mod provider_taskrun_start;
 #[path = "support/validated_reopen.rs"]
 mod validated_reopen;
 
@@ -164,6 +165,14 @@ fn fixture() -> (
     ProviderCoordinatorRequest,
 ) {
     let database = validated_reopen::ProviderTestDatabase::new("provider-dispatch-coordinator");
+    let started = provider_taskrun_start::begin(
+        database.path(),
+        [1; 16],
+        "principal",
+        "provider coordinator fixture request",
+    );
+    let receipt = started.receipt.clone();
+    drop(started);
     let dispatch = database.dispatch();
     let execution = database.execution();
     let credential = online_credential_fixture::credential(&database, "fixture", 4);
@@ -213,9 +222,9 @@ fn fixture() -> (
         ProviderCoordinatorRequest {
             call,
             principal_id: "principal".into(),
-            conversation_id: ConversationId::from_bytes([6; 16]),
-            taskrun_id: TaskRunId::from_bytes([7; 16]),
-            execution_attempt_id: AttemptId::from_bytes([8; 16]),
+            conversation_id: receipt.conversation_id,
+            taskrun_id: receipt.taskrun_id,
+            execution_attempt_id: receipt.attempt_id,
             profile_digest: [2; 32],
             pricing_revision_digest: [3; 32],
             requested_input_tokens: 32,

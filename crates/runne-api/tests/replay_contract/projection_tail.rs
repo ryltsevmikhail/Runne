@@ -40,48 +40,70 @@ fn replay_projection_round_trips_failed_generation_without_fabricating_active_st
             runne_domain::id::IntegrityDigest::from_bytes([sequence as u8; 32]),
         )
     };
-    let aggregate = Conversation::replay(&[
-        event(
-            1,
-            runne_domain::id::EventId::from_bytes([
-                0x01, 0x8f, 0x2e, 0x3a, 0x70, 0, 0x70, 0, 0x80, 0, 0, 0, 0, 0, 0, 10,
-            ]),
-            runne_domain::conversation::ConversationEvent::ConversationCreated { workspace_id },
-        ),
-        event(
-            2,
-            runne_domain::id::EventId::from_bytes([
-                0x01, 0x8f, 0x2e, 0x3a, 0x70, 0, 0x70, 0, 0x80, 0, 0, 0, 0, 0, 0, 11,
-            ]),
-            runne_domain::conversation::ConversationEvent::UserMessageAppended {
-                message_id: user_message_id,
-                taskrun_id,
-                attempt_id,
-                text: runne_domain::message::MessageText::new("hello").unwrap(),
-            },
-        ),
-        event(
-            3,
-            runne_domain::id::EventId::from_bytes([
-                0x01, 0x8f, 0x2e, 0x3a, 0x70, 0, 0x70, 0, 0x80, 0, 0, 0, 0, 0, 0, 12,
-            ]),
-            runne_domain::conversation::ConversationEvent::GenerationFailed {
-                taskrun_id,
-                attempt_id,
-                reason:
-                    runne_domain::conversation::GenerationFailureReason::ProviderOutputRejected,
-            },
-        ),
-    ])
-    .unwrap();
-    let projection =
-        runne_api::ReplayAggregateProjectionV1::from_conversation(&aggregate).unwrap();
-    assert!(
-        runne_api::UnauthenticatedReplayProjectionV1::decode_conversation_bytes(
-            projection.encoded_bytes()
-        )
-        .is_ok()
-    );
+    for reason in [
+        runne_domain::conversation::GenerationFailureReason::ProviderOutputRejected,
+        runne_domain::conversation::GenerationFailureReason::ProviderAccountingUnknown,
+        runne_domain::conversation::GenerationFailureReason::Cancelled,
+    ] {
+        let aggregate = Conversation::replay(&[
+            event(
+                1,
+                runne_domain::id::EventId::from_bytes([
+                    0x01, 0x8f, 0x2e, 0x3a, 0x70, 0, 0x70, 0, 0x80, 0, 0, 0, 0, 0, 0, 10,
+                ]),
+                runne_domain::conversation::ConversationEvent::ConversationCreated { workspace_id },
+            ),
+            event(
+                2,
+                runne_domain::id::EventId::from_bytes([
+                    0x01, 0x8f, 0x2e, 0x3a, 0x70, 0, 0x70, 0, 0x80, 0, 0, 0, 0, 0, 0, 11,
+                ]),
+                runne_domain::conversation::ConversationEvent::UserMessageAppended {
+                    message_id: user_message_id,
+                    taskrun_id,
+                    attempt_id,
+                    text: runne_domain::message::MessageText::new("hello").unwrap(),
+                },
+            ),
+            event(
+                3,
+                runne_domain::id::EventId::from_bytes([
+                    0x01, 0x8f, 0x2e, 0x3a, 0x70, 0, 0x70, 0, 0x80, 0, 0, 0, 0, 0, 0, 12,
+                ]),
+                runne_domain::conversation::ConversationEvent::GenerationFailed {
+                    taskrun_id,
+                    attempt_id,
+                    reason,
+                },
+            ),
+        ])
+        .unwrap();
+        let projection =
+            runne_api::ReplayAggregateProjectionV1::from_conversation(&aggregate).unwrap();
+        if reason == runne_domain::conversation::GenerationFailureReason::ProviderAccountingUnknown
+        {
+            let live_payload = runne_api::replay::CanonicalReplayPayloadV1::from(
+                &runne_domain::conversation::ConversationEvent::GenerationFailed {
+                    taskrun_id,
+                    attempt_id,
+                    reason,
+                },
+            );
+            assert!(matches!(
+                live_payload,
+                runne_api::replay::CanonicalReplayPayloadV1::ConversationGenerationFailed {
+                    reason,
+                    ..
+                } if reason == "provider_accounting_unknown"
+            ));
+        }
+        assert!(
+            runne_api::UnauthenticatedReplayProjectionV1::decode_conversation_bytes(
+                projection.encoded_bytes()
+            )
+            .is_ok()
+        );
+    }
 }
 
 #[test]

@@ -132,3 +132,152 @@ fn restart_with_pending_settlement_preserves_reserved_settled_remaining() {
         1
     );
 }
+
+#[test]
+fn v50_completed_terminal_reopens_before_and_after_outbox_acknowledgement() {
+    let (database, claim, terminal) = terminal_setup("v50-disposition-mapping", 19);
+    let execution = database.execution();
+    assert_eq!(
+        execution.commit_terminal(&terminal),
+        Ok(ProviderTerminalCommitOutcome::Committed)
+    );
+    let outbox_id = execution.pending_terminal_outbox().unwrap()[0].outbox_id;
+
+    let connection = database.query_connection();
+    let populated: (i64, i64, i64, i64, i64, Vec<u8>, Vec<u8>) = connection
+        .query_row(
+            "SELECT (SELECT COUNT(*) FROM provider_dispatch_attempts WHERE attempt_id=?1),
+                    (SELECT COUNT(*) FROM provider_accounting_settlements WHERE dispatch_attempt_id=?1),
+                    (SELECT COUNT(*) FROM provider_terminal_dispositions WHERE dispatch_attempt_id=?1),
+                    a.state, d.disposition, a.settlement_digest, s.settlement_digest
+             FROM provider_dispatch_attempts a
+             JOIN provider_accounting_settlements s ON s.dispatch_attempt_id=a.attempt_id
+             JOIN provider_terminal_dispositions d ON d.dispatch_attempt_id=a.attempt_id
+             WHERE a.attempt_id=?1",
+            [claim.attempt_id.as_bytes().as_slice()],
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                    row.get(5)?,
+                    row.get(6)?,
+                ))
+            },
+        )
+        .unwrap();
+    assert_eq!((populated.0, populated.1, populated.2), (1, 1, 1));
+    assert_eq!((populated.3, populated.4), (4, 1));
+    assert_eq!(
+        populated.5.as_slice(),
+        terminal.settlement_digest().as_slice()
+    );
+    assert_eq!(populated.5, populated.6);
+    drop(connection);
+    assert!(
+        validated_reopen::open_provider_execution(database.path(), database.identity()).is_ok()
+    );
+
+    for disposition in [2, 3, 4] {
+        set_v50_terminal_pair(&database, claim.attempt_id.as_bytes(), 4, disposition);
+        assert!(
+            validated_reopen::open_provider_execution(database.path(), database.identity())
+                .is_err(),
+            "non-completed disposition {disposition} cannot reopen with completed state 4"
+        );
+        set_v50_terminal_pair(&database, claim.attempt_id.as_bytes(), 4, 1);
+        assert!(
+            validated_reopen::open_provider_execution(database.path(), database.identity())
+                .is_ok()
+        );
+    }
+
+    let receipt_digest = [0x45; 32];
+    execution
+        .acknowledge_terminal_outbox(outbox_id, receipt_digest)
+        .unwrap();
+    drop(execution);
+    let acknowledged = database.query_connection();
+    let persisted: (i64, i64, Vec<u8>) = acknowledged
+        .query_row(
+            "SELECT a.state, o.state, o.receipt_digest
+             FROM provider_dispatch_attempts a
+             JOIN provider_terminal_outbox o ON o.dispatch_attempt_id=a.attempt_id
+             WHERE a.attempt_id=?1",
+            [claim.attempt_id.as_bytes().as_slice()],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .unwrap();
+    assert_eq!((persisted.0, persisted.1), (5, 2));
+    assert_eq!(persisted.2, receipt_digest);
+    drop(acknowledged);
+    assert!(
+        validated_reopen::open_provider_execution(database.path(), database.identity()).is_ok()
+    );
+
+    // ACK replay is idempotent and the acknowledged lifecycle remains valid.
+    let replay = database.execution();
+    replay
+        .acknowledge_terminal_outbox(outbox_id, receipt_digest)
+        .unwrap();
+    drop(replay);
+    assert!(
+        validated_reopen::open_provider_execution(database.path(), database.identity()).is_ok()
+    );
+}
+
+fn set_v50_terminal_pair(
+    database: &ArmedProviderTestDatabase,
+    dispatch_attempt_id: &[u8; 16],
+    state: i64,
+    disposition: i64,
+) {
+    let connection = Connection::open(database.path()).unwrap();
+    connection
+        .execute_batch("DROP TRIGGER provider_terminal_dispositions_immutable;")
+        .unwrap();
+    connection
+        .execute(
+            "UPDATE provider_dispatch_attempts SET state=?1 WHERE attempt_id=?2",
+            params![state, dispatch_attempt_id.as_slice()],
+        )
+        .unwrap();
+    connection
+        .execute(
+            "UPDATE provider_terminal_dispositions SET disposition=?1 WHERE dispatch_attempt_id=?2",
+            params![disposition, dispatch_attempt_id.as_slice()],
+        )
+        .unwrap();
+    connection
+        .execute_batch("CREATE TRIGGER provider_terminal_dispositions_immutable BEFORE UPDATE ON provider_terminal_dispositions BEGIN SELECT RAISE(ABORT,'Provider terminal disposition is append only'); END;")
+        .unwrap();
+    let populated: (i64, i64, i64, i64, i64, Vec<u8>, Vec<u8>) = connection
+        .query_row(
+            "SELECT (SELECT COUNT(*) FROM provider_dispatch_attempts WHERE attempt_id=?1),
+                    (SELECT COUNT(*) FROM provider_accounting_settlements WHERE dispatch_attempt_id=?1),
+                    (SELECT COUNT(*) FROM provider_terminal_dispositions WHERE dispatch_attempt_id=?1),
+                    a.state, d.disposition, a.settlement_digest, s.settlement_digest
+             FROM provider_dispatch_attempts a
+             JOIN provider_accounting_settlements s ON s.dispatch_attempt_id=a.attempt_id
+             JOIN provider_terminal_dispositions d ON d.dispatch_attempt_id=a.attempt_id
+             WHERE a.attempt_id=?1",
+            [dispatch_attempt_id.as_slice()],
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                    row.get(5)?,
+                    row.get(6)?,
+                ))
+            },
+        )
+        .unwrap();
+    assert_eq!((populated.0, populated.1, populated.2), (1, 1, 1));
+    assert_eq!((populated.3, populated.4), (state, disposition));
+    assert_eq!(populated.5, populated.6);
+}

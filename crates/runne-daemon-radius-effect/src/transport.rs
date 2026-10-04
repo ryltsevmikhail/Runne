@@ -46,7 +46,7 @@ impl RadiusEffect {
     pub(crate) async fn dispatch_ready(
         &self,
         ready: Ready,
-        receipt: ProviderEffectStartReceipt,
+        mut receipt: ProviderEffectStartReceipt,
     ) -> Result<ProviderStreamId, DispatchError> {
         if !receipt.matches_claim(ready.request.claim())
             || !receipt.matches_credential(&ready.credential)
@@ -94,6 +94,11 @@ impl RadiusEffect {
                     expected_url.clone(),
                     headers,
                     ready.request.prepared().rendered_bytes().to_vec(),
+                    receipt.take_final_send_authority().map_err(|_| {
+                        DispatchError::RejectedBeforeEffect(
+                            ProviderPreEffectRejection::AdapterRejected,
+                        )
+                    })?,
                 ),
             ),
         )

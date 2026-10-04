@@ -13,6 +13,7 @@ impl<E: EventStore, U: UnitOfWork, I: IdGenerator> TaskRunService<E, U, I, NoAge
                 runtime_authority_id,
             },
             authorities: NoAgentLoopAuthorities,
+            unknown_successor_repository: None,
         }
     }
 
@@ -31,6 +32,7 @@ impl<E: EventStore, U: UnitOfWork, I: IdGenerator> TaskRunService<E, U, I, NoAge
                 runtime_authority_id,
             },
             authorities,
+            unknown_successor_repository: None,
         }
     }
 }

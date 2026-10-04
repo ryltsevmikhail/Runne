@@ -51,6 +51,7 @@ impl AppCore {
             return Ok(task_run_resync_snapshot(task_run_id, &authoritative));
         }
         self.task_run_persisted_snapshot(context, secure, &scope_key, task_run_id, &authoritative)
+            .await
     }
 
     async fn catch_up_task_run<F>(
@@ -149,13 +150,13 @@ impl AppCore {
         replay::task_run::checkpoint(&mut store, secure, scope_key)
     }
 
-    fn task_run_persisted_snapshot(
+    async fn task_run_persisted_snapshot(
         &self,
         context: &RuntimeOperationContext,
         secure: &dyn SecureStore,
         scope_key: &ReplayScopeKey,
         task_run_id: CanonicalId,
-        authoritative: &runne_runtime_client::TaskRunSnapshot,
+        initial_authoritative: &runne_runtime_client::TaskRunSnapshot,
     ) -> Result<TaskRunTimelineSnapshot, AppCoreError> {
         self.require_current_operation_context(context)?;
         let persisted = {
@@ -179,7 +180,7 @@ impl AppCore {
                 self.set_resync_required_for_scope(scope_key.clone())?;
                 return Ok(task_run_snapshot(
                     task_run_id,
-                    authoritative,
+                    initial_authoritative,
                     revision,
                     stream_version,
                     Vec::new(),
@@ -187,10 +188,17 @@ impl AppCore {
                 ));
             }
         };
+        let authoritative = context
+            .client
+            .get_task_run(task_run_id)
+            .await
+            .map_err(|_| AppCoreError::RuntimeUnavailable)?;
+        self.require_current_operation_context(context)?;
+        ensure_authoritative_task_run_covers_replay(authoritative.stream_version(), stream)?;
         self.transition_runtime(RuntimeAvailability::Live)?;
         Ok(task_run_snapshot(
             task_run_id,
-            authoritative,
+            &authoritative,
             revision,
             stream,
             entries,
@@ -213,6 +221,16 @@ impl AppCore {
             replay::task_run::TaskRunProjection::AuthenticatedOpaque { .. }
         ))
     }
+}
+
+const fn ensure_authoritative_task_run_covers_replay(
+    authoritative_version: u64,
+    replay_version: u64,
+) -> Result<(), AppCoreError> {
+    if authoritative_version < replay_version {
+        return Err(AppCoreError::RuntimeUnavailable);
+    }
+    Ok(())
 }
 
 fn task_run_resync_snapshot(
@@ -245,7 +263,7 @@ fn task_run_snapshot(
         active_attempt_id: authoritative
             .active_attempt_id()
             .map(|value| value.to_string()),
-        terminal: task_run_terminal(authoritative.state()),
+        terminal: task_run_terminal(authoritative.state(), authoritative.terminal_result()),
         entries,
         recovery,
     }

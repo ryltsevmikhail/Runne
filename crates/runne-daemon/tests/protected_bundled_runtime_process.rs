@@ -25,14 +25,45 @@ mod linux_activation_context;
 #[path = "protected_bundled_runtime_process_split_parts/t1_positive.rs"]
 mod t1_positive;
 #[cfg(target_os = "linux")]
+#[path = "protected_bundled_runtime_process_split_parts/t1_positive_canaries.rs"]
+mod t1_positive_canaries;
+#[cfg(target_os = "linux")]
 #[path = "protected_bundled_runtime_process_split_parts/t1_positive_parent.rs"]
 mod t1_positive_parent;
+
+#[cfg(target_os = "linux")]
+#[path = "protected_bundled_runtime_process_split_parts/t1_local_barrier.rs"]
+mod t1_local_barrier;
+#[cfg(target_os = "linux")]
+#[path = "protected_bundled_runtime_process_split_parts/t1_local_cancel.rs"]
+mod t1_local_cancel;
+#[cfg(target_os = "linux")]
+#[path = "protected_bundled_runtime_process_split_parts/t1_local_commands.rs"]
+mod t1_local_commands;
+#[cfg(target_os = "linux")]
+#[path = "protected_bundled_runtime_process_split_parts/t1_local_crash_recovery.rs"]
+mod t1_local_crash_recovery;
+#[cfg(target_os = "linux")]
+#[path = "protected_bundled_runtime_process_split_parts/t1_local_only.rs"]
+mod t1_local_only;
+#[cfg(target_os = "linux")]
+#[path = "protected_bundled_runtime_process_split_parts/t1_local_restart_cancel.rs"]
+mod t1_local_restart_cancel;
+#[cfg(target_os = "linux")]
+#[path = "protected_bundled_runtime_process_split_parts/t1_local_terminal_restart.rs"]
+mod t1_local_terminal_restart;
 #[cfg(target_os = "linux")]
 #[path = "protected_bundled_runtime_process_split_parts/t1_restart.rs"]
 mod t1_restart;
 #[cfg(target_os = "linux")]
+#[path = "protected_bundled_runtime_process_split_parts/t1_startup_diagnostic.rs"]
+pub(crate) mod t1_startup_diagnostic;
+#[cfg(target_os = "linux")]
 #[path = "protected_bundled_runtime_process_split_parts/t1_support.rs"]
 mod t1_support;
+#[cfg(target_os = "linux")]
+#[path = "protected_bundled_runtime_process_split_parts/t1_taskrun_support.rs"]
+mod t1_taskrun_support;
 #[cfg(target_os = "linux")]
 #[path = "protected_bundled_runtime_process_split_parts/t1_text_only.rs"]
 mod t1_text_only;

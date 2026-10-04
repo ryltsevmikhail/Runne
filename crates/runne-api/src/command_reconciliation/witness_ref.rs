@@ -53,6 +53,10 @@ pub enum CommandReconciliationWitnessRef<'a> {
         task_run_id: TaskRunId,
         expected_version: u64,
     },
+    SupersedeUnknownTaskRun {
+        predecessor_taskrun_id: TaskRunId,
+        expected_version: u64,
+    },
     SubmitTaskRun {
         conversation_id: ConversationId,
         workspace_id: WorkspaceId,

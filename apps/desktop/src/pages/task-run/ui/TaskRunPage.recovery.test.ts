@@ -45,7 +45,7 @@ describe('TaskRun page recovery projection', () => {
     await navigate(otherTaskRunId)
     firstLoad.resolve(liveTimeline)
     await flushPromises()
-    expect(wrapper.get('h1').text()).toBe('succeeded')
+    expect(wrapper.get('h1').text()).toBe('completed')
     expect(wrapper.text()).toContain('completed')
     expect(wrapper.text()).not.toContain('running')
     expect(wrapper.text()).not.toContain('attempt started')

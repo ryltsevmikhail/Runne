@@ -6,8 +6,10 @@
 //! `host/mod.rs`.
 
 use super::profile_directory;
+use crate::application::provider_credential_enrollment::DaemonProviderCredentialEnrollmentControl;
 use crate::error::DaemonError;
 use std::path::Path;
+use std::sync::Arc;
 
 /// Composes the same-process enrollment transition from daemon-owned facts.
 ///
@@ -34,14 +36,22 @@ pub(super) fn enrollment_transition_composition(
         return Ok(None);
     };
     #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-    let enrollment_control =
-        Some(facts.credential_enrollment_control.clone().ok_or_else(|| {
-            DaemonError::Bootstrap("credential enrollment control unavailable".into())
-        })?);
-    // Off macOS there is no credential enrollment control yet; the V3 loop
-    // enters without the credential-service phase (fail-closed broker only).
+    let enrollment_control = Some(
+        facts
+            .credential_enrollment_control
+            .clone()
+            .or_else(|| background_control(&facts.credential_enrollment_controls))
+            .ok_or_else(|| {
+                DaemonError::Bootstrap("credential enrollment control unavailable".into())
+            })?,
+    );
+    // Keep the general HTTP control primary-only; the protected session may
+    // use the exact background realm when no primary control exists.
     #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
-    let enrollment_control = facts.credential_enrollment_control.clone();
+    let enrollment_control = facts
+        .credential_enrollment_control
+        .clone()
+        .or_else(|| background_control(&facts.credential_enrollment_controls));
     #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
     let ticket_clock = super::super::control_v3::macos_continuous_ticket_clock();
     #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
@@ -58,8 +68,19 @@ pub(super) fn enrollment_transition_composition(
         runtime_root.to_path_buf(),
         ticket_clock,
         enrollment_control,
-    );
+    )
+    .with_enrollment_controls(facts.credential_enrollment_controls.clone());
     Ok(Some((composition, facts.installation)))
+}
+
+#[cfg(all(feature = "desktop-protected", unix))]
+fn background_control(
+    controls: &[(String, Arc<DaemonProviderCredentialEnrollmentControl>)],
+) -> Option<Arc<DaemonProviderCredentialEnrollmentControl>> {
+    controls
+        .iter()
+        .find(|(provider, _)| provider == "openai-background")
+        .map(|(_, control)| Arc::clone(control))
 }
 
 #[cfg(all(feature = "desktop-protected", unix))]

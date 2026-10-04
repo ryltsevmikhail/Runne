@@ -121,6 +121,9 @@ fn recovery_conversation_command(
         Stored::CancelTaskRun { task_run_id, .. } => CanonicalMutationCommand::CancelTaskRun {
             task_run_id: id(task_run_id)?,
         },
+        Stored::SupersedeUnknownTaskRun { predecessor_task_run_id, .. } => CanonicalMutationCommand::SupersedeUnknownTaskRun {
+            predecessor_task_run_id: id(predecessor_task_run_id)?,
+        },
         Stored::SubmitTaskRun {
             conversation_id,
             workspace_id,

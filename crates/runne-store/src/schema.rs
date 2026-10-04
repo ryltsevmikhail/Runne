@@ -23,7 +23,7 @@ use sha2::{Digest, Sha256};
 use std::io::Read;
 
 /// Current schema version. Increment when adding new DDL migrations.
-pub const CURRENT_SCHEMA_VERSION: i64 = 48;
+pub const CURRENT_SCHEMA_VERSION: i64 = 63;
 
 /// Fail-closed reason returned before a file-backed database is made writable.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -82,6 +82,7 @@ include!("schema/provider_validation.rs");
 include!("schema/v12_snapshot.rs");
 include!("schema/v12_fence.rs");
 include!("schema/v12_rollback.rs");
+include!("schema/no_admission_readiness.rs");
 include!("schema/startup.rs");
 include!("schema/connection_profile.rs");
 include!("schema/scanner_recovery_sidecar.rs");
@@ -139,6 +140,29 @@ include!("schema/migrations/v45_taskrun_no_effect_release.rs");
 include!("schema/migrations/v46_taskrun_provider_binding.rs");
 include!("schema/migrations/v47_text_only_taskrun_lineage.rs");
 include!("schema/migrations/v48_conversation_writer_lease.rs");
+include!("schema/migrations/v49_taskrun_terminal_settlement.rs");
+include!("schema/migrations/v49_taskrun_local_terminal.rs");
+include!("schema/migrations/v49_taskrun_local_no_effect.rs");
+include!("schema/migrations/v50_provider_terminal_disposition.rs");
+include!("schema/migrations/v51_taskrun_local_command.rs");
+include!("schema/migrations/v52_secondary_profile_grants.rs");
+include!("schema/migrations/v52_catalog_extensions.rs");
+include!("schema/migrations/v53_taskrun_local_stop_receipt.rs");
+include!("schema/migrations/v53_taskrun_local_stop_match.rs");
+include!("schema/migrations/v54_provider_remote_response_binding.rs");
+include!("schema/migrations/v55_provider_remote_terminal_artifact.rs");
+include!("schema/migrations/v55_disposition_readiness.rs");
+include!("schema/migrations/v56_provider_cancel_fence.rs");
+include!("schema/migrations/v57_taskrun_unknown_successor.rs");
+include!("schema/migrations/v58_provider_remote_operation_proof.rs");
+include!("schema/migrations/v59_remote_terminal_settlement.rs");
+include!("schema/migrations/v59_remote_terminal_source_readiness.rs");
+include!("schema/migrations/v60_remote_artifact_cancel_closure.rs");
+include!("schema/migrations/v61_remote_terminal_application.rs");
+include!("schema/migrations/v62_remote_terminal_audit.rs");
+include!("schema/migrations/v63_provider_terminal_unknown.rs");
+#[cfg(feature = "test-support")]
+include!("schema/test_support_matcher_diagnosis.rs");
 mod project_workspace_backfill;
 mod project_workspace_schema;
 #[cfg(test)]
@@ -218,7 +242,21 @@ mod tests {
     include!("schema/tests/v45_taskrun_no_effect_release.rs");
     include!("schema/tests/v46_taskrun_provider_binding.rs");
     include!("schema/tests/v47_text_only_taskrun_lineage.rs");
+    include!("schema/tests/v49_taskrun_terminal_settlement.rs");
+    include!("schema/tests/v50_provider_terminal_disposition.rs");
+    include!("schema/tests/v51_taskrun_local_command.rs");
+    include!("schema/tests/v52_secondary_profile_grants.rs");
+    include!("schema/tests/v53_taskrun_local_stop_receipt.rs");
+    include!("schema/tests/v54_provider_remote_response_binding.rs");
+    include!("schema/tests/v55_provider_remote_terminal_artifact.rs");
+    include!("schema/tests/v56_provider_cancel_fence.rs");
+    include!("schema/tests/v57_taskrun_unknown_successor.rs");
+    include!("schema/tests/v58_provider_remote_operation_proof.rs");
+    include!("schema/tests/v59_remote_terminal_settlement.rs");
+    include!("schema/tests/v60_remote_artifact_cancel_closure.rs");
+    include!("schema/tests/v61_remote_terminal_application.rs");
     include!("schema/tests/recovery_compatibility.rs");
+    include!("schema/tests/recovery_compatibility_v24.rs");
     include!("schema/tests/credential_v24.rs");
     include!("schema/tests/credential_v24_invariants.rs");
     include!("schema/tests/credential_v24_observation_invariants.rs");

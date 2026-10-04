@@ -118,11 +118,41 @@ where
     let request_id = request_id
         .map(|value| value.0)
         .unwrap_or_else(RequestId::generate);
-    let provider = match provider.as_str() {
-        "openai" => ProviderCredentialProviderV2::OpenAi,
-        "deepseek" => ProviderCredentialProviderV2::DeepSeek,
-        _ => return invalid(&request_id),
+    let Some(provider) = ProviderCredentialProviderV2::parse(&provider) else {
+        return invalid(&request_id);
     };
+    status_for_provider(state, admission, session, request_id, provider).await
+}
+
+pub(super) async fn status_scoped<H>(
+    State(state): State<ProviderCredentialEnrollmentHttpState<H>>,
+    Extension(provider): Extension<&'static str>,
+    admission: Option<Extension<Arc<ProviderCredentialEnrollmentHttpAdmission>>>,
+    session: Option<Extension<AuthenticatedRuntimeSession>>,
+    request_id: Option<Extension<RequestId>>,
+) -> Response
+where
+    H: ProviderCredentialEnrollmentHostPort,
+{
+    let request_id = request_id
+        .map(|value| value.0)
+        .unwrap_or_else(RequestId::generate);
+    let Some(provider) = ProviderCredentialProviderV2::parse(provider) else {
+        return invalid(&request_id);
+    };
+    status_for_provider(state, admission, session, request_id, provider).await
+}
+
+async fn status_for_provider<H>(
+    state: ProviderCredentialEnrollmentHttpState<H>,
+    admission: Option<Extension<Arc<ProviderCredentialEnrollmentHttpAdmission>>>,
+    session: Option<Extension<AuthenticatedRuntimeSession>>,
+    request_id: RequestId,
+    provider: ProviderCredentialProviderV2,
+) -> Response
+where
+    H: ProviderCredentialEnrollmentHostPort,
+{
     let admission = match base_admission(&state, admission, session, |resolver, session_id| {
         resolver.resolve_status(session_id, &provider)
     }) {

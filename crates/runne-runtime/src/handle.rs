@@ -5,7 +5,7 @@ use std::sync::Arc;
 use runne_application::commands::{
     AdmitTaskRunInput, BeginConversationTextInput, CancelTaskRunInput, CommandOutcome,
     CompleteTaskRunInput, CreateTaskRunInput, FinishConversationTextInput, QueueTaskRunInput,
-    StartAttemptInput, SubmitTaskRunInput,
+    StartAttemptInput, SubmitTaskRunInput, SupersedeUnknownTaskRunInput,
 };
 use runne_application::ports::{ApplicationCommandContext, TextGenerationReceipt};
 use tokio::sync::{Semaphore, mpsc};
@@ -147,6 +147,20 @@ impl RuntimeHandle {
         input: runne_application::commands::LegacySubmitTaskRunInput,
     ) -> Result<CommandOutcome, RuntimeError> {
         self.send_request(move |reply| RuntimeRequest::SubmitLegacy {
+            context,
+            input,
+            reply,
+        })
+        .await
+    }
+
+    /// Creates an explicitly acknowledged successor for one unresolved remote effect.
+    pub async fn supersede_unknown_task_run(
+        &self,
+        context: ApplicationCommandContext,
+        input: SupersedeUnknownTaskRunInput,
+    ) -> Result<CommandOutcome, RuntimeError> {
+        self.send_request(move |reply| RuntimeRequest::SupersedeUnknown {
             context,
             input,
             reply,

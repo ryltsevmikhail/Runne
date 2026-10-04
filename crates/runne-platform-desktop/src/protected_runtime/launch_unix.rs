@@ -126,7 +126,7 @@ impl DevelopmentBundledRuntimeLauncher {
         crate::provider_credential_broker::linux_native_enrollment_qualification::forward_fixture_root(&mut command)
             .map_err(|_| ProtectedBundledRuntimeError::RuntimeRootUnavailable)?;
         #[cfg(feature = "test-support")]
-        preserve_local_process_environment(&mut command)?;
+        preserve_local_process_environment(&mut command, spec.runtime_root())?;
         #[cfg(feature = "test-support")]
         if let Some(gate) = std::env::var_os("RUNNE_TEST_COMMIT_GATE_FILE") {
             // Test-support-only fault-injection hook: forwards the durable

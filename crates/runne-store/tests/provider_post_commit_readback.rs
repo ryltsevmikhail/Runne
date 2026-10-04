@@ -1,7 +1,6 @@
 use std::path::PathBuf;
 
 use runne_application::provider::{ProviderAdmissionError, ProviderAuthorityIssueRequest};
-use runne_domain::id::{AttemptId, ConversationId, TaskRunId};
 use runne_provider::{
     ModelRef, PreparedProviderRecord, PreparedRequest, ProviderCall, ProviderCallId, ProviderId,
 };
@@ -12,6 +11,8 @@ use rusqlite::Connection;
 
 #[path = "support/online_proof.rs"]
 mod online_proof;
+#[path = "support/provider_taskrun_start.rs"]
+mod provider_taskrun_start;
 #[path = "support/validated_reopen.rs"]
 mod validated_reopen;
 
@@ -23,6 +24,14 @@ fn fixture() -> (
     ProviderRuntimeLaunchCapability,
 ) {
     let database = validated_reopen::ProviderTestDatabase::new("provider-post-commit-readback");
+    let started = provider_taskrun_start::begin(
+        database.path(),
+        [1; 16],
+        "principal-1",
+        "provider post-commit fixture",
+    );
+    let receipt = started.receipt.clone();
+    drop(started);
     let path = database.as_path().to_path_buf();
     let call = ProviderCall::new(
         ProviderCallId::from_bytes([4; 16]),
@@ -91,9 +100,9 @@ fn fixture() -> (
     let request = ProviderAuthorityIssueRequest {
         provider_id: call.model_ref().provider_id().clone(),
         principal_id: "principal-1".into(),
-        conversation_id: ConversationId::from_bytes([6; 16]),
-        taskrun_id: TaskRunId::from_bytes([7; 16]),
-        execution_attempt_id: AttemptId::from_bytes([8; 16]),
+        conversation_id: receipt.conversation_id,
+        taskrun_id: receipt.taskrun_id,
+        execution_attempt_id: receipt.attempt_id,
         prepared: prepared_record,
         pricing_revision_digest: [3; 32],
         requested_input_tokens: 512,

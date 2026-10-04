@@ -18,9 +18,9 @@ use crate::bounds::{
 };
 use crate::{OpenAiEffect, OpenAiEffectError, REQUEST_ID, Sender, client, profile};
 
-pub(super) struct AuthorizedReady {
-    pub(super) request: DispatchRequest,
-    pub(super) credential: CredentialDispatchBinding,
+pub(crate) struct AuthorizedReady {
+    pub(crate) request: DispatchRequest,
+    pub(crate) credential: CredentialDispatchBinding,
 }
 
 impl ProviderReadyEffect for AuthorizedReady {
@@ -52,14 +52,22 @@ impl<C: OpenAiCredentialMaterializer> Sender<C> {
     pub(super) async fn send_authorized(
         &self,
         ready: AuthorizedReady,
-        receipt: ProviderEffectStartReceipt,
+        mut receipt: ProviderEffectStartReceipt,
     ) -> Result<ProviderStreamId, DispatchError> {
+        if self.profile.is_background() {
+            return self.send_background_authorized(ready, receipt).await;
+        }
         if !receipt.matches_claim(ready.request.claim())
             || !receipt.matches_credential(&ready.credential)
             || ready.request.claim().profile_digest != self.profile.profile_digest()
         {
             return Err(DispatchError::MaybeDispatched);
         }
+        let final_send = receipt.take_final_send_authority().map_err(|_| {
+            DispatchError::RejectedBeforeEffect(
+                runne_provider::ProviderPreEffectRejection::AdapterRejected,
+            )
+        })?;
         let request_id = HeaderValue::from_str(ready.request.provider_idempotency_key())
             .map_err(|_| DispatchError::MaybeDispatched)?;
         let receipt_digest = receipt.credential_read_receipt_digest();
@@ -87,6 +95,11 @@ impl<C: OpenAiCredentialMaterializer> Sender<C> {
         let credential = bearer_header(&material)?;
         let url = format!("{}{}", self.policy.origin(), self.policy.path());
         let effect = async {
+            final_send.consume().map_err(|_| {
+                DispatchError::RejectedBeforeEffect(
+                    runne_provider::ProviderPreEffectRejection::AdapterRejected,
+                )
+            })?;
             let response = self
                 .client
                 .post(url)

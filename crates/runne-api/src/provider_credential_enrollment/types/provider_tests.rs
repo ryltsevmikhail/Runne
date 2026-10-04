@@ -1,10 +1,11 @@
 use super::ProviderCredentialProviderV2;
 
-const CATALOG_IDS: [&str; 40] = [
+const CATALOG_IDS: [&str; 41] = [
     "anthropic",
     "ant-ling",
     "azure-openai-responses",
     "openai",
+    "openai-background",
     "deepseek",
     "nvidia",
     "google",
@@ -68,5 +69,9 @@ fn protected_tags_are_unique_and_preserve_legacy_wire_values() {
     assert_eq!(
         ProviderCredentialProviderV2::QwenTokenPlanIndividual.wire_tag(),
         4
+    );
+    assert_eq!(
+        ProviderCredentialProviderV2::OpenAiBackground.wire_tag(),
+        41
     );
 }

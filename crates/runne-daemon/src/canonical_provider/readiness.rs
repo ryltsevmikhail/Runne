@@ -2,6 +2,16 @@ use super::*;
 use runne_api::ProviderActivationReadinessV1;
 use runne_secure_store::ProviderCredentialId;
 
+pub(super) struct CompositionReadinessInputs {
+    pub(super) activation_profile_digest: [u8; 32],
+    pub(super) retained_key_backend: bool,
+    pub(super) credential_status: ProviderCredentialStatus,
+    pub(super) journal_binding: ProviderJournalKeyBinding,
+    pub(super) journal_key_status: ProviderJournalKeyStatus,
+    pub(super) runtime_authority_id: [u8; 16],
+    pub(super) database_generation: u64,
+}
+
 /// Typed pre-readiness failures for exact provider composition.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum ProviderReadinessError {
@@ -45,6 +55,24 @@ pub struct ProviderReadinessEvidence {
 }
 
 impl ProviderReadinessEvidence {
+    pub(super) fn for_composition(
+        profile: &dyn TextProviderProfile,
+        inputs: CompositionReadinessInputs,
+    ) -> Self {
+        Self {
+            profile_id: profile.profile_id().to_owned(),
+            profile_digest: profile.profile_digest(),
+            activation_profile_id: profile.profile_id().to_owned(),
+            activation_profile_digest: inputs.activation_profile_digest,
+            retained_key_backend: inputs.retained_key_backend,
+            credential_status: inputs.credential_status,
+            journal_binding: Some(inputs.journal_binding),
+            journal_key_status: inputs.journal_key_status,
+            runtime_authority_id: inputs.runtime_authority_id,
+            database_generation: inputs.database_generation,
+        }
+    }
+
     /// Validates every exact non-secret gate.
     pub fn validate(&self) -> Result<(), ProviderReadinessError> {
         self.validate_control_plane()?;

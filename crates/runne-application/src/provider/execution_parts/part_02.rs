@@ -1,10 +1,24 @@
 /// Durable encrypted terminal outbox projection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProviderTerminalOutboxSource {
+    /// Terminal data came from the authoritative provider stream journal.
+    StreamJournal,
+    /// Terminal data came from an authenticated remote artifact receipt.
+    RemoteArtifact { artifact_digest: [u8; 32] },
+    /// Factual terminal was authenticated from the encrypted local stream journal,
+    /// but its accounting remains Unknown. This commitment is not a financial
+    /// settlement digest.
+    UnknownJournal { commitment: [u8; 32] },
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProviderTerminalOutboxRecord {
     /// Stable outbox identity.
     pub outbox_id: [u8; 16],
     /// Owning provider attempt.
     pub attempt_id: DispatchAttemptId,
+    /// Authenticated terminal fact source.
+    pub source: ProviderTerminalOutboxSource,
     /// Runtime-issued fence that owns the provider attempt.
     pub fencing_token: u64,
     /// Authenticated principal bound at runtime admission.
@@ -27,7 +41,8 @@ pub struct ProviderTerminalOutboxRecord {
     pub runtime_generation: u64,
     /// Exact profile digest.
     pub profile_digest: [u8; 32],
-    /// Exact settlement digest.
+    /// Known financial settlement digest, or the typed source commitment for
+    /// `UnknownJournal`. Consumers must inspect `source` before interpreting it.
     pub settlement_digest: [u8; 32],
     /// Stable Conversation completion key.
     pub application_idempotency_key: String,
@@ -73,6 +88,15 @@ pub enum ProviderExecutionError {
 
 /// Durable encrypted provider journal and terminal outbox port.
 pub trait ProviderExecutionStore: Send + Sync {
+    /// Authenticates a retained original V26 effect MAC without reopening the
+    /// database or consulting current credential expiry and status.
+    fn verify_unknown_original_effect(
+        &self,
+        _proof: &crate::provider::ProviderUnknownCommittedEffectProof,
+    ) -> Result<(), ProviderExecutionError> {
+        Err(ProviderExecutionError::StoreUnavailable)
+    }
+
     /// Returns the active non-secret journal-key binding without key bytes.
     fn active_journal_key_binding(
         &self,
@@ -144,6 +168,27 @@ pub trait ProviderExecutionStore: Send + Sync {
     fn pending_terminal_outbox(
         &self,
     ) -> Result<Vec<ProviderTerminalOutboxRecord>, ProviderExecutionError>;
+
+    /// Loads pending outbox records for one exact provider attempt.
+    fn pending_terminal_outbox_for_attempt(
+        &self,
+        attempt_id: DispatchAttemptId,
+    ) -> Result<Vec<ProviderTerminalOutboxRecord>, ProviderExecutionError> {
+        Ok(self
+            .pending_terminal_outbox()?
+            .into_iter()
+            .filter(|record| record.attempt_id == attempt_id)
+            .collect())
+    }
+
+    /// Loads one consistent encrypted request/response/artifact view for a
+    /// source-aware terminal outbox. Stream-only stores may leave this absent.
+    fn load_remote_attempt_snapshot(
+        &self,
+        _attempt_id: DispatchAttemptId,
+    ) -> Result<Option<ProviderRemoteAttemptRecord>, ProviderExecutionError> {
+        Err(ProviderExecutionError::StoreUnavailable)
+    }
 
     /// Applies an exact authoritative Conversation completion receipt.
     fn acknowledge_terminal_outbox(

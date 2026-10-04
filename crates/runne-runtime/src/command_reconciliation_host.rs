@@ -45,7 +45,7 @@ impl<R: CommandReconciliationRepository> RuntimeCommandReconciliationHost<R> {
     ) -> Result<CommandReconciliationDisposition, CommandReconciliationHostError> {
         let (reply, response) = oneshot::channel();
         self.sender
-            .try_send(WorkItem::Reconcile(context, witness, reply))
+            .try_send(WorkItem::Reconcile(context, Box::new(witness), reply))
             .map_err(map_send_error)?;
         response
             .await
@@ -76,7 +76,7 @@ impl<R: CommandReconciliationRepository> CommandReconciliationHostPort
 enum WorkItem {
     Reconcile(
         CommandReconciliationContext,
-        CommandReconciliationWitness,
+        Box<CommandReconciliationWitness>,
         oneshot::Sender<Result<CommandReconciliationDisposition, CommandReconciliationHostError>>,
     ),
     Shutdown(oneshot::Sender<()>),

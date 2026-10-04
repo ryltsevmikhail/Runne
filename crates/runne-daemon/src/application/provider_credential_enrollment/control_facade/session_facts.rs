@@ -123,8 +123,7 @@ impl ProtectedEnrollmentSessionFacts {
     }
 
     #[cfg(test)]
-    pub(in crate::application::provider_credential_enrollment::control_facade) fn for_test() -> Self
-    {
+    pub(crate) fn for_test() -> Self {
         Self {
             launch_authority: id(1),
             session: id(2),

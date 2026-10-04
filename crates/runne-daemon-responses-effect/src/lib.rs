@@ -20,7 +20,8 @@ use runne_provider_quota::{
 use runne_provider_responses_wire::{ResponsesProfile, ResponsesStreamDecoder};
 use runne_secure_store::ProviderCredentialDispatchMaterializer;
 use runne_store::provider::{
-    CredentialDispatchBinding, ProviderEffectPort, ProviderEffectStartReceipt, ProviderReadyEffect,
+    CredentialDispatchBinding, ProviderEffectPort, ProviderEffectStartReceipt,
+    ProviderFinalSendAuthority, ProviderReadyEffect,
 };
 use std::any::Any;
 use std::collections::{BTreeMap, VecDeque};
@@ -131,6 +132,7 @@ impl Sender {
         &self,
         ready: Ready,
         receipt: ProviderEffectStartReceipt,
+        final_send: ProviderFinalSendAuthority,
     ) -> Result<ProviderStreamId, DispatchError> {
         if !receipt.matches_claim(ready.request.claim())
             || !receipt.matches_credential(&ready.credential)
@@ -228,6 +230,7 @@ impl Sender {
                 self.config.profile.endpoint(),
                 headers,
                 ready.request.prepared().rendered_bytes().to_vec(),
+                final_send,
             )
             .await?;
         if Instant::now() >= receipt.deadline() {

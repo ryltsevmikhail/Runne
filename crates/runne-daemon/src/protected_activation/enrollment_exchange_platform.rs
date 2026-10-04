@@ -162,17 +162,13 @@ pub(crate) fn run_enrollment_control_exchange(
     let outcome = match outcome {
         Ok(outcome) => outcome,
         Err(error) => {
-            if let Some(control) = composition.enrollment_control.as_ref() {
-                control.clear_http_facts(*owned.session_id());
-            }
+            composition.clear_http_facts(*owned.session_id());
             return Err(error);
         }
     };
-    let control = composition
-        .enrollment_control
-        .as_ref()
-        .ok_or(LaunchAuthorityError::OwnershipMismatch)?;
-    let installed = control.install_linux_preadmission(
+    let http_controls = composition.session_controls();
+    let installed = super::enrollment_control_fanout::install_linux_preadmission(
+        &http_controls,
         outcome.owned_launch(),
         &composition.runtime_root,
         measured
@@ -182,7 +178,7 @@ pub(crate) fn run_enrollment_control_exchange(
     #[cfg(feature = "linux-native-enrollment-qualification")]
     runne_platform_desktop::provider_credential_broker::linux_native_enrollment_qualification::record_enrollment_stage(if installed.is_ok() { "profile_install_ready" } else { "profile_install_failed" });
     if installed.is_err() {
-        control.clear_http_facts(*outcome.owned_launch().session_id());
+        composition.clear_http_facts(*outcome.owned_launch().session_id());
     }
     installed.map_err(|_| LaunchAuthorityError::OwnershipMismatch)?;
     Ok(outcome.with_linux_writer_capability(

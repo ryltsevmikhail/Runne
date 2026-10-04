@@ -62,6 +62,8 @@ struct MockInner {
     conversation_id: Option<String>,
     workspace_id: Option<String>,
     events: Vec<Value>,
+    task_run_snapshots: Vec<Value>,
+    task_run_events: Vec<Value>,
     live_senders: Vec<(mpsc::UnboundedSender<Bytes>, u64)>,
 }
 
@@ -95,6 +97,7 @@ impl MockRuntime {
         });
         let router = Router::new()
             .route("/v1/conversations", post(create_conversation))
+            .route("/v1/task-runs/{task_run_id}", get(get_task_run))
             .route(
                 "/v1/conversations/{conversation_id}/messages",
                 post(generate_text),

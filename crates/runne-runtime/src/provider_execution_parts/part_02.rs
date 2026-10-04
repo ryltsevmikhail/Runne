@@ -42,6 +42,10 @@ pub enum RuntimeProviderExecutionError {
 /// Closed errors from authoritative terminal outbox application.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
 pub enum ProviderTerminalApplicationError {
+    /// The TaskRun has an exact pending cancellation successor; retain the
+    /// sealed terminal output until cancellation can be authoritatively settled.
+    #[error("terminal application is deferred by pending cancellation")]
+    Deferred,
     /// The application service is temporarily unavailable and may be retried.
     #[error("terminal application is unavailable")]
     Unavailable,
@@ -62,11 +66,25 @@ pub trait ProviderTerminalOutboxApplication: Send + Sync {
         record: &ProviderTerminalOutboxRecord,
         output: &[u8],
     ) -> Result<[u8; 32], ProviderTerminalApplicationError>;
+
+    /// Settles an exact durable provider terminal only from the independent
+    /// cancellation scanner or boot recovery path. Foreground completion
+    /// always uses `complete_provider_terminal`.
+    fn complete_provider_terminal_cancellation(
+        &self,
+        _record: &ProviderTerminalOutboxRecord,
+        _output: &[u8],
+    ) -> Result<[u8; 32], ProviderTerminalApplicationError> {
+        Err(ProviderTerminalApplicationError::Deferred)
+    }
 }
 
 /// Closed failures while reconstructing one original canonical command.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
 pub enum ProviderTerminalConversationResolveError {
+    /// A valid cancellation is pending; terminal output must remain sealed.
+    #[error("terminal conversation application is deferred by pending cancellation")]
+    Deferred,
     /// Durable application state is temporarily unavailable.
     #[error("terminal conversation state is unavailable")]
     Unavailable,
@@ -84,6 +102,24 @@ pub struct RecoveredProviderConversationCommand {
     pub original: BeginConversationTextInput,
     /// Durable started (or exact already-terminal replay) receipt.
     pub started: TextGenerationReceipt,
+    /// Exact cancellation successor, present only for a proved terminal cleanup.
+    pub terminal_cancellation: Option<RecoveredProviderTerminalCancellation>,
+    /// The source fact is authentic but no longer owns the current writer or
+    /// generation. Acknowledging it must not append Conversation/TaskRun events.
+    pub audit_only: bool,
+}
+
+/// Closed source-bound cancellation evidence returned by the durable resolver.
+#[derive(Debug, Clone, Copy)]
+pub enum RecoveredProviderTerminalCancellation {
+    /// Legacy terminal facts authenticated by the StreamJournal path.
+    StreamJournal(runne_application::ports::ProviderTerminalCancellationEvidence),
+    /// Source1 Unknown fact and exact accepted cancellation, without finance.
+    UnknownJournal(
+        runne_application::ports::ProviderUnknownTerminalCancellationEvidence,
+    ),
+    /// Remote artifact plus exact accepted cancellation, revalidated at commit.
+    RemoteArtifact(runne_application::ports::ProviderRemoteArtifactCancellationEvidence),
 }
 
 /// Durable resolver for the original canonical Conversation command.
@@ -93,6 +129,15 @@ pub trait ProviderTerminalConversationResolver: Send + Sync {
         &self,
         record: &ProviderTerminalOutboxRecord,
     ) -> Result<RecoveredProviderConversationCommand, ProviderTerminalConversationResolveError>;
+
+    /// Reconstructs the original command from a source-bound no-outbox fact.
+    fn resolve_remote_terminal_without_output(
+        &self,
+        _attempt_id: runne_provider::DispatchAttemptId,
+    ) -> Result<Option<RecoveredProviderNoOutputCommand>, ProviderTerminalConversationResolveError>
+    {
+        Ok(None)
+    }
 }
 
 /// Production terminal application through the existing Conversation service.
@@ -117,12 +162,37 @@ where
         record: &ProviderTerminalOutboxRecord,
         output: &[u8],
     ) -> Result<[u8; 32], ProviderTerminalApplicationError> {
+        self.complete_inner(record, output, false)
+    }
+
+    fn complete_provider_terminal_cancellation(
+        &self,
+        record: &ProviderTerminalOutboxRecord,
+        output: &[u8],
+    ) -> Result<[u8; 32], ProviderTerminalApplicationError> {
+        self.complete_inner(record, output, true)
+    }
+}
+
+impl<R> ConversationProviderTerminalApplication<R>
+where
+    R: ProviderTerminalConversationResolver,
+{
+    fn complete_inner(
+        &self,
+        record: &ProviderTerminalOutboxRecord,
+        output: &[u8],
+        cancellation_owner: bool,
+    ) -> Result<[u8; 32], ProviderTerminalApplicationError> {
         let recovered = self
             .resolver
             .resolve_provider_terminal_conversation(record)
             .map_err(|error| match error {
                 ProviderTerminalConversationResolveError::Unavailable => {
                     ProviderTerminalApplicationError::Unavailable
+                }
+                ProviderTerminalConversationResolveError::Deferred => {
+                    ProviderTerminalApplicationError::Deferred
                 }
                 ProviderTerminalConversationResolveError::Conflict => {
                     ProviderTerminalApplicationError::Conflict
@@ -135,10 +205,58 @@ where
         {
             return Err(ProviderTerminalApplicationError::Conflict);
         }
-        let text = std::str::from_utf8(output)
-            .ok()
-            .and_then(|text| MessageText::new(text.to_owned()).ok())
-            .ok_or(ProviderTerminalApplicationError::Conflict)?;
+        if recovered.audit_only {
+            return match record.source {
+                runne_application::provider::ProviderTerminalOutboxSource::RemoteArtifact { .. } => {
+                    Ok(remote_artifact_audit_receipt_digest(record))
+                }
+                runne_application::provider::ProviderTerminalOutboxSource::UnknownJournal { .. } => {
+                    Ok(unknown_journal_audit_receipt_digest(record))
+                }
+                runne_application::provider::ProviderTerminalOutboxSource::StreamJournal => {
+                    Err(ProviderTerminalApplicationError::Conflict)
+                }
+            };
+        }
+        let cancellation_pending = recovered.terminal_cancellation.is_some()
+            && recovered.started.phase == TextGenerationPhase::Started;
+        let remote_artifact_cancellation = matches!(
+            &recovered.terminal_cancellation,
+            Some(RecoveredProviderTerminalCancellation::RemoteArtifact(_))
+        );
+        if cancellation_pending != cancellation_owner {
+            return Err(ProviderTerminalApplicationError::Deferred);
+        }
+        let completion = match (&record.source, recovered.terminal_cancellation) {
+            (
+                runne_application::provider::ProviderTerminalOutboxSource::StreamJournal,
+                Some(RecoveredProviderTerminalCancellation::StreamJournal(evidence)),
+            ) => {
+                runne_application::commands::ConversationTextCompletion::TerminalSettledCancellation {
+                    evidence,
+                }
+            }
+            (
+                runne_application::provider::ProviderTerminalOutboxSource::UnknownJournal { .. },
+                Some(RecoveredProviderTerminalCancellation::UnknownJournal(evidence)),
+            ) => runne_application::commands::ConversationTextCompletion::UnknownJournalSettledCancellation {
+                evidence,
+            },
+            (
+                runne_application::provider::ProviderTerminalOutboxSource::RemoteArtifact { .. },
+                Some(RecoveredProviderTerminalCancellation::RemoteArtifact(evidence)),
+            ) => runne_application::commands::ConversationTextCompletion::RemoteArtifactSettledCancellation {
+                evidence,
+            },
+            (_, None) => {
+                let text = std::str::from_utf8(output)
+                    .ok()
+                    .and_then(|text| MessageText::new(text.to_owned()).ok())
+                    .ok_or(ProviderTerminalApplicationError::Conflict)?;
+                runne_application::commands::ConversationTextCompletion::AssistantText(text)
+            }
+            _ => return Err(ProviderTerminalApplicationError::Conflict),
+        };
         let receipt = self
             .service
             .finish_text(
@@ -146,95 +264,26 @@ where
                 FinishConversationTextInput {
                     original: recovered.original,
                     started: recovered.started,
-                    completion: ConversationTextCompletion::AssistantText(text),
+                    completion,
                 },
             )
             .map_err(map_conversation_terminal_error)?;
-        if receipt.phase != TextGenerationPhase::Completed
+        if (recovered.terminal_cancellation.is_none()
+            && receipt.phase != TextGenerationPhase::Completed)
+            || (recovered.terminal_cancellation.is_some()
+                && receipt.phase != TextGenerationPhase::Rejected)
             || receipt.conversation_id != record.conversation_id
             || receipt.taskrun_id != record.taskrun_id
             || receipt.attempt_id != record.execution_attempt_id
         {
             return Err(ProviderTerminalApplicationError::Conflict);
         }
-        Ok(conversation_receipt_digest(record, &receipt))
-    }
-}
-
-fn map_conversation_terminal_error(
-    error: ConversationTextServiceError,
-) -> ProviderTerminalApplicationError {
-    match error {
-        ConversationTextServiceError::StoredDataUnavailable
-        | ConversationTextServiceError::Commit(_) => ProviderTerminalApplicationError::Unavailable,
-        ConversationTextServiceError::ProhibitedSecretMaterial
-        | ConversationTextServiceError::ConversationNotFound
-        | ConversationTextServiceError::Conflict
-        | ConversationTextServiceError::WriterFenced
-        | ConversationTextServiceError::ConversationDomain(_)
-        | ConversationTextServiceError::TaskRunDomain
-        | ConversationTextServiceError::IdGeneration(_)
-        | ConversationTextServiceError::MaterializationFailed
-        | ConversationTextServiceError::ReceiptMismatch => {
-            ProviderTerminalApplicationError::Conflict
+        if remote_artifact_cancellation {
+            Ok(remote_artifact_audit_receipt_digest(record))
+        } else {
+            Ok(conversation_receipt_digest(record, &receipt))
         }
     }
 }
 
-fn conversation_receipt_digest(
-    record: &ProviderTerminalOutboxRecord,
-    receipt: &TextGenerationReceipt,
-) -> [u8; 32] {
-    let mut hasher = Sha256::new();
-    hasher.update(b"GOCODE_PROVIDER_CONVERSATION_RECEIPT_V1\0");
-    hasher.update(record.outbox_id);
-    hasher.update(record.settlement_digest);
-    hasher.update(receipt.conversation_id.as_bytes());
-    hasher.update(receipt.taskrun_id.as_bytes());
-    hasher.update(receipt.attempt_id.as_bytes());
-    hasher.update(receipt.user_message_id.as_bytes());
-    hasher.update(receipt.assistant_message_id.as_bytes());
-    hasher.update(receipt.conversation_version.to_be_bytes());
-    hasher.update(receipt.taskrun_version.to_be_bytes());
-    hasher.finalize().into()
-}
-
-/// Runtime service that owns journal keys, AEAD, pinned terminal policy and
-/// commit-before-next-poll.
-pub struct RuntimeProviderExecution<'a, K: ?Sized, S, P> {
-    keyring: &'a K,
-    store: &'a S,
-    pricing: &'a P,
-    prohibited_content: &'a dyn ProhibitedContentPort,
-    redaction: &'a dyn ProviderEventRedaction,
-    random: SystemRandom,
-    active_key: Mutex<Option<ProviderJournalKeyBinding>>,
-}
-
-impl<'a, K, S, P> RuntimeProviderExecution<'a, K, S, P>
-where
-    K: ProviderJournalKeyring + ?Sized,
-    S: ProviderExecutionStore + ProviderTerminalPersistence,
-    P: ProviderTerminalPricing,
-{
-    /// Constructs one service with immutable pricing and prohibited-content
-    /// policy pinned for its full lifetime.
-    pub fn new(
-        keyring: &'a K,
-        store: &'a S,
-        pricing: &'a P,
-        prohibited_content: &'a dyn ProhibitedContentPort,
-        redaction: &'a dyn ProviderEventRedaction,
-    ) -> Self {
-        Self {
-            keyring,
-            store,
-            pricing,
-            prohibited_content,
-            redaction,
-            random: SystemRandom::new(),
-            active_key: Mutex::new(None),
-        }
-    }
-
-}
+include!("part_02_terminal_helpers.rs");

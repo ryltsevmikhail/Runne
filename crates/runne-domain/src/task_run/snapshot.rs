@@ -14,6 +14,8 @@ mod codec;
 mod cycles;
 #[path = "snapshot/io.rs"]
 mod io;
+#[path = "snapshot/local_command.rs"]
+mod local_command;
 #[path = "snapshot/refs.rs"]
 mod refs;
 #[path = "snapshot/validation.rs"]

@@ -65,6 +65,62 @@ describe('providers page credential enrollment', () => {
       .toContain('Enroll credential (zai)')
   })
 
+  it('shows the background API-key profile as optional, separate-budget, and never fallback', async () => {
+    const wrapper = mountProvidersPage({
+      loadProviderStatus: async () => [...statuses, {
+        providerId: 'openai-background', mode: 'openai_responses_background_text_v1',
+        profileId: 'gocode-openai-responses-background-text/1', profileDigest: 'a'.repeat(64),
+        readiness: 'not_selected', selected: false,
+      }],
+      loadProviderCatalog: async () => [{
+        providerId: 'openai-background', displayName: 'OpenAI Background Responses',
+        protocol: 'responses', authOptions: ['api_key'], quota: 'payg', implementation: 'catalog_only',
+      }],
+      loadProviderCredentialEnrollmentStatus: async provider => ({
+        ...credentialProjection(provider),
+        ...(provider === 'openai-background' ? { credentialState: 'configured' as const, readiness: 'ready' as const } : {}),
+      }),
+    })
+    await flushPromises()
+
+    const row = wrapper.get('[data-provider-id="openai-background"]')
+    expect(row.text()).toContain('OpenAI Background Responses')
+    expect(row.text()).toContain('Catalog entry is not runtime-qualified')
+    expect(row.text()).toContain('Pairing only saves this separate API credential and budget')
+    expect(row.text()).toContain('GET /v1/runtime/profile')
+    expect(row.text()).toContain('profileId and profileDigest')
+    expect(row.text()).toContain('new /v2/task-runs/submit request')
+    expect(row.text()).toContain('Not selected')
+    expect(row.find('button[aria-label="Refresh quota (openai-background)"]').exists()).toBe(false)
+    expect(row.find('button[aria-label="Rotate credential (openai-background)"]').exists()).toBe(true)
+  })
+
+  it('keeps background profile selection separate from its missing credential and targets only that realm', async () => {
+    const intents: RecordedIntent[] = []
+    const wrapper = mountProvidersPage({
+      loadProviderStatus: async () => [...statuses, {
+        providerId: 'openai-background', mode: 'openai_responses_background_text_v1',
+        profileId: 'gocode-openai-responses-background-text/1', profileDigest: 'a'.repeat(64),
+        readiness: 'not_selected', selected: false,
+      }],
+      requestCredentialIntent: async (provider, action, expectedRevision, rendererGeneration) => {
+        intents.push({ provider, action, expectedRevision, rendererGeneration })
+        return 'pending'
+      },
+    })
+    await flushPromises()
+
+    const row = wrapper.get('[data-provider-id="openai-background"]')
+    expect(row.text()).toContain('Not selected')
+    expect(row.text()).toContain('Credential missing')
+    await row.get('button[aria-label="Enroll credential (openai-background)"]').trigger('click')
+    await flushPromises()
+
+    expect(intents).toEqual([{
+      provider: 'openai-background', action: 'pair', expectedRevision: 7, rendererGeneration: 42,
+    }])
+  })
+
   it('uses native OAuth import help for Codex and API-key help for other credentials', async () => {
     const wrapper = mountProvidersPage({
       loadProviderStatus: async () => [...statuses,

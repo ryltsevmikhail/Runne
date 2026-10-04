@@ -18,6 +18,9 @@ use runne_domain::recovery::ReconciliationResultRef;
 use runne_domain::reference::{BudgetReservationRef, CheckpointRef};
 use runne_domain::task_run::{TaskRunInput, TaskRunState};
 
+include!("commands_claimed_text.rs");
+include!("commands_unknown_successor.rs");
+
 /// Input for creating a new task run.
 #[derive(Debug, Clone)]
 pub struct CreateTaskRunInput {
@@ -132,6 +135,28 @@ pub enum ConversationTextCompletion {
     Rejected {
         /// Closed, non-sensitive rejection reason.
         reason: GenerationFailureReason,
+    },
+    /// Provider effect already reached this exact durable terminal state;
+    /// cancellation wins TaskRun state and suppresses the provider result.
+    TerminalSettledCancellation {
+        evidence: crate::ports::ProviderTerminalCancellationEvidence,
+    },
+    /// A separately authenticated local-journal fact ended after cancellation.
+    UnknownJournalSettledCancellation {
+        evidence: crate::ports::ProviderUnknownTerminalCancellationEvidence,
+    },
+    /// A remote artifact proves the saved effect ended after an exact durable
+    /// cancellation request. Its factual provider status remains unchanged.
+    RemoteArtifactSettledCancellation {
+        evidence: crate::ports::ProviderRemoteArtifactCancellationEvidence,
+    },
+    /// A durable pre-effect rejection proves the started attempt never dispatched.
+    PreEffectRejectedCancellation {
+        evidence: crate::ports::ProviderPreEffectCancellationEvidence,
+    },
+    /// Cancellation won before the exact attempt received provider admission.
+    NoProviderAdmissionCancellation {
+        evidence: crate::ports::ProviderNoAdmissionCancellationEvidence,
     },
 }
 

@@ -10,6 +10,7 @@ pub(crate) async fn run_supervisor<E, U, I>(
     service: Arc<TaskRunService<E, U, I>>,
     conversation_service: Option<Arc<dyn ConversationTextCommandService>>,
     provider_service: Option<Arc<dyn CanonicalProviderExecutionService>>,
+    taskrun_execution: Option<Arc<dyn AutomaticTaskRunService>>,
     drain_complete_tx: oneshot::Sender<ShutdownOutcome>,
 ) where
     E: EventStore + Send + Sync + 'static,
@@ -22,6 +23,7 @@ pub(crate) async fn run_supervisor<E, U, I>(
         service.clone(),
         conversation_service,
         provider_service,
+        taskrun_execution,
     );
     let mut draining = false;
     let mut ingress_open = true;
@@ -53,6 +55,7 @@ pub(crate) async fn run_supervisor<E, U, I>(
                         ));
                         gate.close();
                         draining = true;
+                        registry.stop_automatic_taskrun_worker();
                         shutdown_ack = Some(ack);
                         ingress_rx.close();
                         match mode {
@@ -84,6 +87,7 @@ pub(crate) async fn run_supervisor<E, U, I>(
                     None => {
                         control_open = false;
                         draining = true;
+                        registry.stop_automatic_taskrun_worker();
                     }
                 }
             }
@@ -101,6 +105,7 @@ pub(crate) async fn run_supervisor<E, U, I>(
                     None => {
                         ingress_open = false;
                         draining = true;
+                        registry.stop_automatic_taskrun_worker();
                     }
                 }
             }
@@ -121,6 +126,7 @@ pub(crate) async fn run_supervisor<E, U, I>(
                         let _ = reply.send(outcome);
                         drop(lease);
                     }
+                    Some(Ok(RuntimeTaskExit::AutomaticTaskRunQueue)) => {}
                     _ => {}
                 }
                 if draining {

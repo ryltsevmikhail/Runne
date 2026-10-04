@@ -14,7 +14,10 @@ use super::claim::node_registration;
 use super::submit_fence::submit_task_run;
 use super::support::*;
 
+#[path = "no_effect_release/restart/cancelled_head.rs"]
+mod cancelled_head;
 mod integrity;
+mod restart;
 
 fn claim(
     database: &Database,

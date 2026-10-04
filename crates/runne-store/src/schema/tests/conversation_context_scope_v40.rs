@@ -4,8 +4,8 @@ fn v40_conversation_context_scope_reopens_and_rejects_drift() {
     let path = directory.path().join("context-scope-v40.sqlite");
     let connection = Connection::open(&path).unwrap();
     apply_migrations(&connection).unwrap();
-    assert_eq!(schema_marker(&connection), 48);
-    assert!(v48_matches(&connection, 48).unwrap());
+    assert_eq!(schema_marker(&connection), CURRENT_SCHEMA_VERSION);
+    assert!(v63_matches(&connection, CURRENT_SCHEMA_VERSION).unwrap());
     // The CHECK contract only admits the two closed scope values.
     connection
         .execute(
@@ -14,13 +14,15 @@ fn v40_conversation_context_scope_reopens_and_rejects_drift() {
             [[7_u8; 16].as_slice()],
         )
         .unwrap();
-    assert!(connection
-        .execute(
-            "INSERT INTO conversation_context_scope
+    assert!(
+        connection
+            .execute(
+                "INSERT INTO conversation_context_scope
              (conversation_id, context_scope, recorded_at) VALUES (?1, 'session', 1)",
-            [[8_u8; 16].as_slice()],
-        )
-        .is_err());
+                [[8_u8; 16].as_slice()],
+            )
+            .is_err()
+    );
     drop(connection);
     drop(open_managed_connection(&path, ConnectionMode::Writer).unwrap());
 
@@ -30,6 +32,6 @@ fn v40_conversation_context_scope_reopens_and_rejects_drift() {
     drifted
         .execute_batch("DROP TABLE conversation_context_scope;")
         .unwrap();
-    assert!(!v48_matches(&drifted, 48).unwrap());
+    assert!(!v63_matches(&drifted, CURRENT_SCHEMA_VERSION).unwrap());
     assert!(classify_schema_version(&drifted).is_err());
 }

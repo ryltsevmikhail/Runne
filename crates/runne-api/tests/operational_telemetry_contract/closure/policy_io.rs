@@ -1,10 +1,12 @@
 use super::policy_helpers;
-use super::{lexer::Token, policy_helpers::in_attribute, policy_macros, policy_runtime_client};
+use super::{
+    lexer::Token, policy_composition, policy_helpers::in_attribute, policy_macros,
+    policy_runtime_client, policy_startup, policy_uuid,
+};
 
 const RUNTIME_CLIENT: &str = "crates/runne-runtime-client/src/canonical/operational_telemetry.rs";
 const HTTP_HOST: &str = "crates/runne-http/src/secure_local_host.rs";
 const HTTP_TELEMETRY: &str = "crates/runne-http/src/operational_telemetry.rs";
-const HTTP_STARTUP: &str = "crates/runne-daemon/src/application/http_startup.rs";
 const COMPOSITION: &str = "crates/runne-daemon/src/canonical_provider/composition.rs";
 const COMPOSITION_INPUT: &str = "crates/runne-daemon/src/canonical_provider/composition/input.rs";
 const AGGREGATES: &str = "crates/runne-store/src/provider/operational_telemetry/aggregates.rs";
@@ -16,14 +18,17 @@ const SECURE_HOSTS: &[&str] = &[
 ];
 
 pub(super) fn audit_tokens(path: &str, tokens: &[Token]) -> Result<(), String> {
-    audit_attributes(tokens)?;
-    for index in 0..tokens.len() {
-        audit_identifier(path, tokens, index)?;
-        if let Some((name, open)) = policy_macros::macro_at(tokens, index) {
-            policy_macros::audit(path, tokens, index, name, open)?;
+    let production = super::parser::production_tokens(tokens)?;
+    let includes = super::parser::item_includes(path, &production)?;
+    audit_attributes(&production)?;
+    for index in 0..production.len() {
+        audit_identifier(path, &production, index)?;
+        if let Some((name, open)) = policy_macros::macro_at(&production, index) {
+            let is_known_include = includes.iter().any(|include| include.token_index == index);
+            policy_macros::audit(path, &production, index, name, open, is_known_include)?;
         }
     }
-    policy_runtime_client::audit_tokens(path, tokens)
+    policy_runtime_client::audit_tokens(path, &production)
 }
 
 fn audit_identifier(path: &str, tokens: &[Token], index: usize) -> Result<(), String> {
@@ -46,12 +51,18 @@ fn audit_identifier(path: &str, tokens: &[Token], index: usize) -> Result<(), St
     if (name == "env" && !policy_macros::is_allowed_env(tokens, index))
         || (name == "serde_json" && !is_allowed_serde_json(path, tokens, index))
         || (name == "Value" && !is_rusqlite_value(path, tokens, index))
-        || (name == "String" && !is_legacy_string(path, tokens, index))
+        || (name == "String"
+            && !is_legacy_string(path, tokens, index)
+            && !policy_composition::is_exact_enrollment_control_list(path, tokens, index)
+            && !policy_composition::is_selected_profile_model_label(path, tokens, index)
+            && !policy_composition::is_secondary_background_db_path(path, tokens, index)
+            && !policy_composition::is_secondary_metadata_string(path, tokens, index))
     {
         return reject(index, "unaudited dynamic value");
     }
     if (name == "Box" && follows_dyn_error(tokens, index))
-        || (name == "to_string" && !is_daemon_error_wrapper(path, tokens, index))
+        || (name == "to_string"
+            && !policy_uuid::is_allowed_to_string_projection(path, tokens, index))
         || (name == "macro_rules" && punct(tokens, index + 1, '!'))
     {
         return reject(index, "dynamic error projection or forbidden macro");
@@ -207,6 +218,7 @@ fn is_direct_sink(tokens: &[Token], index: usize, name: &str) -> bool {
 fn is_allowed_direct_sink(path: &str, tokens: &[Token], index: usize, name: &str) -> bool {
     policy_helpers::is_allowed_control_sink(path, tokens, index, name)
         || (name == "send" && policy_runtime_client::allows_authenticated_send(path, tokens))
+        || policy_startup::is_known_runtime_shutdown(path, tokens, index, name)
 }
 
 fn is_module_path(tokens: &[Token], index: usize, root: &str, module: &str) -> bool {
@@ -257,18 +269,6 @@ fn is_legacy_string(path: &str, tokens: &[Token], index: usize) -> bool {
 fn follows_dyn_error(tokens: &[Token], index: usize) -> bool {
     let index = index + usize::from(punct(tokens, index + 1, '<')) + 1;
     ident(tokens, index) == Some("dyn") && ident(tokens, index + 1) == Some("Error")
-}
-
-fn is_daemon_error_wrapper(path: &str, tokens: &[Token], index: usize) -> bool {
-    (path == HTTP_STARTUP || path == COMPOSITION)
-        && index >= 7
-        && ident(tokens, index - 7) == Some("DaemonError")
-        && punct(tokens, index - 6, ':')
-        && punct(tokens, index - 5, ':')
-        && matches!(ident(tokens, index - 4), Some("Config" | "Bootstrap"))
-        && punct(tokens, index - 3, '(')
-        && ident(tokens, index - 2) == Some("error")
-        && punct(tokens, index - 1, '.')
 }
 
 fn in_use_import(tokens: &[Token], index: usize) -> bool {

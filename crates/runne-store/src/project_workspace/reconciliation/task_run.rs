@@ -37,6 +37,27 @@ pub(super) fn lookup(
             },
             CommandFingerprint::for_cancel(&task_run_id, expected_version),
         ),
+        CommandReconciliationWitnessRef::SupersedeUnknownTaskRun {
+            predecessor_taskrun_id,
+            expected_version,
+        } => {
+            let input = runne_application::commands::SupersedeUnknownTaskRunInput {
+                predecessor_taskrun_id,
+                expected_predecessor_version: expected_version,
+                acknowledgment: runne_application::commands::UnknownSuccessorAcknowledgmentV1::DuplicateExecutionAndCostV1,
+            };
+            (
+                IdempotencyScope {
+                    runtime_authority_id: store.runtime_authority_id().clone(),
+                    principal_id: principal,
+                    operation: OperationTag::SupersedeUnknownTaskRun,
+                    aggregate_scope: AggregateScope::ExistingTaskRun {
+                        taskrun_id: predecessor_taskrun_id,
+                    },
+                },
+                CommandFingerprint::for_supersede_unknown_task_run(&input),
+            )
+        }
         CommandReconciliationWitnessRef::SubmitTaskRun {
             conversation_id,
             workspace_id,
@@ -100,7 +121,7 @@ pub(super) fn lookup(
     let outcome = CommandOutcomeCodec
         .decode(&outcome)
         .map_err(|_| Error::InvariantViolation)?;
-    let authoritative = outcome_for(witness, outcome)?;
+    let authoritative = outcome_for(Some(transaction), witness, outcome)?;
     verify::verify_committed_events(transaction, witness, &authoritative, context)?;
     Ok(Evidence::Terminal(Box::new(authoritative)))
 }
@@ -157,6 +178,7 @@ fn verify_event(
 }
 
 pub(super) fn outcome_for(
+    transaction: Option<&Transaction<'_>>,
     witness: &CommandReconciliationWitness,
     outcome: CommandOutcome,
 ) -> Result<AuthoritativeCommandOutcome, Error> {
@@ -204,6 +226,49 @@ pub(super) fn outcome_for(
                 },
             ))
         }
+        CommandReconciliationWitnessRef::SupersedeUnknownTaskRun {
+            predecessor_taskrun_id,
+            expected_version,
+        } => {
+            let CommandOutcome::UnknownSuccessorCreated {
+                predecessor_taskrun_id: actual_predecessor,
+                predecessor_version,
+                successor_taskrun_id,
+                successor_version,
+                ..
+            } = outcome
+            else {
+                return Err(Error::InvariantViolation);
+            };
+            if actual_predecessor != predecessor_taskrun_id
+                || expected_version.checked_add(1) != Some(predecessor_version)
+                || successor_taskrun_id == predecessor_taskrun_id
+                || successor_version != 2
+            {
+                return Err(Error::InvariantViolation);
+            }
+            let origin =
+                crate::store::taskrun_submit_origin::verify_submitted_v2_origin_for_readiness(
+                    transaction.ok_or(Error::InvariantViolation)?,
+                    successor_taskrun_id,
+                )
+                .map_err(|_| Error::InvariantViolation)?;
+            if origin.is_none() {
+                return Err(Error::InvariantViolation);
+            }
+            Ok(AuthoritativeCommandOutcome::unknown_successor_created(
+                TaskRunCommandAck {
+                    taskrun_id: successor_taskrun_id,
+                    new_version: successor_version,
+                    kind: runne_api::TaskRunCommandAckKind::UnknownSuccessorCreated {
+                        predecessor_taskrun_id,
+                        predecessor_version,
+                        successor_taskrun_id,
+                        successor_version,
+                    },
+                },
+            ))
+        }
         _ => Err(Error::InvariantViolation),
     }
 }
@@ -227,34 +292,5 @@ fn submitted_taskrun_id(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use runne_domain::id::TaskRunId;
-
-    const TASK_RUN: &str = "018f2e3a-7000-7000-8000-000000000304";
-
-    #[test]
-    fn cancellation_receipt_correlates_to_the_expected_task_run_version() {
-        let task_run: TaskRunId = TASK_RUN.parse().unwrap();
-        let witness = CommandReconciliationWitness::cancel_task_run(task_run, 4);
-        let outcome = outcome_for(
-            &witness,
-            CommandOutcome::TaskRunCancellationRequested {
-                taskrun_id: task_run,
-                new_version: 5,
-            },
-        )
-        .unwrap();
-
-        assert_eq!(
-            outcome,
-            AuthoritativeCommandOutcome::task_run_cancellation_requested(
-                runne_api::TaskRunCommandAck {
-                    taskrun_id: task_run,
-                    new_version: 5,
-                    kind: runne_api::TaskRunCommandAckKind::CancellationRequested,
-                },
-            )
-        );
-    }
-}
+#[path = "task_run_tests.rs"]
+mod tests;

@@ -12,6 +12,8 @@ pub enum ProviderCredentialProviderV2 {
     AzureOpenAiResponses,
     #[serde(rename = "openai")]
     OpenAi,
+    #[serde(rename = "openai-background")]
+    OpenAiBackground,
     #[serde(rename = "deepseek")]
     DeepSeek,
     #[serde(rename = "nvidia")]
@@ -94,6 +96,7 @@ impl ProviderCredentialProviderV2 {
             Self::AntLing => "ant-ling",
             Self::AzureOpenAiResponses => "azure-openai-responses",
             Self::OpenAi => "openai",
+            Self::OpenAiBackground => "openai-background",
             Self::DeepSeek => "deepseek",
             Self::Nvidia => "nvidia",
             Self::Google => "google",
@@ -140,6 +143,7 @@ impl ProviderCredentialProviderV2 {
             Self::DeepSeek => 2,
             Self::Zai => 3,
             Self::QwenTokenPlanIndividual => 4,
+            Self::OpenAiBackground => 41,
             Self::Anthropic => 5,
             Self::AntLing => 6,
             Self::AzureOpenAiResponses => 7,
@@ -186,6 +190,7 @@ impl ProviderCredentialProviderV2 {
             "ant-ling" => Self::AntLing,
             "azure-openai-responses" => Self::AzureOpenAiResponses,
             "openai" => Self::OpenAi,
+            "openai-background" => Self::OpenAiBackground,
             "deepseek" => Self::DeepSeek,
             "nvidia" => Self::Nvidia,
             "google" => Self::Google,

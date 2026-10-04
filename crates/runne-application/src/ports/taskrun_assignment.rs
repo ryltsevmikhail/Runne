@@ -21,7 +21,10 @@ pub struct TaskRunLeaseReceipt {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TaskRunDispatchIntentResult { Prepared, Duplicate }
+pub enum TaskRunDispatchIntentResult {
+    Prepared,
+    Duplicate,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TaskRunAssignmentError {
@@ -43,6 +46,14 @@ pub struct TaskRunExecutionInputV2 {
     pub stream_version: u64,
     pub conversation_id: ConversationId,
     pub workspace_id: WorkspaceId,
+    /// Authenticated submitter from the immutable TaskRun submission receipt.
+    pub principal_id: crate::ports::PrincipalId,
+    /// Domain actor recorded on the immutable submission event.
+    pub submit_actor: runne_domain::event::Actor,
+    /// Exact model admitted when the immutable submission was accepted.
+    pub requested_model: Option<String>,
+    /// Exact profile identity included in the authenticated submit stream.
+    pub selected_profile: Option<runne_domain::task_run::SelectedProviderProfile>,
     pub input: runne_domain::task_run::TaskRunInput,
 }
 
@@ -54,6 +65,9 @@ impl std::fmt::Debug for TaskRunExecutionInputV2 {
             .field("stream_version", &self.stream_version)
             .field("conversation_id", &self.conversation_id)
             .field("workspace_id", &self.workspace_id)
+            .field("principal_id", &self.principal_id)
+            .field("submit_actor", &self.submit_actor)
+            .field("requested_model", &self.requested_model)
             .field("input", &self.input)
             .finish()
     }
@@ -82,6 +96,12 @@ pub trait TaskRunExecutionInputPort {
 /// Runtime-owned narrow worker lifecycle boundary. Implementations must use one
 /// immediate transaction and the store's database clock for both operations.
 pub trait TaskRunAssignmentPort {
-    fn renew_taskrun_assignment_lease(&self, request: TaskRunLeaseRenewal) -> Result<TaskRunLeaseReceipt, TaskRunAssignmentError>;
-    fn prepare_taskrun_dispatch(&self, identity: TaskRunAssignmentIdentity) -> Result<TaskRunDispatchIntentResult, TaskRunAssignmentError>;
+    fn renew_taskrun_assignment_lease(
+        &self,
+        request: TaskRunLeaseRenewal,
+    ) -> Result<TaskRunLeaseReceipt, TaskRunAssignmentError>;
+    fn prepare_taskrun_dispatch(
+        &self,
+        identity: TaskRunAssignmentIdentity,
+    ) -> Result<TaskRunDispatchIntentResult, TaskRunAssignmentError>;
 }

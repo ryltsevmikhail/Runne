@@ -132,6 +132,7 @@ mod tests {
             service,
             None,
             None,
+            None,
             drain_complete_tx,
         ));
 

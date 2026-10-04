@@ -13,6 +13,7 @@ pub use crate::config::{RuntimeConfig, RuntimeStartError};
 use crate::controller::{ControlCommand, RuntimeController, ShutdownOutcome};
 use crate::gate::AdmissionGate;
 use crate::handle::RuntimeHandle;
+use crate::taskrun_auto_worker::AutomaticTaskRunService;
 
 /// Identifies a specific runtime generation (instance).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -82,7 +83,7 @@ impl Runtime {
         U: UnitOfWork + Send + Sync + 'static,
         I: IdGenerator + Send + Sync + 'static,
     {
-        Self::start_internal(ctx, service, None, None, config)
+        Self::start_internal(ctx, service, None, None, None, config)
     }
 
     /// Starts the runtime with the canonical Conversation text coordinator.
@@ -97,7 +98,7 @@ impl Runtime {
         U: UnitOfWork + Send + Sync + 'static,
         I: IdGenerator + Send + Sync + 'static,
     {
-        Self::start_internal(ctx, service, Some(conversation_service), None, config)
+        Self::start_internal(ctx, service, Some(conversation_service), None, None, config)
     }
 
     /// Starts canonical Conversation coordination with a runtime-supervised provider service.
@@ -118,6 +119,31 @@ impl Runtime {
             service,
             Some(conversation_service),
             Some(provider_service),
+            None,
+            config,
+        )
+    }
+
+    /// Starts canonical provider execution and automatic durable TaskRun processing.
+    pub fn start_borrowed_with_automatic_taskruns<E, U, I>(
+        ctx: TokioRuntimeContext,
+        service: Arc<TaskRunService<E, U, I>>,
+        conversation_service: Arc<dyn ConversationTextCommandService>,
+        provider_service: Option<Arc<dyn CanonicalProviderExecutionService>>,
+        taskrun_execution: Arc<dyn AutomaticTaskRunService>,
+        config: RuntimeConfig,
+    ) -> Result<(RuntimeHandle, RuntimeController), RuntimeStartError>
+    where
+        E: EventStore + Send + Sync + 'static,
+        U: UnitOfWork + Send + Sync + 'static,
+        I: IdGenerator + Send + Sync + 'static,
+    {
+        Self::start_internal(
+            ctx,
+            service,
+            Some(conversation_service),
+            provider_service,
+            Some(taskrun_execution),
             config,
         )
     }
@@ -127,6 +153,7 @@ impl Runtime {
         service: Arc<TaskRunService<E, U, I>>,
         conversation_service: Option<Arc<dyn ConversationTextCommandService>>,
         provider_service: Option<Arc<dyn CanonicalProviderExecutionService>>,
+        taskrun_execution: Option<Arc<dyn AutomaticTaskRunService>>,
         config: RuntimeConfig,
     ) -> Result<(RuntimeHandle, RuntimeController), RuntimeStartError>
     where
@@ -167,6 +194,7 @@ impl Runtime {
                 service,
                 conversation_service,
                 provider_service,
+                taskrun_execution,
                 drain_complete_tx,
             )
             .await;

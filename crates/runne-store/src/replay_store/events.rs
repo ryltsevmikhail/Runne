@@ -20,6 +20,7 @@ fn taskrun_event_type(event: &TaskRunEvent) -> &'static str {
         TaskRunEvent::ReconciliationStarted => "ReconciliationStarted",
         TaskRunEvent::Reconciled => "Reconciled",
         TaskRunEvent::Unrecoverable => "Unrecoverable",
+        TaskRunEvent::UserSupersedeUnknown { .. } => "UserSupersedeUnknown",
         TaskRunEvent::TaskRunCancelled => "TaskRunCancelled",
         TaskRunEvent::LoopCycleStarted { .. } => "LoopCycleStarted",
         TaskRunEvent::ContextCommitted { .. } => "ContextCommitted",
@@ -43,6 +44,7 @@ fn conversation_event_type(event: &ConversationEvent) -> &'static str {
         ConversationEvent::UserMessageAppended { .. } => "UserMessageAppended",
         ConversationEvent::AssistantMessageAppended { .. } => "AssistantMessageAppended",
         ConversationEvent::GenerationFailed { .. } => "GenerationFailed",
+        ConversationEvent::GenerationSupersededUnknown { .. } => "GenerationSupersededUnknown",
         ConversationEvent::ConversationClosed => "ConversationClosed",
     }
 }

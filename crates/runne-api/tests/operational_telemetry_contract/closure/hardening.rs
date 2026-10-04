@@ -44,11 +44,11 @@ fn closure_parser_supports_raw_strings_raw_identifiers_and_raw_paths() {
             #[path = r#"placed.rs"#]
             mod child;
         "####,
-        &[("src/root/placed.rs", "")],
+        &[("src/placed.rs", "")],
     )
     .unwrap();
 
-    assert!(files.contains("src/root/placed.rs"));
+    assert!(files.contains("src/placed.rs"));
 }
 
 #[test]

@@ -83,7 +83,7 @@ impl ChatCompletionsEffect {
     async fn dispatch_ready(
         &self,
         ready: Ready,
-        receipt: ProviderEffectStartReceipt,
+        mut receipt: ProviderEffectStartReceipt,
     ) -> Result<ProviderStreamId, DispatchError> {
         if !receipt.matches_claim(ready.request.claim())
             || !receipt.matches_credential(&ready.credential)
@@ -94,6 +94,9 @@ impl ChatCompletionsEffect {
         if std::time::Instant::now() >= receipt.deadline() {
             return Err(DispatchError::MaybeDispatched);
         }
+        let final_send = receipt.take_final_send_authority().map_err(|_| {
+            DispatchError::RejectedBeforeEffect(ProviderPreEffectRejection::AdapterRejected)
+        })?;
         let stream = ProviderStreamId::from_bytes(*ready.request.attempt_id().as_bytes());
         self.streams.reserve(stream)?;
         let mut reservation = StreamReservation {
@@ -141,7 +144,7 @@ impl ChatCompletionsEffect {
         let value = credential.with_bytes(|bytes| Zeroizing::new(bytes.to_vec()));
         let events = timeout_at(
             receipt.deadline().into(),
-            self.send_dispatch_effect(&ready, &value, now_unix_seconds),
+            self.send_dispatch_effect(&ready, &value, now_unix_seconds, final_send),
         )
         .await
         .map_err(|_| DispatchError::MaybeDispatched)??;

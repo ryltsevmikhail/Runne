@@ -10,7 +10,8 @@ fn typed_startup_constructors_keep_verified_pairing_atomic() {
     let startup = StartupProvider::verified_external(
         &verified,
         ProtectedProviderDependencyCapsule::production(),
-    );
+    )
+    .unwrap();
     assert!(!startup.is_protected());
     assert_eq!(
         startup.activation.binding(),
@@ -28,12 +29,21 @@ fn external_startup_parts_remain_unprotected_and_keep_provider_dependencies() {
     let verified =
         crate::application::VerifiedOwnerPrivateConfig::from_test_parts(config, bootstrap);
 
-    let (activation, provenance, launch_authority, protected, dependencies, keys, capability) =
-        StartupProvider::verified_external(
-            &verified,
-            ProtectedProviderDependencyCapsule::production(),
-        )
-        .into_parts();
+    let (
+        activation,
+        provenance,
+        launch_authority,
+        protected,
+        dependencies,
+        keys,
+        capability,
+        catalog,
+    ) = StartupProvider::verified_external(
+        &verified,
+        ProtectedProviderDependencyCapsule::production(),
+    )
+    .unwrap()
+    .into_parts();
 
     assert_eq!(
         activation.binding(),
@@ -45,6 +55,7 @@ fn external_startup_parts_remain_unprotected_and_keep_provider_dependencies() {
     assert!(dependencies.is_some());
     assert!(keys.is_none());
     assert!(capability.is_none());
+    assert!(catalog.is_none());
 }
 
 #[test]
@@ -102,7 +113,8 @@ fn protected_constructor_derives_the_pair_from_one_token() {
                 .unwrap()
                 .derive_keys(),
             ProtectedProviderDependencyCapsule::production(),
-            None
+            None,
+            None,
         )
         .is_protected()
     );

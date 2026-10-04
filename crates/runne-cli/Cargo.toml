@@ -67,6 +67,9 @@ path = "writer-entry-fixture/main.rs"
 required-features = ["writer-entry-fixture"]
 
 [dev-dependencies]
+reqwest = { workspace = true, features = ["rustls-tls"] }
+runne-runtime-client = { path = "../runne-runtime-client", features = ["test-support"] }
+runne-http = { path = "../runne-http", features = ["test-support"] }
 runne-platform-ports = { path = "../runne-platform-ports" }
 ed25519-dalek.workspace = true
 proc-macro2 = "1"

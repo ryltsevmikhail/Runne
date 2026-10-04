@@ -1,7 +1,9 @@
 //! Provider-neutral async canonical execution boundary owned by the runtime.
 
 use runne_application::commands::BeginConversationTextInput;
-use runne_application::ports::{ApplicationCommandContext, TextGenerationReceipt};
+use runne_application::ports::{
+    ApplicationCommandContext, TaskRunAssignmentIdentity, TextGenerationReceipt,
+};
 use runne_provider::ProviderFuture;
 use thiserror::Error;
 
@@ -49,4 +51,16 @@ pub trait CanonicalProviderExecutionService: Send + Sync {
         &self,
         job: CanonicalProviderExecutionJob,
     ) -> ProviderFuture<'_, Result<TextGenerationReceipt, CanonicalProviderExecutionError>>;
+
+    /// Executes one claimed TaskRun, binding its prepared provider request to
+    /// the exact live assignment before effect staging. Older implementations
+    /// fail closed for this capability.
+    fn execute_claimed(
+        &self,
+        job: CanonicalProviderExecutionJob,
+        assignment: TaskRunAssignmentIdentity,
+    ) -> ProviderFuture<'_, Result<TextGenerationReceipt, CanonicalProviderExecutionError>> {
+        let _ = (job, assignment);
+        Box::pin(async { Err(CanonicalProviderExecutionError::RejectedBeforeEffect) })
+    }
 }

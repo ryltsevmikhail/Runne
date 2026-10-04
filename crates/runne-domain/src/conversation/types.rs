@@ -60,6 +60,8 @@ pub enum ConversationEventKind {
     AssistantMessageAppended,
     /// [`ConversationEvent::GenerationFailed`]
     GenerationFailed,
+    /// [`ConversationEvent::GenerationSupersededUnknown`]
+    GenerationSupersededUnknown,
     /// [`ConversationEvent::ConversationClosed`]
     ConversationClosed,
 }
@@ -69,9 +71,20 @@ pub enum ConversationEventKind {
 pub enum GenerationFailureReason {
     /// Provider input or output contained registered prohibited material.
     ProviderOutputRejected,
+    /// Provider execution was rejected before any external effect began.
+    ProviderExecutionRejected,
+    /// The provider authoritatively reported a failed or incomplete result.
+    ProviderExecutionFailed,
+    /// The provider returned a factual result, but its usage or price could
+    /// not be reconciled with the local billing reservation.
+    ProviderAccountingUnknown,
     /// The owning runtime died mid-generation after the durable start with
     /// no provable external effect; restart settled the orphaned run.
     InterruptedByRestart,
+    /// A durable cancellation request won the TaskRun version race, and an
+    /// exact authoritative provider terminal settlement later proved the
+    /// effect had ended. The request may precede or follow that settlement.
+    Cancelled,
 }
 
 impl GenerationFailureReason {
@@ -80,7 +93,11 @@ impl GenerationFailureReason {
     pub const fn as_code(self) -> &'static str {
         match self {
             Self::ProviderOutputRejected => "provider_output_rejected",
+            Self::ProviderExecutionRejected => "provider_execution_rejected",
+            Self::ProviderExecutionFailed => "provider_execution_failed",
+            Self::ProviderAccountingUnknown => "provider_accounting_unknown",
             Self::InterruptedByRestart => "interrupted_by_restart",
+            Self::Cancelled => "cancelled",
         }
     }
 }
@@ -126,6 +143,18 @@ pub enum ConversationEvent {
         /// Closed, non-sensitive terminal reason.
         reason: GenerationFailureReason,
     },
+    /// The active generation was superseded while its external outcome was
+    /// unknown. This records ambiguity without claiming rollback or stop.
+    GenerationSupersededUnknown {
+        /// Predecessor TaskRun owning the active generation.
+        taskrun_id: TaskRunId,
+        /// Exact active attempt.
+        attempt_id: AttemptId,
+        /// Successor TaskRun created atomically with this event.
+        successor_taskrun_id: TaskRunId,
+        /// Digest of the closed duplicate-execution-and-cost acknowledgement.
+        acknowledgement_digest: IntegrityDigest,
+    },
     /// The conversation was closed.
     ConversationClosed,
 }
@@ -140,6 +169,9 @@ impl ConversationEvent {
                 ConversationEventKind::AssistantMessageAppended
             }
             Self::GenerationFailed { .. } => ConversationEventKind::GenerationFailed,
+            Self::GenerationSupersededUnknown { .. } => {
+                ConversationEventKind::GenerationSupersededUnknown
+            }
             Self::ConversationClosed => ConversationEventKind::ConversationClosed,
         }
     }
@@ -150,6 +182,7 @@ impl ConversationEvent {
         match self {
             Self::ConversationCreated { .. }
             | Self::GenerationFailed { .. }
+            | Self::GenerationSupersededUnknown { .. }
             | Self::ConversationClosed => Sensitivity::Public,
             Self::UserMessageAppended { .. } | Self::AssistantMessageAppended { .. } => {
                 Sensitivity::Sensitive

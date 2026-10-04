@@ -44,3 +44,9 @@ pub trait OpenAiCredentialMaterializer: Send + Sync {
         Box::pin(async { Err(OpenAiCredentialError::AccessDenied) })
     }
 }
+
+/// Explicit marker for a separately enrolled background-profile API credential.
+///
+/// Implementors must resolve the background credential account independently;
+/// the legacy `OpenAI` or `ChatGPT` credential must never be reused implicitly.
+pub trait OpenAiBackgroundCredentialMaterializer: OpenAiCredentialMaterializer {}

@@ -1,9 +1,9 @@
 use core::fmt::{self, Write as _};
 use std::sync::{Arc, Mutex};
 
-use runne_application::commands::{
-    BeginConversationTextInput, ConversationTextCompletion, FinishConversationTextInput,
-};
+use ring::aead::{self, Aad, LessSafeKey, Nonce, UnboundKey};
+use ring::rand::{SecureRandom, SystemRandom};
+use runne_application::commands::{BeginConversationTextInput, FinishConversationTextInput};
 use runne_application::conversation_text_service::{
     ConversationTextCommandService, ConversationTextServiceError,
 };
@@ -13,11 +13,12 @@ use runne_application::ports::{
 use runne_application::prohibited_content::{
     CanonicalContentBoundary, ContentDisposition, ProhibitedContentPort,
 };
+pub use runne_application::provider::ProviderEventJournalContext;
 use runne_application::provider::{
     ProviderEncryptedPayload, ProviderExecutionError, ProviderExecutionStore,
     ProviderJournalAppendOutcome, ProviderJournalAppendRequest, ProviderJournalKeyBinding,
-    ProviderPollRequest, ProviderTerminalCommitOutcome, ProviderTerminalOutboxRecord,
-    ProviderTerminalPricingBinding, ProviderRecoveryObserver,
+    ProviderPollRequest, ProviderRecoveryObserver, ProviderTerminalCommitOutcome,
+    ProviderTerminalOutboxRecord, ProviderTerminalPricingBinding,
 };
 use runne_domain::message::MessageText;
 use runne_provider::{
@@ -32,36 +33,17 @@ use runne_secure_store::{
     ProviderJournalKeyMaterial, ProviderJournalKeyRef, ProviderJournalKeyStatus,
     ProviderJournalKeyring, SecureStoreError,
 };
-use ring::aead::{self, Aad, LessSafeKey, Nonce, UnboundKey};
-use ring::rand::{SecureRandom, SystemRandom};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 use zeroize::Zeroizing;
 
-use crate::provider_redaction::{
-    PreJournalProviderEvent, ProviderEventRedaction,
-};
+use crate::provider_redaction::{PreJournalProviderEvent, ProviderEventRedaction};
 
 const PROVIDER_JOURNAL_AAD_V1: &[u8] = b"GOCODE_PROVIDER_JOURNAL_AAD_V1\0";
 const PROVIDER_OUTBOX_AAD_V1: &[u8] = b"GOCODE_PROVIDER_OUTBOX_AAD_V1\0";
 const PROVIDER_OUTBOX_ID_V1: &[u8] = b"GOCODE_PROVIDER_OUTBOX_ID_V1\0";
 const PROVIDER_SETTLEMENT_V2: &[u8] = b"GOCODE_PROVIDER_SETTLEMENT_V2\0";
 const MAX_PROVIDER_ASSEMBLED_OUTPUT_BYTES: usize = 4_194_288;
-
-/// Exact non-secret binding for one normalized provider stream.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ProviderEventJournalContext {
-    /// Durable provider dispatch attempt.
-    pub attempt_id: DispatchAttemptId,
-    /// Current runtime-issued fencing token.
-    pub fencing_token: u64,
-    /// Exact prepared call digest contract.
-    pub call_digest_version: ProviderCallDigestVersion,
-    /// Exact immutable provider profile.
-    pub profile_digest: [u8; 32],
-    /// Current runtime generation.
-    pub runtime_generation: u64,
-}
 
 /// Opaque runtime-owned terminal settlement command.
 ///
@@ -245,6 +227,32 @@ pub trait ProviderTerminalPersistence: Send + Sync {
         &self,
         request: &ProviderTerminalCommitRequest,
     ) -> Result<ProviderTerminalCommitOutcome, ProviderExecutionError>;
+
+    /// Atomically records a factual terminal whose exact usage or immutable
+    /// price is unavailable, without creating a known financial settlement.
+    ///
+    /// Implementations must load the complete immutable transaction snapshot
+    /// inside one immediate transaction and invoke `authenticate` with that
+    /// snapshot before writing. The default remains fail-closed until the
+    /// durable Unknown receipt schema is available.
+    fn commit_unknown_terminal(
+        &self,
+        _selector: &ProviderTerminalUnknownSelector,
+        _authenticate: &dyn ProviderUnknownTerminalAuthenticator,
+    ) -> Result<ProviderTerminalCommitOutcome, ProviderExecutionError> {
+        Err(ProviderExecutionError::StoreUnavailable)
+    }
+
+    /// Replays an existing v63 Unknown receipt before consulting current pricing.
+    /// The store returns `None` only when no such receipt exists; a present but
+    /// unauthenticated receipt must fail closed.
+    fn replay_unknown_terminal(
+        &self,
+        _selector: &ProviderTerminalUnknownSelector,
+        _authenticate: &dyn ProviderUnknownTerminalAuthenticator,
+    ) -> Result<Option<ProviderTerminalCommitOutcome>, ProviderExecutionError> {
+        Ok(None)
+    }
 }
 
 /// Decrypted terminal output retained only in runtime memory.

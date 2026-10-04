@@ -77,6 +77,35 @@ pub fn effect_from_loopback_fixture(
     effect_from_loopback_fixture_inner(client, None)
 }
 
+/// Creates the fixture sender while retaining the production point-of-use
+/// credential materializer boundary.
+#[doc(hidden)]
+pub fn effect_from_loopback_fixture_with_materializer(
+    client: reqwest::Client,
+    materializer: Arc<dyn runne_secure_store::ProviderCredentialDispatchMaterializer>,
+) -> Result<Arc<dyn DeepSeekEffect>, DeepSeekEffectError> {
+    let profile = profile().map_err(|_| DeepSeekEffectError)?;
+    let credential = client::NativeCredential::from_materializer(materializer);
+    Ok(Arc::new(
+        Sender::new(profile, credential, client).map_err(|_| DeepSeekEffectError)?,
+    ))
+}
+
+/// Creates a loopback sender with a test-owned legacy-fixture credential hook.
+#[doc(hidden)]
+pub fn effect_from_loopback_fixture_with_legacy_credential_materializer<C>(
+    client: reqwest::Client,
+    credential: C,
+) -> Result<Arc<dyn DeepSeekEffect>, DeepSeekEffectError>
+where
+    C: DeepSeekCredentialMaterializer + 'static,
+{
+    let profile = profile().map_err(|_| DeepSeekEffectError)?;
+    Ok(Arc::new(
+        Sender::new(profile, credential, client).map_err(|_| DeepSeekEffectError)?,
+    ))
+}
+
 #[cfg(feature = "linux-native-enrollment-qualification")]
 #[doc(hidden)]
 pub fn effect_from_loopback_fixture_with_observer(

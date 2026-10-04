@@ -4,11 +4,22 @@ use crate::id::{AttemptId, TaskRunId};
 use crate::task_run::TaskRunState;
 use io::{In, MAX_BYTES, Out};
 
-const VERSION: u8 = 2;
+const VERSION: u8 = 5;
 
 pub(super) fn encode(value: &TaskRun) -> Result<Vec<u8>, TaskRunSnapshotError> {
     validation::validate(value)?;
-    let version = if value.input.is_some() { VERSION } else { 1 };
+    if let Some(input) = &value.input {
+        input
+            .validate_execution_selection()
+            .map_err(|_| TaskRunSnapshotError::InvalidState)?;
+    }
+    let version = match value.input.as_ref() {
+        Some(input) if input.local_command().is_some() => VERSION,
+        Some(input) if input.selected_profile().is_some() => 4,
+        Some(input) if input.requested_model().is_some() => 3,
+        Some(_) => 2,
+        None => 1,
+    };
     let mut out = Out::new();
     out.u8(version);
     out.id(value.id.as_bytes());
@@ -47,13 +58,35 @@ pub(super) fn encode(value: &TaskRun) -> Result<Vec<u8>, TaskRunSnapshotError> {
         cycles::put_history(&mut out, entry);
     }
     out.u64(value.recovery_generation);
-    if version == VERSION {
+    if version >= 2 {
         match (&value.conversation_id, &value.workspace_id, &value.input) {
             (Some(conversation), Some(workspace), Some(input)) => {
                 out.u8(1);
                 out.id(conversation.as_bytes());
                 out.id(workspace.as_bytes());
                 out.string(input.prompt())?;
+                if version >= 3 {
+                    match input.requested_model() {
+                        None => out.u8(0),
+                        Some(model) => {
+                            out.u8(1);
+                            out.string(model)?;
+                        }
+                    }
+                }
+                if version >= 4 {
+                    match input.selected_profile() {
+                        None => out.u8(0),
+                        Some(profile) => {
+                            out.u8(1);
+                            out.string(profile.profile_id())?;
+                            out.fixed32(profile.profile_digest());
+                        }
+                    }
+                }
+                if version >= VERSION {
+                    super::local_command::put(&mut out, input.local_command())?;
+                }
             }
             _ => return Err(TaskRunSnapshotError::InvalidState),
         }
@@ -67,7 +100,7 @@ pub(super) fn decode(bytes: &[u8]) -> Result<TaskRun, TaskRunSnapshotError> {
     }
     let mut input = In::new(bytes)?;
     let version = input.u8()?;
-    if version != 1 && version != VERSION {
+    if !(1..=VERSION).contains(&version) {
         return Err(TaskRunSnapshotError::InvalidEncoding);
     }
     let id = TaskRunId::from_bytes(input.id()?);
@@ -102,6 +135,39 @@ pub(super) fn decode(bytes: &[u8]) -> Result<TaskRun, TaskRunSnapshotError> {
                 let prompt = input.string()?;
                 let task_input = super::super::TaskRunInput::new(prompt)
                     .map_err(|_| TaskRunSnapshotError::InvalidState)?;
+                let task_input = if version < 3 {
+                    task_input
+                } else {
+                    match input.u8()? {
+                        0 => task_input,
+                        1 => task_input
+                            .with_requested_model(input.string()?)
+                            .map_err(|_| TaskRunSnapshotError::InvalidState)?,
+                        _ => return Err(TaskRunSnapshotError::InvalidEncoding),
+                    }
+                };
+                let task_input = if version >= 4 {
+                    match input.u8()? {
+                        0 => task_input,
+                        1 => task_input
+                            .with_selected_profile(
+                                super::super::SelectedProviderProfile::new(
+                                    input.string()?,
+                                    input.fixed32()?,
+                                )
+                                .map_err(|_| TaskRunSnapshotError::InvalidState)?,
+                            )
+                            .map_err(|_| TaskRunSnapshotError::InvalidState)?,
+                        _ => return Err(TaskRunSnapshotError::InvalidEncoding),
+                    }
+                } else {
+                    task_input
+                };
+                let task_input = if version >= VERSION {
+                    super::local_command::get(&mut input, task_input)?
+                } else {
+                    task_input
+                };
                 (Some(conversation_id), Some(workspace_id), Some(task_input))
             }
             _ => return Err(TaskRunSnapshotError::InvalidEncoding),

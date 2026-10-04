@@ -6,8 +6,12 @@ use thiserror::Error;
 
 mod editor;
 mod files;
+#[cfg(target_os = "linux")]
+mod linux_command_files;
 mod process_files;
 pub use files::{RootFileEntry, RootFileKind};
+#[cfg(target_os = "linux")]
+pub use linux_command_files::{LinuxCommandFiles, LinuxCommandWorkspaceFiles};
 pub use process_files::NativeProcessFiles;
 #[cfg(unix)]
 #[path = "root_handle_broker/unix.rs"]

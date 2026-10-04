@@ -1,7 +1,11 @@
 use runne_application::{
     commands::{CancelTaskRunInput, CommandOutcome, LegacySubmitTaskRunInput},
     conversation_service::ConversationService,
-    ports::{TaskRunQueueScanRequest, TaskRunQueueScanner},
+    ports::{
+        AggregateScope, CompleteQueuedCancellationInput, CompleteQueuedCancellationRequest,
+        EventStore, IdGenerator, IdempotencyScope, OperationTag, TaskRunCancellationCompletionPort,
+        TaskRunQueueScanRequest, TaskRunQueueScanner,
+    },
 };
 use runne_domain::id::{ConversationId, WorkspaceId};
 
@@ -162,5 +166,130 @@ fn scan_fails_closed_on_invalid_raw_event_text_metadata() {
             .scan_queued_task_runs(TaskRunQueueScanRequest::new(None, 1).unwrap())
             .unwrap_err(),
         runne_application::ports::EventStoreError::CorruptData
+    );
+}
+
+#[test]
+fn queued_cancellation_terminalizes_and_claimed_runs_cannot_use_the_path() {
+    let database = Database::new("queued-cancellation-completion");
+    let repository = database.repository();
+    create_project(&repository);
+    create_workspace(&repository);
+    let submitted = submit_task_run(&database, 0x21, "cancel-complete");
+    let CommandOutcome::TaskRunSubmitted { taskrun_id, .. } = submitted else {
+        panic!()
+    };
+    database
+        .task_runs()
+        .cancel_task_run(
+            &task_context(0x22, "cancel-request"),
+            CancelTaskRunInput {
+                taskrun_id,
+                expected_version: 2,
+            },
+        )
+        .unwrap();
+    let completed = database
+        .task_runs()
+        .complete_queued_cancellation(
+            &task_context(0x23, "cancel-completed"),
+            CompleteQueuedCancellationInput {
+                taskrun_id,
+                expected_version: 3,
+            },
+            &database.store,
+        )
+        .unwrap();
+    let runne_application::ports::CompleteQueuedCancellationResult::Committed(receipt) = completed
+    else {
+        panic!()
+    };
+    assert_eq!(receipt.new_version, 4);
+    let stream = database.store.load_task_run(taskrun_id).unwrap();
+    assert_eq!(stream.current_version, 4);
+    assert_eq!(
+        runne_domain::task_run::TaskRun::replay(&stream.events)
+            .unwrap()
+            .state(),
+        runne_domain::task_run::TaskRunState::Cancelled
+    );
+    assert!(matches!(
+        stream.events.last().unwrap().payload(),
+        runne_domain::task_run::TaskRunEvent::CancellationCompleted
+    ));
+
+    let submitted = submit_task_run(&database, 0x31, "claimed-before-cancel-complete");
+    let CommandOutcome::TaskRunSubmitted {
+        taskrun_id: claimed_id,
+        ..
+    } = submitted
+    else {
+        panic!()
+    };
+    let (node_id, node_epoch) = super::claim::node_registration(&database);
+    let claimed = database
+        .task_runs()
+        .claim_task_run(
+            &task_context(0x32, "cancellation-claimed-run"),
+            runne_application::service::ClaimTaskRunInput {
+                taskrun_id: claimed_id,
+                expected_version: 2,
+                node_id: runne_application::ports::ExecutionNodeId(node_id),
+                node_epoch,
+                capability_descriptor: "linux-executor-v1".into(),
+                lease_duration_ms: 20_000,
+            },
+            &database.store,
+        )
+        .unwrap();
+    assert!(matches!(
+        claimed,
+        runne_application::ports::TaskRunClaimResult::Committed(_)
+    ));
+    let context = task_context(0x33, "wrongly-complete-claimed");
+    let claimed_stream = database.store.load_task_run(claimed_id).unwrap();
+    let event = runne_domain::event::UncommittedEvent::from_parts(
+        database.store.next_event_ids(1).unwrap().remove(0),
+        runne_domain::id::AggregateId::TaskRun(claimed_id),
+        runne_domain::id::AggregateId::TaskRun(claimed_id),
+        claimed_stream.last_event_id,
+        context.command_id,
+        context.idempotency_key.clone(),
+        1,
+        context.actor.clone(),
+        runne_domain::event::Sensitivity::Public,
+        runne_domain::task_run::TaskRunEvent::CancellationCompleted,
+    );
+    let error = database
+        .store
+        .complete_queued_cancellation(CompleteQueuedCancellationRequest {
+            command_id: context.command_id,
+            idempotency_key: context.idempotency_key.clone(),
+            idempotency_scope: IdempotencyScope {
+                runtime_authority_id: authority(),
+                principal_id: context.principal_id,
+                operation: OperationTag::CompleteQueuedCancellation,
+                aggregate_scope: AggregateScope::ExistingTaskRun {
+                    taskrun_id: claimed_id,
+                },
+            },
+            command_fingerprint: runne_application::fingerprint::CommandFingerprint::from_bytes(
+                [0x44; 32],
+            ),
+            expected_version: claimed_stream.current_version,
+            cancellation_completed: event,
+        })
+        .unwrap_err();
+    assert_eq!(
+        error,
+        runne_application::ports::CompleteQueuedCancellationError::AlreadyClaimed
+    );
+    assert_eq!(
+        database
+            .store
+            .load_task_run(claimed_id)
+            .unwrap()
+            .current_version,
+        claimed_stream.current_version
     );
 }

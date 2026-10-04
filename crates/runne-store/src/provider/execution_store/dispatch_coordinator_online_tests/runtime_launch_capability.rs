@@ -16,7 +16,7 @@ fn newer_launch_before_issue_rejects_stale_capability_before_replay() {
         .unwrap();
     let effect = Effect::default();
     let coordinator = fixture.coordinator(&launch_n, &effect);
-    let request = coordinator_request(101, "launch-before-issue");
+    let request = coordinator_request(101, "launch-before-issue", &fixture.path);
 
     assert_eq!(
         block_on(coordinator.dispatch(request)),
@@ -38,10 +38,10 @@ fn same_generation_recomposition_before_online_authorization_mints_no_binding_or
     let effect = Effect::default();
     let (reached, release) = fixture.lifecycle.pause_before_online_authorization();
     let coordinator = fixture.coordinator(&launch_n, &effect);
-    let request = coordinator_request(103, "same-generation-online");
+    let request = coordinator_request(103, "same-generation-online", &fixture.path);
 
     std::thread::scope(|scope| {
-        let worker = scope.spawn(|| block_on(coordinator.dispatch(request)));
+        let worker = scope.spawn(move || block_on(coordinator.dispatch(request)));
         reached.wait();
         let _launch_n1 = fixture
             .execution
@@ -72,10 +72,10 @@ fn newer_launch_after_materialization_rejects_before_effect_start() {
     let effect = Effect::default();
     let (reached, release) = effect.pause_after_stage();
     let coordinator = fixture.coordinator(&launch_n, &effect);
-    let request = coordinator_request(102, "launch-before-effect");
+    let request = coordinator_request(102, "launch-before-effect", &fixture.path);
 
     std::thread::scope(|scope| {
-        let worker = scope.spawn(|| block_on(coordinator.dispatch(request)));
+        let worker = scope.spawn(move || block_on(coordinator.dispatch(request)));
         reached.wait();
         let _launch_n1 = fixture
             .execution

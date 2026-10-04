@@ -62,6 +62,22 @@ impl ModelRef {
     pub fn revision(&self) -> &str {
         &self.revision
     }
+
+    /// Returns a stable, domain-separated digest of the exact provider/model/revision tuple.
+    ///
+    /// Length prefixes prevent ambiguous concatenations and let durable recovery
+    /// metadata bind a historical model without interpreting provider JSON.
+    pub fn digest_v1(&self) -> [u8; 32] {
+        use sha2::{Digest, Sha256};
+
+        let mut hash = Sha256::new();
+        hash.update(b"RUNNE_MODEL_REF_V1\0");
+        for value in [self.provider_id.as_str(), self.model_id(), self.revision()] {
+            hash.update((value.len() as u32).to_be_bytes());
+            hash.update(value.as_bytes());
+        }
+        hash.finalize().into()
+    }
 }
 
 /// Invalid normalized provider call input.

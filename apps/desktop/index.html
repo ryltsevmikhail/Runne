@@ -5,9 +5,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="color-scheme" content="dark light" />
     <title>Runne</title>
+    <link rel="stylesheet" href="/src/app/startup.css" />
   </head>
   <body>
+    <section id="startup-status" role="alert" aria-live="assertive" aria-atomic="true">
+      <h1>Runne couldn’t start</h1>
+      <p>The app has not loaded yet. Refresh the page to try again.</p>
+      <a href="/">Refresh Runne</a>
+    </section>
     <div id="app"></div>
-    <script type="module" src="/src/main.ts"></script>
+    <script type="module" src="/src/app/startup.ts"></script>
   </body>
 </html>

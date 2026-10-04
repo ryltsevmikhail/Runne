@@ -85,19 +85,6 @@ mod linux {
         defaults.http_bind = "127.0.0.1:0".into();
         let config = ConfigurationSnapshot::from_defaults(&defaults);
         let app = DaemonApplication::start(&config).await.unwrap();
-        assert!(
-            row(&config.db_path).is_none(),
-            "start alone must not register"
-        );
-        let (stop_sender, stopped) = oneshot::channel();
-        let first = Running {
-            stop: stop_sender,
-            task: tokio::spawn(app.run(async move {
-                stopped
-                    .await
-                    .map_err(|_| DaemonError::Bootstrap("test shutdown sender dropped".into()))
-            })),
-        };
         let connection = Connection::open(&config.db_path).unwrap();
         let authority: Vec<u8> = connection
             .query_row(
@@ -113,11 +100,23 @@ mod linux {
                 |row| row.get(0),
             )
             .unwrap();
-        let initial = wait_for_generation(&config.db_path, generation.parse().unwrap()).await;
+        let initial = row(&config.db_path)
+            .expect("application start registers its Linux execution node before returning");
+        assert_eq!(initial.1, generation.parse::<i64>().unwrap());
         assert_eq!(initial.0, authority);
         assert_eq!(initial.0.len(), 16);
         assert_eq!(initial.2, 1);
         assert_eq!(initial.4 - initial.3, 30_000);
+
+        let (stop_sender, stopped) = oneshot::channel();
+        let first = Running {
+            stop: stop_sender,
+            task: tokio::spawn(app.run(async move {
+                stopped
+                    .await
+                    .map_err(|_| DaemonError::Bootstrap("test shutdown sender dropped".into()))
+            })),
+        };
 
         let refreshed = wait_for_heartbeat_after(&config.db_path, initial.1, initial.3).await;
         assert_eq!(refreshed.1, initial.1);

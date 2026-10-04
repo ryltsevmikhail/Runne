@@ -171,6 +171,10 @@ impl SqliteProviderExecutionStore {
             request.runtime_generation,
             request.profile_digest,
         )?;
+        secondary_profile_grant::verify_secondary_attempt_binding(
+            &transaction, request.attempt_id, request.profile_digest,
+            attempt.pricing_revision_digest, true,
+        )?;
         verify_current_runtime_lease(&transaction, &attempt)?;
         super::dispatch_store::verify_online_publication(
             &transaction,

@@ -8,7 +8,11 @@ fn bounded_failure_reason(reason: &str) -> Result<String, CanonicalReplayPayload
 const fn generation_failure_reason(reason: GenerationFailureReason) -> &'static str {
     match reason {
         GenerationFailureReason::ProviderOutputRejected => "provider_output_rejected",
+        GenerationFailureReason::ProviderExecutionRejected => "provider_execution_rejected",
+        GenerationFailureReason::ProviderExecutionFailed => "provider_execution_failed",
+        GenerationFailureReason::ProviderAccountingUnknown => "provider_accounting_unknown",
         GenerationFailureReason::InterruptedByRestart => "interrupted_by_restart",
+        GenerationFailureReason::Cancelled => "cancelled",
     }
 }
 

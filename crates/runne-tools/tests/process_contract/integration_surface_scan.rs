@@ -13,6 +13,20 @@ fn integration_surface_negative_fixtures_are_detected() {
         "runne-platform-ports = { version = \"1\" }"
     )
     .is_empty());
+    let linux_rustix = "[target.'cfg(target_os = \"linux\")'.dependencies]\nrustix = { version = \"=1.1.4\", features = [\"fs\", \"process\"] }";
+    assert!(forbidden_manifest_activations("crates/runne-platform/Cargo.toml", linux_rustix).is_empty());
+    assert!(!forbidden_manifest_activations(
+        "crates/runne-platform/Cargo.toml",
+        &format!("{linux_rustix}\n[features]\nprocess = []")
+    )
+    .is_empty());
+    for changed in [
+        "[dependencies]\nrustix = { version = \"=1.1.4\", features = [\"fs\", \"process\"] }",
+        "[target.'cfg(target_os = \"linux\")'.dependencies]\nrustix = { version = \"=1.1.5\", features = [\"fs\", \"process\"] }",
+        "[target.'cfg(target_os = \"linux\")'.dependencies]\nrustix = { version = \"=1.1.4\", features = [\"fs\", \"process\", \"extra\"] }",
+    ] {
+        assert!(!forbidden_manifest_activations("crates/runne-platform/Cargo.toml", changed).is_empty());
+    }
 }
 
 #[test]
@@ -103,16 +117,36 @@ fn forbidden_manifest_activations(path: &str, source: &str) -> Vec<String> {
         "renderer".to_owned(),
         "command".to_owned(),
     ];
-    source
-        .lines()
-        .map(str::trim)
-        .filter(|line| !line.is_empty() && !line.starts_with('#'))
-        .flat_map(|line| {
-            let lowered = line.to_ascii_lowercase();
-            forbidden
-                .iter()
-                .filter(move |&token| lowered.contains(token))
-                .map(move |_| format!("{path}: {line}"))
-        })
-        .collect()
+    let linux_dependencies = "[target.'cfg(target_os = \"linux\")'.dependencies]";
+    let allowed_rustix = "rustix = { version = \"=1.1.4\", features = [\"fs\", \"process\"] }";
+    let mut in_linux_dependencies = false;
+    let mut allowed_rustix_count = 0;
+    let mut violations = Vec::new();
+    for line in source.lines().map(str::trim) {
+        if line.starts_with('[') {
+            in_linux_dependencies = line == linux_dependencies;
+        }
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        if path == "crates/runne-platform/Cargo.toml"
+            && line == allowed_rustix
+            && in_linux_dependencies
+        {
+            allowed_rustix_count += 1;
+            continue;
+        }
+        let lowered = line.to_ascii_lowercase();
+        for token in &forbidden {
+            if lowered.contains(token) {
+                violations.push(format!("{path}: {line}"));
+            }
+        }
+    }
+    if path == "crates/runne-platform/Cargo.toml" && allowed_rustix_count != 1 {
+        violations.push(format!(
+            "{path}: expected exactly one target-Linux Rustix implementation dependency"
+        ));
+    }
+    violations
 }

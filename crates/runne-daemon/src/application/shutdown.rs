@@ -9,6 +9,8 @@ impl DaemonApplication {
     {
         let Self {
             bootstrap,
+            #[cfg(target_os = "linux")]
+            execution_node,
             store,
             http_host,
             client_profile,
@@ -28,29 +30,18 @@ impl DaemonApplication {
             root_control,
             runtime_capabilities,
             credential_enrollment_control,
+            credential_enrollment_controls,
         } = self;
 
         #[cfg(target_os = "linux")]
-        let mut execution_node = super::execution_node_lifecycle::LinuxExecutionNode::new(
-            bootstrap.authority_id,
-            bootstrap.local_session_authority_id,
-            binding.ephemeral().daemon_instance_id().into_bytes(),
-            bootstrap.launch_generation,
-        );
-        #[cfg(target_os = "linux")]
-        let http_result = match execution_node.register(&store, &local_session_service) {
-            Err(error) => Err(error),
-            Ok(()) => {
-                http_host
-                    .start()
-                    .run_until(execution_node.run_until_shutdown(
-                        store.clone(),
-                        local_session_service.clone(),
-                        shutdown,
-                    ))
-                    .await
-            }
-        };
+        let http_result = http_host
+            .start()
+            .run_until(execution_node.run_until_shutdown(
+                store.clone(),
+                local_session_service.clone(),
+                shutdown,
+            ))
+            .await;
         #[cfg(not(target_os = "linux"))]
         let http_result = http_host.start().run_until(shutdown).await;
         let drain_result =
@@ -70,6 +61,7 @@ impl DaemonApplication {
         let _ = protected_activation;
         let _ = runtime_capabilities;
         drop(credential_enrollment_control);
+        drop(credential_enrollment_controls);
         drop(provider_activation);
         drop(_secret_broker);
         drop(_bootstrap_reservation_store);

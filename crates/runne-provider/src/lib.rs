@@ -5,6 +5,8 @@
 //!
 //! Process-local credential capabilities deliberately fail durable trait bounds.
 //!
+pub use runne_domain::id::{AttemptId, TaskRunId};
+
 mod contract_doctests;
 mod coordination;
 mod credential;
@@ -16,6 +18,12 @@ mod port;
 mod prepared;
 mod pricing;
 mod recovery;
+mod recovery_artifact;
+mod recovery_context;
+mod recovery_control;
+mod recovery_identity;
+mod recovery_operation;
+mod recovery_request;
 mod stream;
 mod text_profile;
 
@@ -114,6 +122,22 @@ pub use recovery::{
     ScannerTerminalDisposition, ScannerUncertainReason, SecureStoreError, TailBinding,
     WithheldTailStore, scan_provider_chunk,
 };
+pub use recovery_artifact::{
+    ProviderRemoteCheck, ProviderRemotePublicationDisposition, ProviderRemoteTerminalArtifact,
+};
+pub use recovery_context::{
+    ProviderRecoveryAuthorization, ProviderRecoveryControlAuthorizer,
+    ProviderRecoveryDispatchContext, ProviderRecoveryDispatchContextProvider,
+    ProviderRecoveryOperation,
+};
+pub use recovery_control::{
+    ProviderRecoveryBinding, ProviderRecoveryCapabilities, ProviderRecoveryError,
+    ProviderRemoteResponseStatus, ProviderResponseIdentityCommitter, RemoteResponseId,
+    RemoteStreamCursor,
+};
+pub use recovery_identity::ProviderRecoveryAttemptIdentity;
+pub use recovery_operation::ProviderRemoteOperationProof;
+pub use recovery_request::{ProviderRecoveryRequest, ProviderResumeRequest};
 pub use stream::{
     MAX_PROVIDER_TEXT_DELTA_BYTES, MAX_PROVIDER_TOOL_ARGUMENT_BYTES,
     MAX_PROVIDER_TOOL_IDENTIFIER_BYTES, MAX_PROVIDER_USAGE_TOKENS, ProviderStreamEvent,

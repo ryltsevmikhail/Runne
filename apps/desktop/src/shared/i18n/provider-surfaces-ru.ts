@@ -20,6 +20,7 @@ const providerSurfacesRu: Record<keyof typeof providerSurfaces, string> = {
   'providers.quotaRefreshPending': 'Обновление квоты выполняется',
   'providers.quotaRefreshFailed': 'Не удалось обновить квоту: {code}',
   'providers.integrationPlanned': 'Запись каталога не прошла квалификацию runtime',
+  'providers.background.explanation': 'Подключение сохраняет только отдельные учётные данные API и бюджет. Чтобы использовать профиль, возьмите его точные profileId и profileDigest из авторизованного GET /v1/runtime/profile и передайте оба поля в profile нового запроса /v2/task-runs/submit. Существующие чаты и запросы без выбора профиля сохранят текущего провайдера.',
   'providers.subscriptionLimited': 'Действуют лимиты подписки провайдера',
   'providers.readiness.ready': 'Готов',
   'providers.readiness.credential_missing': 'Учётные данные отсутствуют',

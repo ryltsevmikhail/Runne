@@ -15,10 +15,12 @@ use runne_store::provider::{
 };
 use runne_store::schema::{
     ConnectionMode, ManagedConnection, apply_migrations, ensure_authority_id,
-    ensure_event_log_lineage_id, generate_authority_id, open_managed_connection,
-    read_authority_id, read_event_log_lineage_id, reopen_managed_connection_validated,
+    ensure_event_log_lineage_id, generate_authority_id, open_managed_connection, read_authority_id,
+    read_event_log_lineage_id, reopen_managed_connection_validated,
 };
 use rusqlite::{Connection, Error as SqliteError, OpenFlags};
+
+include!("durable_receipt_started.rs");
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 struct MainDatabaseIdentity {
@@ -26,14 +28,36 @@ struct MainDatabaseIdentity {
     lineage_id: EventLogLineageId,
 }
 
+struct DurableDispatch {
+    _runtime_root: tempfile::TempDir,
+    database_path: std::path::PathBuf,
+    database_identity: MainDatabaseIdentity,
+    runtime_authority: RuntimeAuthorityId,
+    authority_id: [u8; 16],
+    database_generation: u64,
+    runtime_generation: u64,
+    taskrun_id: TaskRunId,
+    task_attempt_id: AttemptId,
+    semantic_digest: [u8; 32],
+    request: DispatchRequest,
+    receipt: runne_store::provider::ProviderEffectStartReceipt,
+    credential: runne_store::provider::CredentialDispatchBinding,
+}
+
 fn durable_dispatch(
     profile: &OpenAiResponsesTextProfile,
     effect: &dyn runne_daemon_openai_effect::OpenAiEffect,
-) -> (
-    DispatchRequest,
-    runne_store::provider::ProviderEffectStartReceipt,
-    runne_store::provider::CredentialDispatchBinding,
-) {
+) -> DurableDispatch {
+    let prepared = effect
+        .prepare(&openai_call(profile))
+        .expect("prepared OpenAI request");
+    durable_dispatch_with_prepared(profile, prepared)
+}
+
+fn durable_dispatch_with_prepared(
+    profile: &OpenAiResponsesTextProfile,
+    prepared: PreparedRequest,
+) -> DurableDispatch {
     let runtime_root = tempfile::tempdir().expect("temporary runtime root");
     let daemon_directory = runtime_root.path().join("runne-daemon");
     std::fs::create_dir(&daemon_directory).expect("daemon runtime directory");
@@ -48,9 +72,6 @@ fn durable_dispatch(
     }
     let path = daemon_directory.join("provider.sqlite");
     let path_str = path.to_str().expect("database path");
-    let prepared = effect
-        .prepare(&openai_call(profile))
-        .expect("prepared OpenAI request");
     let dispatch_connection =
         open_managed_connection(&path, ConnectionMode::Writer).expect("dispatch connection");
     apply_migrations(&dispatch_connection).expect("dispatch migrations");
@@ -74,7 +95,9 @@ fn durable_dispatch(
     let execution_store =
         SqliteProviderExecutionStore::open_with_connection(path_str, execution_connection)
             .expect("execution store");
-    let launch = activate_launch_and_arm(&execution_store, &runtime_authority(profile));
+    let runtime_config = runtime_authority(profile);
+    let launch = activate_launch_and_arm(&execution_store, &runtime_config);
+    let (conversation_id, taskrun_id, attempt_id) = seed_lawful_started_text(&path, identity);
     dispatch_store
         .persist_prepared(
             &launch,
@@ -88,7 +111,10 @@ fn durable_dispatch(
         )
         .expect("durable prepared request");
     let admission = match execution_store
-        .issue(&launch, &authority_issue_request(&prepared, profile))
+        .issue(
+            &launch,
+            &authority_issue_request(&prepared, profile, conversation_id, taskrun_id, attempt_id),
+        )
         .expect("durable provider authority")
     {
         ProviderAuthorityIssueOutcome::Winner(admission) => admission,
@@ -98,7 +124,8 @@ fn durable_dispatch(
         open_validated_connection(&path, identity).expect("credential lifecycle connection"),
     )
     .expect("credential lifecycle store");
-    let reference = CredentialVersionRef::new(ProviderId::new("openai").unwrap(), 1).unwrap();
+    let reference =
+        CredentialVersionRef::new(ProviderId::new(profile.provider_id()).unwrap(), 1).unwrap();
     credential_store
         .create_prepared(PrepareCredentialVersion::new(reference.clone()))
         .unwrap();
@@ -108,7 +135,24 @@ fn durable_dispatch(
     let binding = credential_store
         .authorize_active(reference.provider(), [1; 16], 13, 100)
         .unwrap();
-    receipt_from_admission(execution_store, prepared, admission, binding)
+    let (request, receipt, credential) =
+        receipt_from_admission(execution_store, prepared, admission, binding);
+    let semantic_digest = read_semantic_digest(&path, request.claim().attempt_id.as_bytes());
+    DurableDispatch {
+        _runtime_root: runtime_root,
+        database_path: path,
+        database_identity: identity,
+        runtime_authority: RuntimeAuthorityId("01010101010101010101010101010101".into()),
+        authority_id: runtime_config.runtime_authority_id,
+        database_generation: runtime_config.database_generation,
+        runtime_generation: runtime_config.generation,
+        taskrun_id,
+        task_attempt_id: attempt_id,
+        semantic_digest,
+        request,
+        receipt,
+        credential,
+    }
 }
 
 fn capture_main_database_identity(
@@ -168,7 +212,7 @@ fn openai_call(profile: &OpenAiResponsesTextProfile) -> ProviderCall {
     ProviderCall::new(
         ProviderCallId::from_bytes([7; 16]),
         ModelRef::new(
-            ProviderId::new("openai").expect("provider ID"),
+            ProviderId::new(profile.provider_id()).expect("provider ID"),
             OPENAI_MODEL_ID,
             OPENAI_MODEL_REVISION,
         )
@@ -178,11 +222,9 @@ fn openai_call(profile: &OpenAiResponsesTextProfile) -> ProviderCall {
         profile.binding_extension(),
     )
     .expect("provider call")
-    .with_text_inputs(vec![ProviderTextInput::new(
-        ProviderInputRole::User,
-        "hello",
-    )
-    .expect("input")])
+    .with_text_inputs(vec![
+        ProviderTextInput::new(ProviderInputRole::User, "hello").expect("input"),
+    ])
     .expect("text inputs")
     .with_required_capabilities(vec![ProviderCapability::Streaming])
 }
@@ -218,13 +260,16 @@ fn runtime_authority(profile: &OpenAiResponsesTextProfile) -> ProviderRuntimeAut
 fn authority_issue_request(
     prepared: &PreparedRequest,
     profile: &OpenAiResponsesTextProfile,
+    conversation_id: ConversationId,
+    taskrun_id: TaskRunId,
+    execution_attempt_id: AttemptId,
 ) -> ProviderAuthorityIssueRequest {
     ProviderAuthorityIssueRequest {
-        provider_id: ProviderId::new("openai").expect("provider ID"),
+        provider_id: ProviderId::new(profile.provider_id()).expect("provider ID"),
         principal_id: "principal-1".into(),
-        conversation_id: ConversationId::from_bytes([6; 16]),
-        taskrun_id: TaskRunId::from_bytes([7; 16]),
-        execution_attempt_id: AttemptId::from_bytes([8; 16]),
+        conversation_id,
+        taskrun_id,
+        execution_attempt_id,
         prepared: runne_provider::PreparedProviderRecord {
             call_id: prepared.call().call_id(),
             call_digest_version: prepared.request_ref().digest_version(),
@@ -240,3 +285,5 @@ fn authority_issue_request(
         provider_idempotency_key: "h2-nack-one-effect".into(),
     }
 }
+
+include!("durable_receipt_cancel.rs");

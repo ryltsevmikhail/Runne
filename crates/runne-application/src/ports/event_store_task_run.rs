@@ -1,5 +1,14 @@
 // ── TaskRun EventStore ──────────────────────────────────────────────────────
 
+/// Private-to-the-host query result pairing public effects with the exact
+/// validated historical provider attempt used for runtime configuration.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TaskRunEffectsReadSnapshot {
+    pub effects: TaskRunEffectsV1,
+    pub remote: Option<crate::provider::ProviderRemoteEffectsSnapshot>,
+    pub source1: Option<crate::provider::ProviderUnknownTerminalFact>,
+}
+
 /// Reads committed event streams for an aggregate.
 pub trait EventStore {
     /// Load the full committed event stream for a task run.
@@ -15,6 +24,49 @@ pub trait EventStore {
         Err(EventStoreError::Unavailable)
     }
 
+    /// Reads TaskRun state and effect facts from one authoritative snapshot.
+    fn load_task_run_effects(
+        &self,
+        _taskrun_id: TaskRunId,
+    ) -> Result<TaskRunEffectsV1, EventStoreError> {
+        Err(EventStoreError::Unavailable)
+    }
+
+    /// Loads TaskRun and provider effect evidence from one authoritative
+    /// snapshot. Implementations without a composite reader retain the
+    /// existing fail-closed effects projection.
+    fn load_task_run_effects_with_remote_authenticator(
+        &self,
+        taskrun_id: TaskRunId,
+        authenticator: Option<&dyn crate::provider::ProviderRemoteFactAuthenticator>,
+        resolver: Option<&dyn crate::provider::HistoricalProviderModelResolver>,
+    ) -> Result<TaskRunEffectsReadSnapshot, EventStoreError> {
+        let _ = authenticator;
+        let _ = resolver;
+        self.load_task_run_effects(taskrun_id)
+            .map(|effects| TaskRunEffectsReadSnapshot {
+                effects,
+                remote: None,
+                source1: None,
+            })
+    }
+
+    /// Loads effects and authenticates a source1 journal fact in the same read.
+    fn load_task_run_effects_with_fact_authenticators(
+        &self,
+        taskrun_id: TaskRunId,
+        remote_authenticator: Option<&dyn crate::provider::ProviderRemoteFactAuthenticator>,
+        _source1_authenticator: Option<
+            &dyn crate::provider::ProviderUnknownTerminalFactAuthenticator,
+        >,
+        resolver: Option<&dyn crate::provider::HistoricalProviderModelResolver>,
+    ) -> Result<TaskRunEffectsReadSnapshot, EventStoreError> {
+        self.load_task_run_effects_with_remote_authenticator(
+            taskrun_id,
+            remote_authenticator,
+            resolver,
+        )
+    }
 }
 
 /// Maximum number of authoritative stream identities examined by one scan page.
@@ -33,8 +85,12 @@ impl TaskRunQueueScanRequest {
             .contains(&limit)
             .then_some(Self { after, limit })
     }
-    pub const fn after(self) -> Option<TaskRunId> { self.after }
-    pub const fn limit(self) -> usize { self.limit }
+    pub const fn after(self) -> Option<TaskRunId> {
+        self.after
+    }
+    pub const fn limit(self) -> usize {
+        self.limit
+    }
 }
 
 /// Exact identity and version observed during the authoritative scan.

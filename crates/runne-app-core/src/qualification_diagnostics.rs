@@ -68,17 +68,17 @@ impl Stage {
     }
 }
 
+#[cfg(all(target_os = "linux", feature = "linux-native-enrollment-qualification"))]
 pub fn record(stage: Stage) {
-    #[cfg(all(target_os = "linux", feature = "linux-native-enrollment-qualification"))]
-    {
-        use std::io::Write as _;
-        let _ = writeln!(
-            std::io::stderr().lock(),
-            "runne-app-core-qualification-stage={}",
-            stage.code()
-        );
-    }
+    use std::io::Write as _;
+    let _ = writeln!(
+        std::io::stderr().lock(),
+        "runne-app-core-qualification-stage={}",
+        stage.code()
+    );
+}
 
-    #[cfg(not(all(target_os = "linux", feature = "linux-native-enrollment-qualification")))]
+#[cfg(not(all(target_os = "linux", feature = "linux-native-enrollment-qualification")))]
+pub const fn record(stage: Stage) {
     let _ = stage;
 }

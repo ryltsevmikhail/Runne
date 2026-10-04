@@ -186,6 +186,27 @@ fn build_profile(
     Ok((profile, endpoint, spec.auth))
 }
 
+#[cfg(test)]
+pub(super) fn profile_for_fixture(
+    binding: &runne_api::ProviderActivationBindingV1,
+) -> Result<
+    (
+        NativeWireProfile,
+        TrustedNativeEndpoint,
+        NativeAuthDescriptor,
+    ),
+    DaemonError,
+> {
+    let spec = spec(binding.profile_id()).ok_or_else(|| {
+        DaemonError::Config("native provider profile is not in the trusted registry".into())
+    })?;
+    build_profile(
+        spec,
+        binding,
+        &crate::provider_activation::ProviderActivationSettings::default(),
+    )
+}
+
 fn build_vertex_profile(
     spec: Spec,
     binding: &runne_api::ProviderActivationBindingV1,

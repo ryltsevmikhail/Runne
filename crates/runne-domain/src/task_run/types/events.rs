@@ -1,40 +1,5 @@
 use crate::id::{ConversationId, WorkspaceId};
 
-/// Maximum UTF-8 byte length of a submitted task prompt.
-pub const MAX_TASK_RUN_PROMPT_BYTES: usize = 65_536;
-
-/// Validated immutable user input attached to a submitted TaskRun.
-#[derive(Clone, PartialEq, Eq)]
-pub struct TaskRunInput(String);
-
-impl std::fmt::Debug for TaskRunInput {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter
-            .debug_struct("TaskRunInput")
-            .field("redacted", &true)
-            .finish()
-    }
-}
-
-/// Invalid submitted task prompt.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct TaskRunInputError;
-
-impl TaskRunInput {
-    /// Creates a bounded, non-blank UTF-8 prompt.
-    pub fn new(prompt: String) -> Result<Self, TaskRunInputError> {
-        if prompt.trim().is_empty() || prompt.len() > MAX_TASK_RUN_PROMPT_BYTES {
-            return Err(TaskRunInputError);
-        }
-        Ok(Self(prompt))
-    }
-
-    /// Returns the submitted prompt.
-    pub fn prompt(&self) -> &str {
-        &self.0
-    }
-}
-
 /// All events emitted by the [`TaskRun`] aggregate.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TaskRunEvent {
@@ -97,6 +62,17 @@ pub enum TaskRunEvent {
     Reconciled,
     /// The task run is unrecoverable.
     Unrecoverable,
+    /// A user explicitly superseded an unknown external effect. This terminal
+    /// event preserves the predecessor's uncertainty while authorizing a
+    /// separately identified successor TaskRun.
+    UserSupersedeUnknown {
+        /// Exact predecessor attempt whose outcome remains uncertain.
+        predecessor_attempt_id: AttemptId,
+        /// The newly created successor TaskRun.
+        successor_taskrun_id: TaskRunId,
+        /// Digest of the closed duplicate-execution-and-cost acknowledgement.
+        acknowledgement_digest: IntegrityDigest,
+    },
     /// Direct cancellation (from admitted/queued/waiting/retrying states).
     TaskRunCancelled,
     /// A loop cycle started for the active attempt.
@@ -214,6 +190,7 @@ impl TaskRunEvent {
             Self::ReconciliationStarted => TaskRunEventKind::ReconciliationStarted,
             Self::Reconciled => TaskRunEventKind::Reconciled,
             Self::Unrecoverable => TaskRunEventKind::Unrecoverable,
+            Self::UserSupersedeUnknown { .. } => TaskRunEventKind::UserSupersedeUnknown,
             Self::TaskRunCancelled => TaskRunEventKind::TaskRunCancelled,
             Self::LoopCycleStarted { .. } => TaskRunEventKind::LoopCycleStarted,
             Self::ContextCommitted { .. } => TaskRunEventKind::ContextCommitted,

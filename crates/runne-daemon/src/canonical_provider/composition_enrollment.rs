@@ -29,6 +29,36 @@ impl DaemonCanonicalProviderService {
         self.credential_enrollment_control.clone()
     }
 
+    /// Returns enrollment control only for an exact selected provider realm.
+    pub(crate) fn credential_enrollment_control_for_provider(
+        &self,
+        provider_id: &str,
+    ) -> Option<Arc<DaemonProviderCredentialEnrollmentControl>> {
+        if self.provider_id.as_ref() == provider_id {
+            return self.credential_enrollment_control.clone();
+        }
+        self.secondary_profile
+            .as_ref()
+            .filter(|route| route.provider_id.as_ref() == provider_id)
+            .and_then(|route| route.credential_enrollment_control.clone())
+    }
+
+    /// Returns only the separately composed credential controls for session sync.
+    pub(crate) fn credential_enrollment_controls(
+        &self,
+    ) -> Vec<(String, Arc<DaemonProviderCredentialEnrollmentControl>)> {
+        let mut controls = Vec::with_capacity(2);
+        if let Some(control) = self.credential_enrollment_control.clone() {
+            controls.push((self.provider_id.to_string(), control));
+        }
+        if let Some(route) = self.secondary_profile.as_ref()
+            && let Some(control) = route.credential_enrollment_control.clone()
+        {
+            controls.push((route.provider_id.to_string(), control));
+        }
+        controls
+    }
+
     #[cfg(any(
         all(test, unix),
         all(

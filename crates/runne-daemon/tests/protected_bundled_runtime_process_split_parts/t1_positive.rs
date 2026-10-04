@@ -1,5 +1,6 @@
 use super::*;
-
+#[path = "t1_positive/trust.rs"]
+mod trust;
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "launched with an explicit test-only fixture environment by the parent test"]
 async fn t1_protected_provider_http_and_runtime_client_replay_child() {
@@ -7,8 +8,7 @@ async fn t1_protected_provider_http_and_runtime_client_replay_child() {
     let temporary = owner_private::tempdir();
     let session_bus_socket =
         super::t1_support::fixture_session_bus(temporary.path(), "session-bus.sock");
-    let executable =
-        owner_private::ControlledExecutable::copy_with_writer_from(env!("CARGO_BIN_EXE_runned"));
+    let executable = super::t1_positive_canaries::copy_controlled_runtime();
     let runtime_root = temporary.path().join("runtime");
     let spec = ProtectedBundledRuntimeLaunchSpec::new(executable.path(), &runtime_root)
         .expect("protected T1 launch spec")
@@ -17,7 +17,7 @@ async fn t1_protected_provider_http_and_runtime_client_replay_child() {
         .expect("fixture session bus address");
     let mut supervisor =
         ProtectedBundledRuntimeSupervisor::new(DevelopmentBundledRuntimeLauncher::new(), spec);
-    supervisor.start().expect("protected T1 launch");
+    super::t1_startup_diagnostic::start(&mut supervisor, &runtime_root);
     let profile = supervisor
         .take_runtime_profile()
         .expect("one-time protected profile");
@@ -32,7 +32,6 @@ async fn t1_protected_provider_http_and_runtime_client_replay_child() {
     supervisor
         .record_client_ready(&client)
         .expect("exact protected readiness");
-
     let desktop_db = temporary.path().join("desktop-profile.sqlite3");
     let profile_key = [0x52; 32];
     let secure =
@@ -116,23 +115,13 @@ async fn t1_protected_provider_http_and_runtime_client_replay_child() {
             .await
             .expect("open bound workspace");
     }
-    let confirmed = super::t1_trust_control::grant_through_public_control(
-        &client,
-        runtime_project_id,
-        workspace_id,
-    )
-    .await;
-    let old_root_version = confirmed
-        .root_admission_version()
-        .expect("first root admission version");
-    super::t1_trust_control::assert_rebound_root_conflicts(
+    trust::confirm_rebound_project_trust(
         &mut supervisor,
         &client,
         temporary.path(),
         runtime_project_id,
         workspace_id,
         workspace_api_id,
-        old_root_version,
     )
     .await;
     let before = core
@@ -149,25 +138,32 @@ async fn t1_protected_provider_http_and_runtime_client_replay_child() {
         .catch_up(scope, None, |_| Ok::<_, ()>(()))
         .await
         .expect("authenticated replay catch-up");
-
-    for denied_canary in &denied_canaries {
-        let denied = core
-            .send_project_message(project, denied_canary)
-            .await
-            .expect_err("registered frozen canary must be denied before provider effect");
-        assert!(matches!(
-            denied,
-            runne_app_core::AppCoreError::ProhibitedInputRejected
-        ));
-        assert!(!format!("{denied:?}").contains(denied_canary));
-        assert!(
-            !runtime_root
-                .join("fixture-provider-connection-count")
-                .exists(),
-            "denied provider input must not open the loopback transport"
-        );
+    if std::env::var_os("RUNNE_TEST_T1_LOCAL_ONLY").is_some()
+        || std::env::var_os("RUNNE_TEST_T1_LOCAL_CRASH_ONLY").is_some()
+    {
+        drop(core);
+        drop(live);
+        let project_directory = temporary.path().join("rebound-project");
+        let local_context = super::t1_taskrun_support::LocalTaskRunContext {
+            client,
+            conversation_id,
+            workspace_id,
+            project_directory: &project_directory,
+            database: &daemon_db,
+            runtime_root: &runtime_root,
+            executable: &executable,
+            supervisor: &mut supervisor,
+        };
+        super::t1_local_only::exercise_if_requested(local_context).await;
+        return;
     }
-
+    super::t1_positive_canaries::assert_denied_before_provider(
+        &core,
+        project,
+        &denied_canaries,
+        &runtime_root,
+    )
+    .await;
     let completed = core
         .send_project_message(project, "fixture input")
         .await
@@ -194,7 +190,6 @@ async fn t1_protected_provider_http_and_runtime_client_replay_child() {
             &scanner,
         );
     }
-
     let mut saw_sse_response = false;
     for _ in 0..8 {
         let event = tokio::time::timeout(Duration::from_secs(5), live.next_event())
@@ -235,6 +230,31 @@ async fn t1_protected_provider_http_and_runtime_client_replay_child() {
         saw_sse_response,
         "assistant output must arrive over replay SSE"
     );
+    super::t1_taskrun_support::exercise_automatic_worker(
+        &client,
+        &mut live,
+        conversation_id,
+        workspace_id,
+        &daemon_db,
+    )
+    .await;
+    super::t1_local_commands::exercise_local_commands(
+        &client,
+        conversation_id,
+        workspace_id,
+        &temporary.path().join("rebound-project"),
+        &daemon_db,
+        &runtime_root,
+    )
+    .await;
+    super::t1_local_cancel::exercise_running_cancel(
+        &client,
+        conversation_id,
+        workspace_id,
+        &temporary.path().join("rebound-project"),
+        &daemon_db,
+    )
+    .await;
     let revoked_revision = super::t1_support::set_project_trust_status(
         &daemon_db,
         runne_application::project_trust::ProjectTrustStatus::Untrusted,
@@ -248,7 +268,6 @@ async fn t1_protected_provider_http_and_runtime_client_replay_child() {
         runne_runtime_client::ReplayStreamEvent::Terminal(terminal)
             if terminal.code() == runne_runtime_client::ReplayTerminalCode::AuthorizationRevoked
     ));
-
     let provider_root = runtime_root.as_path();
     super::t1_trust_control::assert_persistence_sinks(provider_root, &desktop_db, &scanner);
     supervisor.stop().expect("graceful protected shutdown");
@@ -269,5 +288,5 @@ async fn t1_protected_provider_http_and_runtime_client_replay_child() {
         scanner: &scanner,
     })
     .await;
-    super::t1_support::assert_one_settled_dispatch(&daemon_db);
+    super::t1_taskrun_support::assert_three_settled_dispatches(&daemon_db);
 }

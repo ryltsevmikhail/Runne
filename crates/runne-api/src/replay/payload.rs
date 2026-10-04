@@ -36,6 +36,17 @@ pub enum CanonicalReplayPayloadV1 {
         /// Closed, non-sensitive terminal reason.
         reason: String,
     },
+    /// The active generation was explicitly superseded while its outcome
+    /// remained unknown; no rollback or provider stop is implied.
+    #[serde(rename = "conversation.generation.supersededUnknown")]
+    ConversationGenerationSupersededUnknown {
+        /// Predecessor TaskRun owning the generation.
+        task_run_id: String,
+        /// Exact predecessor attempt.
+        attempt_id: String,
+        /// Successor TaskRun created by the same accepted command.
+        successor_task_run_id: String,
+    },
     /// A Conversation was closed.
     #[serde(rename = "conversation.closed")]
     ConversationClosed,
@@ -113,6 +124,12 @@ pub enum CanonicalReplayPayloadV1 {
     /// A TaskRun became unrecoverable.
     #[serde(rename = "taskRun.unrecoverable")]
     TaskRunUnrecoverable,
+    /// A user accepted duplicate-execution risk and created a successor.
+    #[serde(rename = "taskRun.superseded.unknown")]
+    TaskRunSupersededUnknown {
+        /// Successor TaskRun created by the same accepted command.
+        successor_task_run_id: String,
+    },
     /// A TaskRun was cancelled directly.
     #[serde(rename = "taskRun.cancelled")]
     TaskRunCancelled,

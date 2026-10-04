@@ -27,7 +27,10 @@ mod verification_readback;
 )]
 mod writer;
 
-pub use dispatch::{ProviderCredentialDispatchMaterializer, ProviderCredentialDispatchRead};
+pub use dispatch::{
+    ProviderCredentialDispatchMaterializer, ProviderCredentialDispatchRead,
+    ProviderCredentialRecoveryRead,
+};
 pub use factory::{
     NativeProviderCredentialReaderParts, NativeProviderCredentialReaders,
     native_verification_materializer,

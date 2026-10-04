@@ -37,11 +37,14 @@ use crate::errors::FingerprintError;
 
 include!("fingerprint/encoding.rs");
 include!("fingerprint/command.rs");
+include!("fingerprint/command_submit.rs");
 include!("fingerprint/command_create_conversation.rs");
+include!("fingerprint/command_unknown_successor.rs");
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    include!("fingerprint/tests/local_command.rs");
     include!("fingerprint/tests/basic.rs");
     include!("fingerprint/tests/semantic.rs");
     include!("fingerprint/tests/golden.rs");

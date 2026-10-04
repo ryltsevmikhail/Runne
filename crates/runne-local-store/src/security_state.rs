@@ -5,6 +5,7 @@ pub enum MutationOperation {
     ProjectCreate, ProjectArchive, ProjectDelete, WorkspaceCreate, WorkspaceBindRoot,
     WorkspaceOpen, ConversationCreate, ConversationGenerateText, TaskRunCancel,
     ApprovalRespond, DeviceRevoke, RuntimeStop, UpdateInstall, DomainReset, ProjectRename, TaskRunSubmit,
+    TaskRunUnknownSuccessor,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -118,7 +119,7 @@ impl MutationIdentity {
     pub(crate) fn target(&self) -> &[u8] { self.target.canonical_id.bytes() }
     pub(crate) fn target_kind(&self) -> MutationTargetKind { self.target.kind }
     pub(crate) fn operation(&self) -> MutationOperation { self.operation }
-    pub(crate) fn operation_name(&self) -> &'static str { match self.operation { MutationOperation::ProjectRename => "project_rename", MutationOperation::ProjectCreate => "project_create", MutationOperation::ProjectArchive => "project_archive", MutationOperation::ProjectDelete => "project_delete", MutationOperation::WorkspaceCreate => "workspace_create", MutationOperation::WorkspaceBindRoot => "workspace_bind_root", MutationOperation::WorkspaceOpen => "workspace_open", MutationOperation::ConversationCreate => "conversation_create", MutationOperation::ConversationGenerateText => "conversation_generate_text", MutationOperation::TaskRunSubmit => "task_run_submit", MutationOperation::TaskRunCancel => "task_run_cancel", MutationOperation::ApprovalRespond => "approval_respond", MutationOperation::DeviceRevoke => "device_revoke", MutationOperation::RuntimeStop => "runtime_stop", MutationOperation::UpdateInstall => "update_install", MutationOperation::DomainReset => "domain_reset" } }
+    pub(crate) fn operation_name(&self) -> &'static str { match self.operation { MutationOperation::ProjectRename => "project_rename", MutationOperation::ProjectCreate => "project_create", MutationOperation::ProjectArchive => "project_archive", MutationOperation::ProjectDelete => "project_delete", MutationOperation::WorkspaceCreate => "workspace_create", MutationOperation::WorkspaceBindRoot => "workspace_bind_root", MutationOperation::WorkspaceOpen => "workspace_open", MutationOperation::ConversationCreate => "conversation_create", MutationOperation::ConversationGenerateText => "conversation_generate_text", MutationOperation::TaskRunSubmit => "task_run_submit", MutationOperation::TaskRunCancel => "task_run_cancel", MutationOperation::TaskRunUnknownSuccessor => "task_run_unknown_successor", MutationOperation::ApprovalRespond => "approval_respond", MutationOperation::DeviceRevoke => "device_revoke", MutationOperation::RuntimeStop => "runtime_stop", MutationOperation::UpdateInstall => "update_install", MutationOperation::DomainReset => "domain_reset" } }
     pub(crate) fn target_name(&self) -> &'static str { match self.target.kind { MutationTargetKind::Project => "project", MutationTargetKind::Workspace => "workspace", MutationTargetKind::Conversation => "conversation", MutationTargetKind::TaskRun => "task_run", MutationTargetKind::Approval => "approval", MutationTargetKind::Runtime => "runtime", MutationTargetKind::Device => "device", MutationTargetKind::Update => "update", MutationTargetKind::Domain => "domain" } }
 }
 
@@ -127,7 +128,7 @@ const fn operation_accepts(operation: MutationOperation, target: MutationTargetK
         (MutationOperation::ProjectRename | MutationOperation::ProjectCreate | MutationOperation::ProjectArchive | MutationOperation::ProjectDelete, MutationTargetKind::Project)
         | (MutationOperation::WorkspaceCreate | MutationOperation::WorkspaceBindRoot | MutationOperation::WorkspaceOpen, MutationTargetKind::Workspace)
         | (MutationOperation::ConversationCreate | MutationOperation::ConversationGenerateText | MutationOperation::TaskRunSubmit, MutationTargetKind::Conversation)
-        | (MutationOperation::TaskRunCancel, MutationTargetKind::TaskRun)
+        | (MutationOperation::TaskRunCancel | MutationOperation::TaskRunUnknownSuccessor, MutationTargetKind::TaskRun)
         | (MutationOperation::ApprovalRespond, MutationTargetKind::Approval)
         | (MutationOperation::DeviceRevoke, MutationTargetKind::Device)
         | (MutationOperation::RuntimeStop, MutationTargetKind::Runtime)

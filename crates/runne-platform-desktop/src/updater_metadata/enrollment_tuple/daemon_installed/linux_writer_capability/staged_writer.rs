@@ -8,12 +8,15 @@ use runne_platform_ports::provider_credential_broker::VerifiedWriterArtifact;
 use runne_platform_ports::provider_credential_broker::VerifiedWriterLaunchSpec;
 
 use super::super::super::NativeEnrollmentTupleError;
-use super::{linux_stage, VerifiedInstalledLinuxWriterCapability};
+use super::{VerifiedInstalledLinuxWriterCapability, linux_stage};
 
 impl VerifiedInstalledLinuxWriterCapability {
     /// Revalidates signed installation evidence before producing the staged writer spec.
     #[must_use]
-    pub fn writer_launch_spec(&self, stream: &std::os::unix::net::UnixStream) -> Option<VerifiedWriterLaunchSpec> {
+    pub fn writer_launch_spec(
+        &self,
+        stream: &std::os::unix::net::UnixStream,
+    ) -> Option<VerifiedWriterLaunchSpec> {
         linux_stage("capability_artifact");
         self.revalidate_for_authenticated_desktop_peer(stream)
             .then_some(())?;
@@ -55,8 +58,8 @@ pub(super) fn verified_staged_writer_artifact(
         "{}-{expected_length}.runned",
         hex::encode(expected_digest)
     ));
-    let alias_metadata = std::fs::symlink_metadata(&alias)
-        .map_err(|_| NativeEnrollmentTupleError::Rejected)?;
+    let alias_metadata =
+        std::fs::symlink_metadata(&alias).map_err(|_| NativeEnrollmentTupleError::Rejected)?;
     if !alias_metadata.file_type().is_symlink()
         || std::fs::canonicalize(&alias).ok().as_deref() != Some(expected.as_path())
         || std::fs::canonicalize(&expected).ok().as_deref() != Some(expected.as_path())
@@ -86,8 +89,8 @@ fn staged_directory(runtime_root: &Path) -> Result<PathBuf, NativeEnrollmentTupl
 }
 
 fn require_private_directory(path: &Path) -> Result<(), NativeEnrollmentTupleError> {
-    let metadata = std::fs::symlink_metadata(path)
-        .map_err(|_| NativeEnrollmentTupleError::Rejected)?;
+    let metadata =
+        std::fs::symlink_metadata(path).map_err(|_| NativeEnrollmentTupleError::Rejected)?;
     if metadata.file_type().is_symlink()
         || !metadata.is_dir()
         || metadata.uid() != rustix::process::geteuid().as_raw()
@@ -104,8 +107,8 @@ fn open_staged_writer(
     expected_length: u64,
     expected_digest: [u8; 32],
 ) -> Result<(File, std::fs::Metadata), NativeEnrollmentTupleError> {
-    let before = std::fs::symlink_metadata(path)
-        .map_err(|_| NativeEnrollmentTupleError::Rejected)?;
+    let before =
+        std::fs::symlink_metadata(path).map_err(|_| NativeEnrollmentTupleError::Rejected)?;
     if !before.is_file()
         || before.file_type().is_symlink()
         || before.uid() != rustix::process::geteuid().as_raw()
@@ -125,8 +128,10 @@ fn open_staged_writer(
         .map_err(|_| NativeEnrollmentTupleError::Rejected)?;
     if !same_identity(&before, &metadata)
         || !valid_staged_metadata(&metadata, expected_length)
-        || !same_identity(&metadata, &std::fs::symlink_metadata(path)
-            .map_err(|_| NativeEnrollmentTupleError::Rejected)?)
+        || !same_identity(
+            &metadata,
+            &std::fs::symlink_metadata(path).map_err(|_| NativeEnrollmentTupleError::Rejected)?,
+        )
         || hash_file(&file)? != expected_digest
     {
         return Err(NativeEnrollmentTupleError::Rejected);
@@ -142,8 +147,8 @@ fn same_file(
     let opened = file
         .metadata()
         .map_err(|_| NativeEnrollmentTupleError::Rejected)?;
-    let current = std::fs::symlink_metadata(path)
-        .map_err(|_| NativeEnrollmentTupleError::Rejected)?;
+    let current =
+        std::fs::symlink_metadata(path).map_err(|_| NativeEnrollmentTupleError::Rejected)?;
     Ok(same_identity(expected, &opened)
         && same_identity(expected, &current)
         && valid_staged_metadata(&current, expected.len()))

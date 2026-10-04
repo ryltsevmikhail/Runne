@@ -36,14 +36,38 @@ fn select_launch_artifact(
 #[cfg(feature = "test-support")]
 fn preserve_local_process_environment(
     command: &mut Command,
+    runtime_root: &Path,
 ) -> Result<(), ProtectedBundledRuntimeError> {
     #[cfg(target_os = "linux")]
     if std::env::var_os("RUNNE_TEST_T1_TRUST_COMPOSITION").as_deref()
         == Some(std::ffi::OsStr::new("1"))
     {
         command.env("RUNNE_TEST_T1_TRUST_COMPOSITION", "1");
+        command.env("RUNNE_TEST_PROTECTED_RUNTIME_ROOT", runtime_root);
         if let Some(barrier) = std::env::var_os("RUNNE_TEST_T1_TRUST_BARRIER_DIR") {
             command.env("RUNNE_TEST_T1_TRUST_BARRIER_DIR", barrier);
+        }
+        if let Some(mode) = std::env::var_os("RUNNE_TEST_LOCAL_WORKER_BARRIER") {
+            let mode = mode
+                .to_str()
+                .ok_or(ProtectedBundledRuntimeError::InvalidState)?;
+            if !matches!(mode, "pre-release" | "after-exit" | "after-terminal") {
+                return Err(ProtectedBundledRuntimeError::InvalidState);
+            }
+            let directory = std::env::var_os("RUNNE_TEST_LOCAL_WORKER_BARRIER_DIR")
+                .ok_or(ProtectedBundledRuntimeError::InvalidState)?;
+            command
+                .env("RUNNE_TEST_LOCAL_WORKER_BARRIER", mode)
+                .env("RUNNE_TEST_LOCAL_WORKER_BARRIER_DIR", directory);
+            if let Some(race) = std::env::var_os("RUNNE_TEST_T1_LOCAL_BARRIER_RACE") {
+                let race = race
+                    .to_str()
+                    .ok_or(ProtectedBundledRuntimeError::InvalidState)?;
+                if !matches!(race, "cancel-before-terminal" | "complete-before-cancel") {
+                    return Err(ProtectedBundledRuntimeError::InvalidState);
+                }
+                command.env("RUNNE_TEST_T1_LOCAL_BARRIER_RACE", race);
+            }
         }
         if std::env::var_os("RUNNE_TEST_T1_TRUST_TRANSPORT_LOSS").as_deref()
             == Some(std::ffi::OsStr::new("1"))

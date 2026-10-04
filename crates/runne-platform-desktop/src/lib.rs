@@ -84,6 +84,8 @@ pub use provider_credential_prompt::LinuxGuiHostCredentialPrompt;
 pub use root_handle_broker::ProtectedRootHandleEndpoint;
 #[cfg(feature = "test-support")]
 pub use root_handle_broker::test_transfer_pair;
+#[cfg(target_os = "linux")]
+pub use root_handle_broker::{LinuxCommandFiles, LinuxCommandWorkspaceFiles};
 pub use root_handle_broker::{
     NativeProcessFiles, RootHandleBrokerError, RootHandleTransferBinding,
     RootHandleTransferReceiver, RootHandleTransferSender, VerifiedRootHandle,

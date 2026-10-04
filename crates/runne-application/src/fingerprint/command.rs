@@ -50,32 +50,6 @@ impl CommandFingerprint {
         Self(hasher.finalize().into())
     }
 
-    /// Create a fingerprint for the client-authorized atomic TaskRun submit.
-    ///
-    /// The fingerprint binds the conversation, workspace, and exact prompt
-    /// (not the server-generated `TaskRunId`), so changed input conflicts and
-    /// a lost-ack replay of the exact request produces the stored ack.
-    pub fn for_submit(
-        conversation_id: &ConversationId,
-        workspace_id: &WorkspaceId,
-        input: &runne_domain::task_run::TaskRunInput,
-    ) -> Self {
-        let mut hasher = begin(TAG_SUBMIT_TASK_RUN);
-        hasher.update(conversation_id.as_bytes());
-        hasher.update(workspace_id.as_bytes());
-        update_string(&mut hasher, input.prompt());
-        Self(hasher.finalize().into())
-    }
-
-    /// Reconstructs the historical promptless atomic-submit fingerprint.
-    /// New submits must use [`Self::for_submit`] with validated input.
-    pub fn for_submit_legacy(conversation_id: &ConversationId, workspace_id: &WorkspaceId) -> Self {
-        let mut hasher = begin(TAG_SUBMIT_TASK_RUN);
-        hasher.update(conversation_id.as_bytes());
-        hasher.update(workspace_id.as_bytes());
-        Self(hasher.finalize().into())
-    }
-
     /// Create a fingerprint for `Queue`.
     pub fn for_queue(taskrun_id: &TaskRunId, expected_version: u64) -> Self {
         let mut hasher = Sha256::new();

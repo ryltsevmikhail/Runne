@@ -1,5 +1,6 @@
 use reqwest::header::{CONTENT_TYPE, HeaderMap};
 use runne_provider::ProviderFuture;
+use runne_store::provider::ProviderFinalSendAuthority;
 use std::time::Duration;
 use tokio::time::timeout;
 
@@ -31,6 +32,7 @@ pub trait RadiusTransport: Send + Sync {
         url: String,
         headers: HeaderMap,
         body: Vec<u8>,
+        final_send: ProviderFinalSendAuthority,
     ) -> ProviderFuture<'_, Result<RadiusTransportResponse, RadiusTransportError>>;
 }
 
@@ -70,8 +72,10 @@ impl RadiusTransport for ReqwestRadiusTransport {
         url: String,
         headers: HeaderMap,
         body: Vec<u8>,
+        final_send: ProviderFinalSendAuthority,
     ) -> ProviderFuture<'_, Result<RadiusTransportResponse, RadiusTransportError>> {
         Box::pin(async move {
+            final_send.consume().map_err(|_| RadiusTransportError)?;
             let mut response = self
                 .client
                 .post(url)

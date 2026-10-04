@@ -54,6 +54,7 @@ use claim_runtime::{QualifiedWriterService, claim_fenced_writer_on};
     feature = "desktop-protected"
 ))]
 pub(crate) use qualification::PostcommitAdmissionPermit;
+mod helpers;
 mod recovery;
 pub(crate) use super::ProtectedEnrollmentSessionFacts;
 use super::session_facts::{daemon_binding, session_binding};
@@ -66,6 +67,7 @@ struct VerifiedAdmission {
 /// One protected-channel enrollment lifecycle; neither cloneable nor serializable.
 pub(crate) struct DaemonProtectedCredentialEnrollmentSession {
     control: Arc<DaemonProviderCredentialEnrollmentControl>,
+    http_controls: Vec<Arc<DaemonProviderCredentialEnrollmentControl>>,
     authenticator: ProtectedCredentialEnrollmentAuthenticator,
     lifecycle: ProtectedCredentialEnrollmentLifecycleCodec,
     recovery: recovery::RecoveryExchange,
@@ -92,6 +94,21 @@ pub(crate) struct DaemonProtectedCredentialEnrollmentSession {
 }
 
 impl DaemonProtectedCredentialEnrollmentSession {
+    pub(super) fn set_http_controls(
+        &mut self,
+        controls: Vec<Arc<DaemonProviderCredentialEnrollmentControl>>,
+    ) {
+        self.http_controls = if controls.is_empty() {
+            vec![Arc::clone(&self.control)]
+        } else {
+            controls
+        };
+    }
+
+    pub(crate) fn http_controls(&self) -> Vec<Arc<DaemonProviderCredentialEnrollmentControl>> {
+        self.http_controls.clone()
+    }
+
     pub(super) fn new(
         control: Arc<DaemonProviderCredentialEnrollmentControl>,
         keys: &ProtectedActivationKeys,
@@ -120,6 +137,7 @@ impl DaemonProtectedCredentialEnrollmentSession {
             control.linux_preadmission_for(facts.session, facts.runtime_authority)?,
         );
         Ok(Self {
+            http_controls: vec![Arc::clone(&control)],
             control,
             authenticator: ProtectedCredentialEnrollmentAuthenticator::from_protected_activation(
                 keys,
@@ -197,15 +215,29 @@ impl DaemonProtectedCredentialEnrollmentSession {
         &mut self,
         owned: &runne_api::ProtectedCredentialEnrollmentOwnedLaunchV3,
     ) -> Result<(), ProviderCredentialEnrollmentHostError> {
-        #[cfg(target_os = "linux")]
-        self.control
-            .rebind_linux_preadmission(self.http_session, *owned.session_id())?;
         let facts = ProtectedEnrollmentSessionFacts::from_owned(
             owned,
             self.control.runtime_authority,
             self.control.database_generation,
         )?;
-        self.control.publish_http_facts(facts)?;
+        #[cfg(target_os = "linux")]
+        crate::protected_activation::enrollment_control_fanout::refresh_linux_session(
+            &self.http_controls,
+            self.http_session,
+            *owned.session_id(),
+            &facts,
+        )?;
+        #[cfg(not(target_os = "linux"))]
+        {
+            crate::protected_activation::enrollment_control_fanout::clear(
+                &self.http_controls,
+                self.http_session,
+            );
+            crate::protected_activation::enrollment_control_fanout::publish(
+                &self.http_controls,
+                &facts,
+            )?;
+        }
         self.http_session = *owned.session_id();
         Ok(())
     }
@@ -220,7 +252,10 @@ impl DaemonProtectedCredentialEnrollmentSession {
         )
     ))]
     pub(crate) fn clear_http_facts(&self) {
-        self.control.clear_http_facts(self.http_session);
+        crate::protected_activation::enrollment_control_fanout::clear(
+            &self.http_controls,
+            self.http_session,
+        );
     }
 
     #[cfg(all(test, unix))]
@@ -228,67 +263,11 @@ impl DaemonProtectedCredentialEnrollmentSession {
         &mut self,
         facts: ProtectedEnrollmentSessionFacts,
     ) -> Result<(), ProviderCredentialEnrollmentHostError> {
-        self.control.publish_http_facts(facts.clone())?;
+        crate::protected_activation::enrollment_control_fanout::publish(
+            &self.http_controls,
+            &facts,
+        )?;
         self.http_session = facts.session;
         Ok(())
-    }
-
-    fn encode_snapshot(
-        &mut self,
-        snapshot: ProviderCredentialOperationSnapshotV2,
-    ) -> Result<Vec<u8>, ProviderCredentialEnrollmentHostError> {
-        self.daemon_sequence = self
-            .daemon_sequence
-            .checked_add(1)
-            .ok_or(ProviderCredentialEnrollmentHostError::AccessDenied)?;
-        self.lifecycle
-            .encode_daemon_snapshot(&snapshot, self.daemon_sequence)
-            .map_err(|_| ProviderCredentialEnrollmentHostError::InvariantViolation)
-    }
-
-    fn require_request(
-        &self,
-        request: &VerifiedProtectedCredentialEnrollmentRequest,
-    ) -> Result<(), ProviderCredentialEnrollmentHostError> {
-        let facts = &self.facts;
-        if request.protected_launch_authority_id() != facts.launch_authority
-            || request.protected_session_id() != facts.session
-            || request.daemon_instance_id() != facts.daemon
-            || request.daemon_launch_generation() != facts.launch_generation
-            || request.desktop_supervisor_generation() != facts.supervisor_generation
-            || request.release_tuple_digest() != facts.release
-            || request.tauri_peer_process_evidence_digest() != facts.tauri_peer
-            || request.broker_process_evidence_digest() != self.broker_evidence
-        {
-            return Err(ProviderCredentialEnrollmentHostError::AccessDenied);
-        }
-        Ok(())
-    }
-
-    fn admission_binding(
-        &self,
-        request: &VerifiedProtectedCredentialEnrollmentRequest,
-    ) -> Result<ProtectedCredentialEnrollmentAdmissionBinding, ProviderCredentialEnrollmentHostError>
-    {
-        ProtectedCredentialEnrollmentAdmissionBinding::new(
-            self.facts.installation,
-            self.facts.release,
-            session_binding(&self.facts),
-            self.facts.supervisor_generation,
-            daemon_binding(&self.facts),
-            self.facts.database_generation,
-            self.facts.tauri_peer,
-            request.native_confirmation_digest(),
-            request.broker_process_evidence_digest(),
-            *uuid::Uuid::now_v7().as_bytes(),
-            request.expires_at_unix_millis(),
-        )
-        .map_err(|_| ProviderCredentialEnrollmentHostError::AccessDenied)
-    }
-}
-
-impl Drop for DaemonProtectedCredentialEnrollmentSession {
-    fn drop(&mut self) {
-        self.control.clear_http_facts(self.http_session);
     }
 }

@@ -25,7 +25,7 @@ fn validate_output(
     )
 }
 
-fn parse_usage(value: &Value) -> Result<ProviderUsage, OpenAiStreamError> {
+pub fn parse_usage(value: &Value) -> Result<ProviderUsage, OpenAiStreamError> {
     let usage = value.as_object().ok_or(OpenAiStreamError::InvalidUsage)?;
     require_keys(
         usage,
@@ -60,7 +60,7 @@ fn parse_usage(value: &Value) -> Result<ProviderUsage, OpenAiStreamError> {
         .map_err(|_| OpenAiStreamError::InvalidUsage)
 }
 
-fn validate_identifier(value: &str) -> Result<(), OpenAiStreamError> {
+pub fn validate_identifier(value: &str) -> Result<(), OpenAiStreamError> {
     if value.is_empty()
         || value.len() > MAX_REMOTE_IDENTIFIER_BYTES
         || !value.bytes().all(|byte| byte.is_ascii_graphic())

@@ -1,21 +1,22 @@
 use std::net::{Ipv4Addr, SocketAddr};
-use std::sync::{Arc, atomic::{AtomicUsize, Ordering}};
+use std::sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering},
+};
 use std::time::Duration;
 
+use rcgen::{CertificateParams, KeyPair, SanType};
 use runne_application::provider::{ProviderExecutionStore, ProviderJournalKeyBinding};
 use runne_daemon_deepseek_effect::{
     FixtureRequestAuthenticator, effect_from_loopback_fixture, loopback_fixture_client,
     loopback_fixture_request_authenticator,
 };
-use runne_provider::{
-    DispatchError, ReconcileRequest, ReconciliationDisposition,
-};
+use runne_provider::{DispatchError, ReconcileRequest, ReconciliationDisposition};
 use runne_provider_deepseek::{DeepSeekResponsesTextProfile, DeepSeekTransportPolicy};
 use runne_secure_store::{
     ProviderJournalKeyDeletionProof, ProviderJournalKeyMaterial, ProviderJournalKeyRef,
     ProviderJournalKeyStatus, ProviderJournalKeyring, SecureStoreError,
 };
-use rcgen::{CertificateParams, KeyPair, SanType};
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
 use tokio::net::TcpListener;
 use tokio_rustls::TlsAcceptor;
@@ -67,7 +68,9 @@ fn activate_launch_and_arm(
     store: &runne_store::provider::SqliteProviderExecutionStore,
     config: &runne_store::provider::ProviderRuntimeAuthorityConfig,
 ) -> runne_store::provider::ProviderRuntimeLaunchCapability {
-    let launch = store.activate_runtime_launch(config).expect("runtime launch");
+    let launch = store
+        .activate_runtime_launch(config)
+        .expect("runtime launch");
     let binding = ProviderJournalKeyBinding::new([9; 16], 1, [1; 16], 7).expect("key binding");
     let keyring = TestKeyring;
     store
@@ -101,14 +104,8 @@ impl NackServer {
                 .accept(tcp)
                 .await
                 .map_err(|_| ())?;
-            let mut connection = h2::server::handshake(tls)
-                .await
-                .map_err(|_| ())?;
-            let (request, mut respond) = connection
-                .accept()
-                .await
-                .ok_or(())?
-                .map_err(|_| ())?;
+            let mut connection = h2::server::handshake(tls).await.map_err(|_| ())?;
+            let (request, mut respond) = connection.accept().await.ok_or(())?.map_err(|_| ())?;
             if request.method() != http::Method::POST
                 || request.uri().path() != "/responses"
                 || !request
@@ -123,8 +120,8 @@ impl NackServer {
                 Nack::RefusedStream => respond.send_reset(h2::Reason::REFUSED_STREAM),
                 Nack::GoawayNoError => connection.abrupt_shutdown(h2::Reason::NO_ERROR),
             }
-            let same_connection = tokio::time::timeout(Duration::from_millis(300), connection.accept())
-                .await;
+            let same_connection =
+                tokio::time::timeout(Duration::from_millis(300), connection.accept()).await;
             if matches!(same_connection, Ok(Some(Ok(_)))) {
                 task_attempts.fetch_add(1, Ordering::SeqCst);
             }
@@ -145,7 +142,10 @@ impl NackServer {
     }
 
     async fn assert_one_attempt(self) {
-        self.task.await.expect("NACK server task").expect("valid NACK fixture");
+        self.task
+            .await
+            .expect("NACK server task")
+            .expect("valid NACK fixture");
         assert_eq!(self.attempts.load(Ordering::SeqCst), 1);
     }
 }
@@ -183,14 +183,14 @@ async fn assert_uncertain_single_effect(nack: Nack) {
     let client = loopback_fixture_client(&policy, server.address, &server.certificate_der)
         .expect("production-shaped loopback client");
     let (effect, _) = effect_from_loopback_fixture(client).expect("fixture effect");
-    let (request, receipt, credential) = durable_dispatch(&profile, effect.as_ref());
-    let attempt_id = request.attempt_id();
+    let fixture = durable_dispatch(&profile, effect.as_ref());
+    let attempt_id = fixture.request.attempt_id();
     let ready = effect
-        .stage_effect(request, credential)
+        .stage_effect(fixture.request, fixture.credential)
         .await
         .expect("stage admitted effect");
     assert_eq!(
-        effect.dispatch_effect(ready, receipt).await,
+        effect.dispatch_effect(ready, fixture.receipt).await,
         Err(DispatchError::MaybeDispatched)
     );
     assert_eq!(

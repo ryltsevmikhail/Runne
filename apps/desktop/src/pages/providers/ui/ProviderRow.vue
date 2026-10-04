@@ -86,6 +86,9 @@ function providerName(providerId: ProviderId): string {
       <strong>{{ translate('providers.connection.oauthTitle') }}</strong>
       {{ translate('providers.connection.oauthHint') }}
     </p>
+    <p v-else-if="status.providerId === 'openai-background'">
+      {{ translate('providers.background.explanation') }}
+    </p>
     <p v-else-if="isCredentialProvider(status.providerId)">
       <strong>{{ translate('providers.connection.apiKeyTitle') }}</strong>
       {{ translate('providers.connection.apiKeyHint') }}

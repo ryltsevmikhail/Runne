@@ -1,18 +1,21 @@
 use super::provider_startup::StartupProvider;
 use super::workspace_internal::ProtectedProviderDependencyCapsule;
 use super::*;
-use crate::config::{Source, external_config_path, load_external_config};
+use crate::canonical_provider::VerifiedSecondaryCatalog;
+use crate::config::{Source, external_config_path, load_verified_fixed_external_config};
 #[cfg(all(any(unix, windows), feature = "desktop-protected"))]
 use crate::protected_activation::VerifiedProtectedApplicationStart;
 
 pub(crate) struct VerifiedOwnerPrivateConfig {
     config: ConfigurationSnapshot,
     bootstrap: BootstrapOutcome,
+    secondary_catalog: Option<VerifiedSecondaryCatalog>,
 }
 
 impl VerifiedOwnerPrivateConfig {
     fn load_fixed_source() -> Result<Self, DaemonError> {
-        let config = load_external_config()?;
+        let source = load_verified_fixed_external_config()?;
+        let config = source.snapshot().clone();
         if config.provider_activation.requires_openai_execution()
             || config.provider_activation.requires_deepseek_execution()
             || config.provider_activation.requires_native_execution()
@@ -36,7 +39,13 @@ impl VerifiedOwnerPrivateConfig {
         }
         DaemonApplication::validate_config(&config)?;
         let bootstrap = bootstrap(&config)?;
-        Ok(Self { config, bootstrap })
+        let secondary_catalog =
+            VerifiedSecondaryCatalog::from_fixed_source(&source, bootstrap.authority_id, None)?;
+        Ok(Self {
+            config,
+            bootstrap,
+            secondary_catalog,
+        })
     }
 
     pub(crate) const fn provider_activation(&self) -> &ProviderActivation {
@@ -51,6 +60,10 @@ impl VerifiedOwnerPrivateConfig {
         &self.config.digest
     }
 
+    pub(crate) const fn secondary_catalog(&self) -> Option<&VerifiedSecondaryCatalog> {
+        self.secondary_catalog.as_ref()
+    }
+
     fn into_parts(self) -> (ConfigurationSnapshot, BootstrapOutcome) {
         (self.config, self.bootstrap)
     }
@@ -60,7 +73,11 @@ impl VerifiedOwnerPrivateConfig {
         config: ConfigurationSnapshot,
         bootstrap: BootstrapOutcome,
     ) -> Self {
-        Self { config, bootstrap }
+        Self {
+            config,
+            bootstrap,
+            secondary_catalog: None,
+        }
     }
 }
 
@@ -68,6 +85,8 @@ impl VerifiedOwnerPrivateConfig {
 /// canonical router, and shutdown authority kept alive together.
 pub struct DaemonApplication {
     pub(super) bootstrap: BootstrapOutcome,
+    #[cfg(target_os = "linux")]
+    pub(super) execution_node: super::execution_node_lifecycle::LinuxExecutionNode,
     pub(super) store: StoreTransaction,
     pub(super) http_host: LocalRuntimeTlsHost,
     pub(super) client_profile: Option<PublishedClientProfileV3>,
@@ -92,6 +111,10 @@ pub struct DaemonApplication {
     pub(super) credential_enrollment_control: Option<
         Arc<super::provider_credential_enrollment::DaemonProviderCredentialEnrollmentControl>,
     >,
+    pub(super) credential_enrollment_controls: Vec<(
+        String,
+        Arc<super::provider_credential_enrollment::DaemonProviderCredentialEnrollmentControl>,
+    )>,
 }
 
 impl DaemonApplication {
@@ -105,7 +128,7 @@ impl DaemonApplication {
         verified: VerifiedOwnerPrivateConfig,
         dependencies: ProtectedProviderDependencyCapsule,
     ) -> Result<Self, DaemonError> {
-        let startup = StartupProvider::verified_external(&verified, dependencies);
+        let startup = StartupProvider::verified_external(&verified, dependencies)?;
         let (config, bootstrap) = verified.into_parts();
         Self::start_with_bootstrap(&config, bootstrap, startup).await
     }
@@ -126,9 +149,20 @@ impl DaemonApplication {
         keys: ProtectedActivationKeys,
         dependencies: ProtectedProviderDependencyCapsule,
     ) -> Result<Self, DaemonError> {
+        let source = load_verified_fixed_external_config()?;
+        let secondary_catalog = VerifiedSecondaryCatalog::from_fixed_source(
+            &source,
+            start.authority_id(),
+            Some(&start.config().db_path),
+        )?;
         let enrollment_capability = start.take_enrollment_capability();
-        let startup =
-            StartupProvider::verified_protected(&start, keys, dependencies, enrollment_capability);
+        let startup = StartupProvider::verified_protected(
+            &start,
+            keys,
+            dependencies,
+            enrollment_capability,
+            secondary_catalog,
+        );
         let (config, bootstrap, _) = start.into_parts();
         Self::validate_config(&config)?;
         Self::start_with_bootstrap(&config, bootstrap, startup).await

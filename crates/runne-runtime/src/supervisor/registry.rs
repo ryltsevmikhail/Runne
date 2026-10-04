@@ -60,6 +60,7 @@ enum RuntimeTaskExit {
         reply: CanonicalProviderReply,
         lease: InFlightLease,
     },
+    AutomaticTaskRunQueue,
 }
 
 // ── WorkerRegistry ──────────────────────────────────────────────────────────
@@ -78,6 +79,7 @@ where
     service: Arc<TaskRunService<E, U, I>>,
     conversation_service: Option<Arc<dyn ConversationTextCommandService>>,
     provider_service: Option<Arc<dyn CanonicalProviderExecutionService>>,
+    automatic_taskrun_stop: CancellationToken,
 }
 
 impl<E, U, I> WorkerRegistry<E, U, I>
@@ -92,9 +94,10 @@ where
         service: Arc<TaskRunService<E, U, I>>,
         conversation_service: Option<Arc<dyn ConversationTextCommandService>>,
         provider_service: Option<Arc<dyn CanonicalProviderExecutionService>>,
+        taskrun_execution: Option<Arc<dyn AutomaticTaskRunService>>,
     ) -> Self {
         let semaphore = Arc::new(Semaphore::new(config.worker_max_concurrent_blocking));
-        Self {
+        let mut registry = Self {
             workers: HashMap::new(),
             join_set: JoinSet::new(),
             semaphore,
@@ -103,7 +106,10 @@ where
             service,
             conversation_service,
             provider_service,
-        }
+            automatic_taskrun_stop: CancellationToken::new(),
+        };
+        registry.start_automatic_taskrun_worker(taskrun_execution);
+        registry
     }
 
     fn spawn_canonical_provider_task(
@@ -153,7 +159,6 @@ where
         let semaphore = Arc::clone(&self.semaphore);
         let config = self.config.clone();
         let cancel = self.cancel.child_token();
-
         self.join_set.spawn(async move {
             let exit = worker::run_worker(
                 taskrun_id, rx, service, semaphore, config, cancel, generation,
@@ -219,7 +224,9 @@ where
         reply: Reply,
     ) {
         self.join_set.spawn(async move {
-            let outcome = service.submit_task_run_legacy(&context, input).map_err(RuntimeError::Application);
+            let outcome = service
+                .submit_task_run_legacy(&context, input)
+                .map_err(RuntimeError::Application);
             RuntimeTaskExit::Submit { outcome, reply }
         });
     }

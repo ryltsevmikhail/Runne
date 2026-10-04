@@ -5,6 +5,9 @@ impl SqliteProviderExecutionStore {
         let transaction = connection.transaction().map_err(|_| ProviderExecutionError::StoreUnavailable)?;
         let attempt = load_execution_attempt(&transaction, request.attempt_id)?;
         verify_attempt_for_progress(&attempt, request.fencing_token, request.runtime_generation, request.profile_digest)?;
+        secondary_profile_grant::verify_secondary_attempt_binding(
+            &transaction, request.attempt_id, request.profile_digest, attempt.pricing_revision_digest, true,
+        )?;
         verify_current_runtime_lease(&transaction, &attempt)?;
         super::dispatch_store::verify_online_publication(&transaction, request.attempt_id, Some(self.now()))
             .map_err(|error| match error {

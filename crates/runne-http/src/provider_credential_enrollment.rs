@@ -90,3 +90,37 @@ where
         .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
         .with_state(state)
 }
+
+/// Builds the enrollment endpoints below one exact provider realm.
+///
+/// This router is composed only with that provider's daemon control. Shared
+/// request bodies still carry the closed provider id and are checked by the
+/// admission resolver; the native broker remains the only mutation path.
+pub fn provider_credential_enrollment_router_for_provider<H>(
+    state: ProviderCredentialEnrollmentHttpState<H>,
+    provider: &'static str,
+) -> Router
+where
+    H: ProviderCredentialEnrollmentHostPort + 'static,
+{
+    Router::new()
+        .route(
+            &format!("/v2/providers/{provider}/credential-enrollment/begin"),
+            post(handlers::begin::<H>),
+        )
+        .route(
+            &format!("/v2/providers/{provider}/credential-enrollment/resume"),
+            post(handlers::resume::<H>),
+        )
+        .route(
+            &format!("/v2/providers/{provider}/credential-enrollment"),
+            get(handlers::status_scoped::<H>),
+        )
+        .route(
+            &format!("/v2/providers/{provider}/credential-enrollment/verify"),
+            post(handlers::verify::<H>),
+        )
+        .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
+        .layer(axum::Extension(provider))
+        .with_state(state)
+}

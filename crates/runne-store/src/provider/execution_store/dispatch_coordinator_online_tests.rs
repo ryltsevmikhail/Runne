@@ -6,7 +6,6 @@ use runne_application::prohibited_content::{
     CanonicalContentBoundary, ContentDisposition, ContentGuardError, ProhibitedContentPort,
 };
 use runne_application::provider::ProviderCoordinatorRequest;
-use runne_domain::id::{AttemptId, ConversationId, TaskRunId};
 use runne_provider::{
     CancelDisposition, CancelRequest, CredentialFence, DispatchError, DispatchRequest,
     HardFenceProvider, ModelRef, PrepareError, PreparedRequest, ProviderCall, ProviderCallId,
@@ -29,7 +28,10 @@ use crate::provider::{
 
 mod forged_evidence;
 mod inflight_revoke;
+#[path = "dispatch_coordinator_online_tests/request.rs"]
+mod request;
 mod runtime_launch_capability;
+pub(super) use request::coordinator_request;
 
 struct Ready;
 impl ProviderReadyEffect for Ready {
@@ -112,10 +114,21 @@ impl ProviderEffectPort for Effect {
     fn dispatch_effect(
         &self,
         _: Box<dyn ProviderReadyEffect>,
-        _: ProviderEffectStartReceipt,
+        mut receipt: ProviderEffectStartReceipt,
     ) -> ProviderFuture<'_, Result<ProviderStreamId, DispatchError>> {
-        self.dispatched.fetch_add(1, Ordering::SeqCst);
-        Box::pin(async { Ok(ProviderStreamId::from_bytes([9; 16])) })
+        Box::pin(async move {
+            receipt
+                .take_final_send_authority()
+                .map_err(|_| DispatchError::MaybeDispatched)?
+                .consume()
+                .map_err(|_| {
+                    DispatchError::RejectedBeforeEffect(
+                        runne_provider::ProviderPreEffectRejection::AdapterRejected,
+                    )
+                })?;
+            self.dispatched.fetch_add(1, Ordering::SeqCst);
+            Ok(ProviderStreamId::from_bytes([9; 16]))
+        })
     }
 }
 
@@ -140,6 +153,8 @@ fn stale_dispatch_fails_before_network_effect() {
     let path = daemon.join("online-coordinator.sqlite");
     let lifecycle = open_test_store(&path, 100);
     complete_pair(&lifecycle, 93, "coordinator-fence");
+    let (conversation_id, taskrun_id, execution_attempt_id) =
+        super::canonical_started_test_support::seed(&path, 93);
     let text = path.to_str().unwrap();
     let dispatch =
         SqliteProviderDispatchStore::open_with_connection(text, configured_connection(&path))
@@ -171,9 +186,9 @@ fn stale_dispatch_fails_before_network_effect() {
         )
         .unwrap(),
         principal_id: "principal-1".into(),
-        conversation_id: ConversationId::from_bytes([6; 16]),
-        taskrun_id: TaskRunId::from_bytes([7; 16]),
-        execution_attempt_id: AttemptId::from_bytes([8; 16]),
+        conversation_id,
+        taskrun_id,
+        execution_attempt_id,
         profile_digest: [2; 32],
         pricing_revision_digest: [3; 32],
         requested_input_tokens: 32,
@@ -231,7 +246,7 @@ fn stale_dispatch_fails_before_materialization() {
         &effect,
         &Guard,
     );
-    let request = coordinator_request(94, "stale-online");
+    let request = coordinator_request(94, "stale-online", &path);
 
     assert_eq!(
         block_on(coordinator.dispatch(request)).unwrap(),
@@ -249,30 +264,6 @@ fn stale_dispatch_fails_before_materialization() {
             .unwrap(),
         2
     );
-}
-
-pub(super) fn coordinator_request(call: u8, key: &str) -> ProviderCoordinatorRequest {
-    ProviderCoordinatorRequest {
-        call: ProviderCall::new(
-            ProviderCallId::from_bytes([call; 16]),
-            ModelRef::new(provider(), "model", "v1").unwrap(),
-            [5; 32],
-            64,
-            serde_json::Value::Null,
-        )
-        .unwrap(),
-        principal_id: "principal-1".into(),
-        conversation_id: ConversationId::from_bytes([6; 16]),
-        taskrun_id: TaskRunId::from_bytes([7; 16]),
-        execution_attempt_id: AttemptId::from_bytes([8; 16]),
-        profile_digest: [2; 32],
-        pricing_revision_digest: [3; 32],
-        requested_input_tokens: 32,
-        requested_output_tokens: 64,
-        max_cost_micros: 10_000,
-        currency: "USD".into(),
-        provider_idempotency_key: key.into(),
-    }
 }
 
 #[cfg_attr(not(unix), allow(unused_variables))]

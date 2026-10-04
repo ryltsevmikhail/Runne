@@ -89,6 +89,26 @@ impl Conversation {
                 self.active_generation = None;
                 Ok(())
             }
+            ConversationEvent::GenerationSupersededUnknown {
+                taskrun_id,
+                attempt_id,
+                ..
+            } => {
+                if self.state == ConversationState::Closed {
+                    return Err(ConversationError::InvalidTransition {
+                        from: self.state,
+                        event: ConversationEventKind::GenerationSupersededUnknown,
+                    });
+                }
+                let active = self
+                    .active_generation
+                    .ok_or(ConversationError::NoActiveGeneration)?;
+                if active.taskrun_id != *taskrun_id || active.attempt_id != *attempt_id {
+                    return Err(ConversationError::GenerationMismatch);
+                }
+                self.active_generation = None;
+                Ok(())
+            }
             ConversationEvent::ConversationClosed if self.state == ConversationState::Closed => {
                 Err(ConversationError::AlreadyClosed)
             }

@@ -53,6 +53,20 @@ fn provider(
         .ok_or(runne_api::ProviderCredentialEnrollmentHostError::InvariantViolation)
 }
 
+#[cfg(test)]
+mod background_identity_tests {
+    use super::provider;
+    use runne_api::ProviderCredentialProviderV2;
+
+    #[test]
+    fn safe_projection_parses_background_credential_identity() {
+        assert_eq!(
+            provider("openai-background").unwrap(),
+            ProviderCredentialProviderV2::OpenAiBackground
+        );
+    }
+}
+
 fn credential_state(
     configured: bool,
     readiness: CredentialReadinessDisposition,

@@ -30,6 +30,8 @@ mod fixture;
 mod online_credential_fixture;
 #[path = "support/online_proof.rs"]
 mod online_proof;
+#[path = "support/provider_taskrun_start.rs"]
+mod provider_taskrun_start;
 #[path = "support/validated_reopen.rs"]
 mod validated_reopen;
 
@@ -109,10 +111,16 @@ impl ChatCompletionsTransport for Transport {
         _: reqwest::header::HeaderName,
         value: reqwest::header::HeaderValue,
         body: Vec<u8>,
+        final_send: runne_store::provider::ProviderFinalSendAuthority,
     ) -> ProviderFuture<
         '_,
         Result<ChatTransportResponse, runne_daemon_chat_completions_effect::ChatTransportError>,
     > {
+        if final_send.consume().is_err() {
+            return Box::pin(async {
+                Err(runne_daemon_chat_completions_effect::ChatTransportError)
+            });
+        }
         self.calls.fetch_add(1, Ordering::SeqCst);
         self.bodies.lock().unwrap().push(body);
         let status = if url == self.expected_url && value.is_sensitive() {

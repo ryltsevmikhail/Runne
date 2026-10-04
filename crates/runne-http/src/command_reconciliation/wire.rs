@@ -2,75 +2,15 @@ use runne_api::{
     ApprovalDecision, CanonicalMessageText, CommandReconciliationWitness,
     ProjectWorkspaceDisplayNameInput,
 };
-use runne_domain::id::{ApprovalId, ConversationId, ProjectId, WorkspaceId};
-use serde::Deserialize;
+use runne_domain::id::{ApprovalId, ConversationId, ProjectId, TaskRunId, WorkspaceId};
 
-#[derive(Deserialize)]
-#[serde(
-    tag = "operation",
-    rename_all = "snake_case",
-    rename_all_fields = "camelCase",
-    deny_unknown_fields
-)]
-pub(super) enum ReconciliationBody {
-    CreateProject {
-        project_id: String,
-        display_name: String,
-    },
-    ArchiveProject {
-        project_id: String,
-        expected_version: u64,
-    },
-    DeleteProject {
-        project_id: String,
-        expected_version: u64,
-    },
-    RenameProject {
-        project_id: String,
-        expected_version: u64,
-        display_name: String,
-    },
-    CreateWorkspace {
-        workspace_id: String,
-        project_id: String,
-        display_name: String,
-    },
-    BindWorkspaceRoot {
-        workspace_id: String,
-        expected_version: u64,
-        admission_digest: String,
-    },
-    OpenWorkspace {
-        workspace_id: String,
-        expected_version: u64,
-    },
-    CreateConversation {
-        conversation_id: String,
-        workspace_id: String,
-    },
-    CreateTextOnlyConversation {
-        conversation_id: String,
-        workspace_id: String,
-    },
-    GenerateConversationText {
-        conversation_id: String,
-        expected_version: u64,
-        text: String,
-    },
-    SubmitTaskRun {
-        conversation_id: String,
-        workspace_id: String,
-        prompt: Option<String>,
-    },
-    ApprovalDecision {
-        approval_id: String,
-        expected_version: u64,
-        decision: String,
-        action_digest: String,
-        policy_revision: u64,
-        renderer_generation: u64,
-    },
-}
+#[path = "wire/body.rs"]
+mod body;
+#[path = "wire/local_command.rs"]
+mod local_command;
+pub(super) use body::ReconciliationBody;
+use body::SelectedProfileWire;
+
 impl ReconciliationBody {
     pub(super) fn witness(self) -> Option<CommandReconciliationWitness> {
         match self {
@@ -156,19 +96,59 @@ impl ReconciliationBody {
                 conversation_id,
                 workspace_id,
                 prompt,
+                model,
+                profile,
+                local_command,
             } => {
                 let conversation_id = conversation(&conversation_id)?;
                 let workspace_id = workspace(&workspace_id)?;
-                match prompt {
-                    Some(prompt) => Some(CommandReconciliationWitness::submit_task_run(
+                let selected = match profile {
+                    Some(wire) => Some(decode_profile(wire)?),
+                    None => None,
+                };
+                if let Some(command) = local_command {
+                    if model.is_some() || selected.is_some() {
+                        return None;
+                    }
+                    let command = command.into_domain()?;
+                    let prompt = prompt?;
+                    return Some(CommandReconciliationWitness::submit_task_run(
                         conversation_id,
                         workspace_id,
-                        runne_domain::task_run::TaskRunInput::new(prompt).ok()?,
-                    )),
-                    None => Some(CommandReconciliationWitness::submit_task_run_legacy(
-                        conversation_id,
-                        workspace_id,
-                    )),
+                        runne_domain::task_run::TaskRunInput::new(prompt)
+                            .ok()?
+                            .with_local_command(command)
+                            .ok()?,
+                    ));
+                }
+                match (prompt, model, selected) {
+                    (Some(prompt), Some(model), selected) => {
+                        Some(CommandReconciliationWitness::submit_task_run(
+                            conversation_id,
+                            workspace_id,
+                            runne_domain::task_run::TaskRunInput::new(prompt)
+                                .ok()?
+                                .with_requested_model(model)
+                                .ok()?
+                                .pipe_selected(selected)?,
+                        ))
+                    }
+                    (Some(prompt), None, selected) => {
+                        Some(CommandReconciliationWitness::submit_task_run(
+                            conversation_id,
+                            workspace_id,
+                            runne_domain::task_run::TaskRunInput::new(prompt)
+                                .ok()?
+                                .pipe_selected(selected)?,
+                        ))
+                    }
+                    (None, Some(_), _) | (None, None, Some(_)) => None,
+                    (None, None, None) => {
+                        Some(CommandReconciliationWitness::submit_task_run_legacy(
+                            conversation_id,
+                            workspace_id,
+                        ))
+                    }
                 }
             }
             Self::ApprovalDecision {
@@ -190,7 +170,53 @@ impl ReconciliationBody {
                 version(policy_revision)?,
                 version(renderer_generation)?,
             )),
+            Self::SupersedeUnknownTaskRun {
+                predecessor_task_run_id,
+                expected_version,
+            } => Some(CommandReconciliationWitness::supersede_unknown_task_run(
+                taskrun(&predecessor_task_run_id)?,
+                version(expected_version)?,
+            )),
         }
+    }
+}
+
+fn decode_profile(
+    wire: SelectedProfileWire,
+) -> Option<runne_domain::task_run::SelectedProviderProfile> {
+    let raw = wire.profile_digest.as_bytes();
+    if raw.len() != 64 || !raw.iter().all(u8::is_ascii_hexdigit) {
+        return None;
+    }
+    let mut digest = [0u8; 32];
+    for (index, byte) in digest.iter_mut().enumerate() {
+        *byte = u8::from_str_radix(
+            std::str::from_utf8(&raw[index * 2..index * 2 + 2]).ok()?,
+            16,
+        )
+        .ok()?;
+    }
+    runne_domain::task_run::SelectedProviderProfile::new(wire.profile_id, digest).ok()
+}
+
+trait WithSelectedProfile {
+    fn pipe_selected(
+        self,
+        selected: Option<runne_domain::task_run::SelectedProviderProfile>,
+    ) -> Option<Self>
+    where
+        Self: Sized;
+}
+impl WithSelectedProfile for runne_domain::task_run::TaskRunInput {
+    fn pipe_selected(
+        self,
+        selected: Option<runne_domain::task_run::SelectedProviderProfile>,
+    ) -> Option<Self> {
+        Some(if let Some(profile) = selected {
+            self.with_selected_profile(profile).ok()?
+        } else {
+            self
+        })
     }
 }
 fn project(value: &str) -> Option<ProjectId> {
@@ -200,6 +226,9 @@ fn workspace(value: &str) -> Option<WorkspaceId> {
     value.parse().ok()
 }
 fn conversation(value: &str) -> Option<ConversationId> {
+    value.parse().ok()
+}
+fn taskrun(value: &str) -> Option<TaskRunId> {
     value.parse().ok()
 }
 fn approval(value: &str) -> Option<ApprovalId> {

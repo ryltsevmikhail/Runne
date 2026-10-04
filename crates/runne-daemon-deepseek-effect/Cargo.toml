@@ -23,6 +23,7 @@ zeroize = { workspace = true }
 
 [dev-dependencies]
 libc = "0.2"
+runne-api = { path = "../runne-api" }
 runne-application = { path = "../runne-application" }
 runne-domain = { path = "../runne-domain" }
 h2 = "0.4"

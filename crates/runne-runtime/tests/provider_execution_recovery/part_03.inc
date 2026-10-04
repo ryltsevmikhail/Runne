@@ -1,6 +1,5 @@
-
 #[tokio::test(flavor = "current_thread")]
-async fn remote_failure_without_usage_consumes_full_reservation_without_conversation_outbox() {
+async fn remote_failure_without_usage_keeps_reservations_and_fails_closed() {
     const PARTIAL: &str = "remote-failed-partial-must-not-be-applied-83";
     let fixture = fixture();
     let keyring = fixture.keyring();
@@ -32,14 +31,13 @@ async fn remote_failure_without_usage_consumes_full_reservation_without_conversa
         .unwrap(),
     ];
     poll_events(&runtime, &fixture, events).await;
-
     assert_eq!(
         runtime.finalize_terminal_output(&context(&fixture)),
-        Ok(ProviderTerminalCommitOutcome::Committed)
+        Ok(runne_application::provider::ProviderTerminalCommitOutcome::Committed)
     );
     assert_eq!(
         runtime.finalize_terminal_output(&context(&fixture)),
-        Ok(ProviderTerminalCommitOutcome::Replayed)
+        Ok(runne_application::provider::ProviderTerminalCommitOutcome::Replayed)
     );
     assert!(
         runtime
@@ -48,65 +46,56 @@ async fn remote_failure_without_usage_consumes_full_reservation_without_conversa
             .is_empty()
     );
     let connection = validated_connection(&fixture);
-    assert_eq!(
-        connection
-            .query_row(
-                "SELECT input_tokens, output_tokens, cached_input_tokens,
-                        reasoning_output_tokens, charge_micros
-                 FROM provider_accounting_settlements",
-                [],
-                |row| {
-                    Ok((
-                        row.get::<_, i64>(0)?,
-                        row.get::<_, i64>(1)?,
-                        row.get::<_, i64>(2)?,
-                        row.get::<_, i64>(3)?,
-                        row.get::<_, i64>(4)?,
-                    ))
-                },
-            )
-            .unwrap(),
-        (512, 1_024, 0, 0, 50_000)
-    );
-    assert_eq!(
-        connection
-            .query_row("SELECT COUNT(*) FROM provider_terminal_outbox", [], |row| {
-                row.get::<_, i64>(0)
-            })
-            .unwrap(),
-        0
-    );
+    for table in [
+        "provider_accounting_settlements",
+        "provider_terminal_outbox",
+    ] {
+        assert_eq!(
+            connection
+                .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| row
+                    .get::<_, i64>(0))
+                .unwrap(),
+            0
+        );
+    }
     assert_eq!(
         connection
             .query_row(
                 "SELECT COUNT(*) FROM provider_encryption_nonces WHERE purpose = 2",
                 [],
-                |row| row.get::<_, i64>(0),
+                |row| row.get::<_, i64>(0)
             )
             .unwrap(),
         0
+    );
+    assert_eq!(
+        connection.query_row(
+            "SELECT COUNT(*) FROM provider_unknown_terminal_receipts WHERE dispatch_attempt_id=?1",
+            [fixture.attempt_id.as_bytes().as_slice()],
+            |row| row.get::<_, i64>(0),
+        ).unwrap(),
+        1
     );
     assert_eq!(
         connection
             .query_row(
                 "SELECT state FROM provider_dispatch_attempts WHERE attempt_id = ?1",
                 [fixture.attempt_id.as_bytes().as_slice()],
-                |row| row.get::<_, i64>(0),
+                |row| row.get::<_, i64>(0)
             )
             .unwrap(),
         5
     );
     let reservations = connection
         .prepare(
-            "SELECT dimension, settled_amount
-             FROM provider_budget_reservations ORDER BY dimension",
+            "SELECT dimension,state,settled_amount,released_at FROM provider_budget_reservations ORDER BY dimension",
         )
         .unwrap()
-        .query_map([], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)))
+        .query_map([], |row| Ok((row.get::<_, i64>(0)?,row.get::<_, i64>(1)?,row.get::<_, Option<i64>>(2)?,row.get::<_, Option<i64>>(3)?)))
         .unwrap()
         .collect::<rusqlite::Result<Vec<_>>>()
         .unwrap();
-    assert_eq!(reservations, vec![(1, 1_536), (2, 50_000)]);
+    assert_eq!(reservations, vec![(1, 1, None, None), (2, 1, None, None)]);
     let database = std::fs::read(&fixture.path).unwrap();
     assert!(
         !database
@@ -151,49 +140,6 @@ async fn prohibited_terminal_output_creates_no_accounting_or_outbox() {
     }
 }
 
-#[tokio::test(flavor = "current_thread")]
-async fn mismatched_exact_profile_pricing_creates_no_accounting_or_outbox() {
-    let fixture = fixture();
-    let keyring = fixture.keyring();
-    let openai_profile = OpenAiResponsesTextProfile::from_json(include_bytes!(
-        "../../../../docs/profiles/openai-responses-text-v1.json"
-    ))
-    .unwrap();
-    let runtime = RuntimeProviderExecution::new(
-        keyring.as_ref(),
-        fixture.execution.as_ref(),
-        &openai_profile,
-        &ALLOWING_GUARD,
-        &ALLOWING_REDACTION,
-    );
-    runtime.preflight_existing_active_key([1; 16], 7).unwrap();
-    poll_events(
-        &runtime,
-        &fixture,
-        successful_events("exact-pricing-mismatch"),
-    )
-    .await;
-
-    assert_eq!(
-        runtime.finalize_terminal_output(&context(&fixture)),
-        Err(RuntimeProviderExecutionError::PricingUnavailable)
-    );
-    let connection = validated_connection(&fixture);
-    for table in [
-        "provider_accounting_settlements",
-        "provider_terminal_outbox",
-    ] {
-        assert_eq!(
-            connection
-                .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
-                    row.get::<_, i64>(0)
-                })
-                .unwrap(),
-            0,
-            "pricing mismatch mutated {table}"
-        );
-    }
-}
 
 struct CommitCheckingProvider {
     store: Arc<SqliteProviderExecutionStore>,

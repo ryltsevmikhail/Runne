@@ -65,27 +65,50 @@ fn healthy_store_after_clean_close_and_reopen_diagnoses_ready() {
 fn corrupted_main_database_diagnoses_integrity_check_failed() {
     let (_directory, database_path) = database_directory("d13-diagnosis-corrupt");
     drop(open_store(&database_path));
+    let (root_page, page_size) = existing_table_page(&database_path, "event_log_state");
     checkpoint_and_remove_sidecars(&database_path);
-    corrupt_main_database(&database_path);
+    corrupt_main_database(&database_path, root_page, page_size);
     assert_eq!(
         diagnose(&database_path),
         StoreRecoveryDiagnosis::IntegrityCheckFailed
     );
 }
 
-/// Overwrites one mid-file page slice with garbage: the header and schema
-/// catalog on page 1 stay readable, so classification passes and the failure
-/// is attributed by `PRAGMA integrity_check`.
-fn corrupt_main_database(database_path: &str) {
+/// Captures a canonical data table's page coordinates before checkpointing.
+fn existing_table_page(database_path: &str, table: &str) -> (usize, usize) {
+    let connection = rusqlite::Connection::open(database_path).unwrap();
+    let root_page: usize = connection
+        .query_row(
+            "SELECT rootpage FROM sqlite_master WHERE type='table' AND name=?1",
+            [table],
+            |row| row.get::<_, i64>(0),
+        )
+        .unwrap()
+        .try_into()
+        .unwrap();
+    let page_size: usize = connection
+        .query_row("PRAGMA page_size", [], |row| row.get::<_, i64>(0))
+        .unwrap()
+        .try_into()
+        .unwrap();
+    (root_page, page_size)
+}
+
+/// Corrupts the canonical table's b-tree page type while leaving SQLite's
+/// schema catalog readable. The recovery classifier does not read this table,
+/// so startup diagnosis reaches the integrity check and reports the damage.
+fn corrupt_main_database(database_path: &str, root_page: usize, page_size: usize) {
     let mut bytes = std::fs::read(database_path).unwrap();
+    let start = (root_page - 1) * page_size;
     assert!(
-        bytes.len() >= 5 * 4096,
-        "fixture store is unexpectedly small"
+        start + 10 <= bytes.len(),
+        "corruption target page is absent"
     );
-    let start = 3 * 4096;
-    for byte in &mut bytes[start..start + 32] {
-        *byte = 0xC3;
-    }
+    let header = start + if root_page == 1 { 100 } else { 0 };
+    assert_eq!(bytes[header], 0x0d, "fixture root page is not a table leaf");
+    // An invalid b-tree page type keeps the schema catalog readable while
+    // guaranteeing that SQLite's integrity_check reports the damaged page.
+    bytes[header] = 0x00;
     std::fs::write(database_path, bytes).unwrap();
 }
 

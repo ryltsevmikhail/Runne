@@ -6,6 +6,7 @@
 pub struct RuntimeTaskRunHost<E> {
     handle: RuntimeHandle,
     event_store: E,
+    effects_enricher: Option<std::sync::Arc<dyn TaskRunEffectsEnricher>>,
 }
 
 impl<E> RuntimeTaskRunHost<E> {
@@ -15,7 +16,30 @@ impl<E> RuntimeTaskRunHost<E> {
         Self {
             handle,
             event_store,
+            effects_enricher: None,
         }
+    }
+
+    /// Creates a host with a read-only authenticated provider-fact projector.
+    pub fn new_with_effects_enricher(
+        handle: RuntimeHandle,
+        event_store: E,
+        effects_enricher: std::sync::Arc<dyn TaskRunEffectsEnricher>,
+    ) -> Self {
+        Self {
+            handle,
+            event_store,
+            effects_enricher: Some(effects_enricher),
+        }
+    }
+
+    /// Adds a read-only authenticated provider-fact projector to this host.
+    pub fn with_effects_enricher(
+        mut self,
+        effects_enricher: std::sync::Arc<dyn TaskRunEffectsEnricher>,
+    ) -> Self {
+        self.effects_enricher = Some(effects_enricher);
+        self
     }
 }
 
@@ -89,16 +113,7 @@ where
         context: TaskRunCommandContext,
         command: LegacySubmitTaskRunCommand,
     ) -> Result<TaskRunCommandAck, TaskRunHostError> {
-        let outcome = self.handle.submit_task_run_legacy(
-            into_application_context(context)?,
-            LegacySubmitTaskRunInput { conversation_id: command.conversation_id, workspace_id: command.workspace_id },
-        ).await.map_err(map_runtime_error)?;
-        match outcome {
-            CommandOutcome::TaskRunSubmitted { taskrun_id, new_version } => Ok(TaskRunCommandAck {
-                taskrun_id, new_version, kind: TaskRunCommandAckKind::Submitted,
-            }),
-            _ => Err(TaskRunHostError::InvariantViolation),
-        }
+        legacy_submit::submit_legacy(&self.handle, context, command).await
     }
 
     async fn queue_task_run(
@@ -254,5 +269,13 @@ where
             }),
             _ => Err(TaskRunHostError::InvariantViolation),
         }
+    }
+
+    async fn supersede_unknown_task_run(
+        &self,
+        context: TaskRunCommandContext,
+        command: SupersedeUnknownTaskRunCommand,
+    ) -> Result<TaskRunCommandAck, TaskRunHostError> {
+        successor::supersede(&self.handle, context, command).await
     }
 }

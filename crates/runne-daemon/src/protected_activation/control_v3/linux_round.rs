@@ -59,13 +59,15 @@ impl V3EnrollmentRuntime {
         if !capability_current(capability, channel, owned) {
             return Err(LaunchAuthorityError::OwnershipMismatch);
         }
-        self.session
+        let previous = self
+            .session
             .take()
-            .ok_or(LaunchAuthorityError::OwnershipMismatch)?
-            .clear_http_facts();
+            .ok_or(LaunchAuthorityError::OwnershipMismatch)?;
+        let http_controls = previous.http_controls();
+        previous.clear_http_facts();
         self.linux_writer.take();
         let session = control
-            .start_protected_session(keys, owned, rendezvous)
+            .start_protected_session_with_controls(keys, owned, rendezvous, http_controls)
             .map_err(runtime::map_enrollment_error)?;
         self.round_previous = Some(owned.clone());
         self.live = Some(live);

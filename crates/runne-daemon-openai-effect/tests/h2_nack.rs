@@ -1,5 +1,9 @@
 include!("h2_nack_parts/support.rs");
 include!("h2_nack_parts/durable_receipt.rs");
+include!("h2_nack_parts/cancellation_support.rs");
+include!("h2_nack_parts/final_send_cancel.rs");
 include!("h2_nack_parts/refused_stream.rs");
 include!("h2_nack_parts/goaway.rs");
 include!("h2_nack_parts/revocation_drop.rs");
+include!("h2_nack_parts/background_recovery.rs");
+include!("h2_nack_parts/background_create.rs");

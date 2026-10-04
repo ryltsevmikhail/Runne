@@ -5,7 +5,6 @@
 use futures::executor::block_on;
 use runne_application::prohibited_content::ProhibitedContentPort;
 use runne_application::provider::{ProviderAdmissionError, ProviderCoordinatorRequest};
-use runne_domain::id::{AttemptId, ConversationId, TaskRunId};
 use runne_provider::{
     CancelDisposition, CancelRequest, DispatchError, DispatchRequest, ModelRef, PrepareError,
     PreparedRequest, ProviderCall, ProviderCallId, ProviderFuture, ProviderId, ProviderStreamId,
@@ -21,6 +20,8 @@ use runne_store::provider::{
 mod online_credential_fixture;
 #[path = "support/online_proof.rs"]
 mod online_proof;
+#[path = "support/provider_taskrun_start.rs"]
+mod provider_taskrun_start;
 #[path = "support/validated_reopen.rs"]
 mod validated_reopen;
 
@@ -99,20 +100,35 @@ impl runne_store::provider::ProviderEffectPort for CountingAdapter {
     fn dispatch_effect(
         &self,
         ready: Box<dyn ProviderReadyEffect>,
-        _: runne_store::provider::ProviderEffectStartReceipt,
+        mut receipt: runne_store::provider::ProviderEffectStartReceipt,
     ) -> ProviderFuture<'_, Result<ProviderStreamId, DispatchError>> {
         let staged = ready.into_any().downcast::<Staged>().unwrap();
-        runne_provider::ProviderPort::dispatch(self, staged.0)
+        Box::pin(async move {
+            let final_send = receipt.take_final_send_authority().map_err(|_| {
+                DispatchError::RejectedBeforeEffect(
+                    runne_provider::ProviderPreEffectRejection::AdapterRejected,
+                )
+            })?;
+            final_send.consume().map_err(|_| {
+                DispatchError::RejectedBeforeEffect(
+                    runne_provider::ProviderPreEffectRejection::AdapterRejected,
+                )
+            })?;
+            runne_provider::ProviderPort::dispatch(self, staged.0).await
+        })
     }
 }
 
-fn request(call: ProviderCall) -> ProviderCoordinatorRequest {
+fn request(
+    call: ProviderCall,
+    receipt: &runne_application::ports::TextGenerationReceipt,
+) -> ProviderCoordinatorRequest {
     ProviderCoordinatorRequest {
         call,
         principal_id: "principal".into(),
-        conversation_id: ConversationId::from_bytes([6; 16]),
-        taskrun_id: TaskRunId::from_bytes([7; 16]),
-        execution_attempt_id: AttemptId::from_bytes([8; 16]),
+        conversation_id: receipt.conversation_id,
+        taskrun_id: receipt.taskrun_id,
+        execution_attempt_id: receipt.attempt_id,
         profile_digest: [2; 32],
         pricing_revision_digest: [3; 32],
         requested_input_tokens: 32,
@@ -150,6 +166,12 @@ fn registered_secret_guard() -> impl ProhibitedContentPort {
 #[test]
 fn nm10_registered_secret_call_bytes_are_denied_at_dispatch() {
     let database = validated_reopen::ProviderTestDatabase::new("nm10-dispatch-sink");
+    let started = provider_taskrun_start::begin(
+        database.path(),
+        [1; 16],
+        "principal",
+        "safe public nm10 dispatch fixture prompt",
+    );
     let dispatch = database.dispatch();
     let execution = database.execution();
     let credential = online_credential_fixture::credential(&database, "fixture", 4);
@@ -193,10 +215,10 @@ fn nm10_registered_secret_call_bytes_are_denied_at_dispatch() {
         &guard,
     );
 
-    let denied = block_on(coordinator.dispatch(request(call(
-        9,
-        serde_json::json!({ "note": FAKE_SECRET_ENV }),
-    ))));
+    let denied = block_on(coordinator.dispatch(request(
+        call(9, serde_json::json!({ "note": FAKE_SECRET_ENV })),
+        &started.receipt,
+    )));
     assert!(
         matches!(denied, Err(ProviderAdmissionError::PolicyDenied)),
         "registered canary must be denied at the dispatch-bytes boundary"
@@ -207,10 +229,13 @@ fn nm10_registered_secret_call_bytes_are_denied_at_dispatch() {
         "the adapter never sees denied bytes"
     );
 
-    let outcome = block_on(coordinator.dispatch(request(call(
-        10,
-        serde_json::json!({ "note": "clean dispatch payload for the nm10 sink scan" }),
-    ))));
+    let outcome = block_on(coordinator.dispatch(request(
+        call(
+            10,
+            serde_json::json!({ "note": "clean dispatch payload for the nm10 sink scan" }),
+        ),
+        &started.receipt,
+    )));
     assert!(
         matches!(outcome, Ok(ProviderCoordinatorOutcome::Streaming { .. })),
         "clean call passes the same guard and streams"

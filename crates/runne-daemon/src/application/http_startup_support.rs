@@ -12,6 +12,38 @@ pub(super) fn replay_cursor_integrity_secret(
     key.derive_hmac(b"gocode/replay-cursor-hmac/v1\0")
 }
 
+pub(super) fn runtime_session_binding(
+    bootstrap: &BootstrapOutcome,
+    replay_lineage: EventLogLineageId,
+    capabilities: &[&str],
+    session_id: [u8; 16],
+) -> Result<RuntimeSessionBinding, DaemonError> {
+    let schema_hash: [u8; 32] = hex::decode(runne_runtime::bundle::PUBLISHED_BUNDLE_HASH)
+        .map_err(|_| DaemonError::Bootstrap("decode schema hash".into()))?
+        .try_into()
+        .map_err(|_| DaemonError::Bootstrap("invalid schema hash".into()))?;
+    let stable = StableRuntimeBinding::new(
+        bootstrap.local_session_authority_id,
+        ApiPrincipalId::new("local-owner")
+            .map_err(|_| DaemonError::Bootstrap("invalid local principal".into()))?,
+        replay_lineage,
+        runne_runtime::bundle::BUNDLE_ID,
+        schema_hash,
+        runne_http::runtime_profile::ordered_capability_digest(capabilities),
+    )
+    .map_err(|_| DaemonError::Bootstrap("build stable local session binding".into()))?;
+    RuntimeSessionBinding::new(
+        stable,
+        bootstrap.launch_identity.daemon_instance_id(),
+        bootstrap.launch_generation,
+        session_id,
+        0,
+        Sensitivity::Sensitive,
+        *bootstrap.launch_identity.certificate_sha256(),
+    )
+    .map_err(|_| DaemonError::Bootstrap("build local session binding".into()))
+}
+
 pub(super) fn operational_telemetry_state(
     provider_service: Option<&Arc<DaemonCanonicalProviderService>>,
     binding: &RuntimeSessionBinding,

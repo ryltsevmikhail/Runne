@@ -90,6 +90,17 @@ mod enrollment_control_exchange;
 #[path = "protected_activation/enrollment_control_exchange_negative_tests.rs"]
 mod enrollment_control_exchange_negative_tests;
 #[cfg(all(unix, feature = "desktop-protected"))]
+#[cfg(any(
+    all(test, unix),
+    all(feature = "desktop-protected", target_os = "linux"),
+    all(
+        feature = "desktop-protected",
+        target_os = "macos",
+        target_arch = "aarch64"
+    )
+))]
+pub(crate) mod enrollment_control_fanout;
+#[cfg(all(unix, feature = "desktop-protected"))]
 mod enrollment_control_transition;
 #[cfg(all(
     test,

@@ -31,6 +31,7 @@ impl ConfigurationSnapshot {
             shutdown_timeout_ms: defaults.shutdown_timeout_ms,
             provider_activation,
             provider_activation_settings: provider_settings,
+            secondary_profile_catalog: None,
             provenance,
             digest: compute_digest(&values),
         }
@@ -118,6 +119,10 @@ impl ConfigurationSnapshot {
             "provider_activation".into(),
             select_provenance(system.provider_activation.is_some(), &sys_src),
         );
+        provenance.insert(
+            "secondary_profile_catalog".into(),
+            select_provenance(system.secondary_profile_catalog.is_some(), &sys_src),
+        );
 
         let values = canonical_values_map(
             schema_version,
@@ -139,6 +144,7 @@ impl ConfigurationSnapshot {
             shutdown_timeout_ms,
             provider_activation,
             provider_activation_settings: provider_settings,
+            secondary_profile_catalog: system.secondary_profile_catalog.clone(),
             provenance,
             digest: compute_digest(&values),
         })

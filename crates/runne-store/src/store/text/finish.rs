@@ -29,6 +29,7 @@ impl StoreTransaction {
             &payload.idempotency_key,
             &scope,
             &payload.command_fingerprint,
+            &self.runtime_authority_id,
         )? {
             TextGenerationReceiptLookup::Miss => {
                 return Err(storage_failure(StorageFailureKind::IntegrityViolation));
@@ -96,6 +97,12 @@ impl StoreTransaction {
         {
             return Err(storage_failure(StorageFailureKind::IntegrityViolation));
         }
+        super::remote_artifact_finish_guard::validate(
+            &transaction,
+            &stored,
+            &payload,
+            &self.runtime_authority_id,
+        )?;
         let now = current_time_micros()?;
         let latest_timestamp = conversation_head.2.max(taskrun_head.2);
         if latest_timestamp.is_some_and(|last| now < last) {
@@ -125,6 +132,11 @@ impl StoreTransaction {
             taskrun_global_position,
             now,
         )?;
+        super::terminal_occupation::verify_claimed_terminal_before_append(
+            &transaction,
+            &payload.receipt,
+            &payload.taskrun_events[0],
+        )?;
         append_conversation_event(
             &transaction,
             self.prohibited_content.as_ref(),
@@ -140,6 +152,11 @@ impl StoreTransaction {
             payload.receipt.taskrun_version,
             taskrun_global_position,
             now,
+        )?;
+        super::terminal_occupation::retire_terminal_occupation(
+            &transaction,
+            &payload.receipt,
+            &payload.taskrun_events[0],
         )?;
         update_stream_head(
             &transaction,

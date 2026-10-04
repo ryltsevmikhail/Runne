@@ -18,6 +18,57 @@ impl ProhibitedContentPort for ProviderInputRejectingGuard {
 struct CountingConversationTextService {
     inner: ConversationTextService<StoreTransaction, StoreTransaction>,
     finish_calls: Arc<AtomicUsize>,
+    finish_error_class: Arc<Mutex<Option<&'static str>>>,
+}
+
+fn safe_finish_error_class(error: &ConversationTextServiceError) -> &'static str {
+    use runne_application::ports::{CommitError, StorageFailureKind};
+    match error {
+        ConversationTextServiceError::WriterFenced => "writer-fenced",
+        ConversationTextServiceError::ProhibitedSecretMaterial => "prohibited-secret-material",
+        ConversationTextServiceError::ConversationNotFound => "conversation-not-found",
+        ConversationTextServiceError::StoredDataUnavailable => "stored-data-unavailable",
+        ConversationTextServiceError::Conflict => "conflict",
+        ConversationTextServiceError::ConversationDomain(_) => "conversation-domain",
+        ConversationTextServiceError::TaskRunDomain => "taskrun-domain",
+        ConversationTextServiceError::IdGeneration(_) => "id-generation",
+        ConversationTextServiceError::MaterializationFailed => "materialization-failed",
+        ConversationTextServiceError::Commit(CommitError::VersionConflict { .. }) => {
+            "commit-version-conflict"
+        }
+        ConversationTextServiceError::Commit(CommitError::VersionExhausted { .. }) => {
+            "commit-version-exhausted"
+        }
+        ConversationTextServiceError::Commit(CommitError::IdempotencyConflict { .. }) => {
+            "commit-idempotency-conflict"
+        }
+        ConversationTextServiceError::Commit(CommitError::StorageFailure(
+            StorageFailureKind::PolicyDenied,
+        )) => "commit-policy-denied",
+        ConversationTextServiceError::Commit(CommitError::StorageFailure(
+            StorageFailureKind::CorruptData,
+        )) => "commit-corrupt-data",
+        ConversationTextServiceError::Commit(CommitError::StorageFailure(
+            StorageFailureKind::UnsupportedSchema,
+        )) => "commit-unsupported-schema",
+        ConversationTextServiceError::Commit(CommitError::StorageFailure(
+            StorageFailureKind::IntegrityViolation,
+        )) => "commit-integrity-violation",
+        ConversationTextServiceError::Commit(CommitError::StorageFailure(
+            StorageFailureKind::WriterFenced,
+        )) => "commit-writer-fenced",
+        ConversationTextServiceError::Commit(CommitError::StorageFailure(
+            StorageFailureKind::Unavailable,
+        )) => "commit-unavailable",
+        ConversationTextServiceError::Commit(CommitError::ClockRegression { .. }) => {
+            "commit-clock-regression"
+        }
+        ConversationTextServiceError::Commit(CommitError::ClockFailure) => "commit-clock-failure",
+        ConversationTextServiceError::Commit(CommitError::GlobalPositionExhausted) => {
+            "commit-global-position-exhausted"
+        }
+        ConversationTextServiceError::ReceiptMismatch => "receipt-mismatch",
+    }
 }
 
 impl ConversationTextCommandService for CountingConversationTextService {
@@ -35,7 +86,10 @@ impl ConversationTextCommandService for CountingConversationTextService {
         input: FinishConversationTextInput,
     ) -> Result<TextGenerationReceipt, ConversationTextServiceError> {
         self.finish_calls.fetch_add(1, Ordering::SeqCst);
-        self.inner.finish_text(context, input)
+        let result = self.inner.finish_text(context, input);
+        *self.finish_error_class.lock().unwrap() =
+            result.as_ref().err().map(safe_finish_error_class);
+        result
     }
 }
 
@@ -92,13 +146,19 @@ async fn prohibited_provider_output_is_rejected_durably_without_an_assistant_mes
         authority.clone(),
     ));
     let guard: Arc<dyn ProhibitedContentPort> = Arc::new(MarkerGuard);
+    let finish_calls = Arc::new(AtomicUsize::new(0));
+    let finish_error_class = Arc::new(Mutex::new(None));
     let text_service: Arc<dyn ConversationTextCommandService> =
-        Arc::new(ConversationTextService::new(
-            store.clone(),
-            store.clone(),
-            authority.clone(),
-            Arc::clone(&guard),
-        ));
+        Arc::new(CountingConversationTextService {
+            inner: ConversationTextService::new(
+                store.clone(),
+                store.clone(),
+                authority.clone(),
+                Arc::clone(&guard),
+            ),
+            finish_calls: Arc::clone(&finish_calls),
+            finish_error_class: Arc::clone(&finish_error_class),
+        });
     let (handle, mut controller) = Runtime::start_borrowed_with_conversations(
         runne_runtime::TokioRuntimeContext::new_for_test(),
         taskrun_service,
@@ -144,6 +204,12 @@ async fn prohibited_provider_output_is_rejected_durably_without_an_assistant_mes
         .await;
     let duplicate = host.generate_text(generation_context, command).await;
 
+    eprintln!(
+        "sanitized_finish_error_class={}",
+        finish_error_class.lock().unwrap().unwrap_or("none")
+    );
+    assert_eq!(provider_calls.load(Ordering::SeqCst), 1);
+    assert_eq!(finish_calls.load(Ordering::SeqCst), 1);
     assert_eq!(first, Err(ConversationHostError::ProviderOutputRejected));
     assert_eq!(
         duplicate,

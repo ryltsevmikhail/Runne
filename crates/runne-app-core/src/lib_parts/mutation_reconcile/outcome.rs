@@ -56,6 +56,12 @@ pub(crate) fn reconciliation_outcome_to_ledger(
             task_run_id: reconciliation_ledger_id(value.task_run_id())?,
             new_version: value.stream_version(),
         },
+        Outcome::UnknownSuccessorCreated(value) => LedgerOutcome::TaskRunUnknownSuccessorCreated {
+            predecessor_task_run_id: reconciliation_ledger_id(value.predecessor_task_run_id())?,
+            successor_task_run_id: reconciliation_ledger_id(value.successor_task_run_id())?,
+            predecessor_version: value.predecessor_version(),
+            successor_version: value.stream_version(),
+        },
         Outcome::ApprovalDecision(value) => LedgerOutcome::ApprovalRespond {
             approval_id: reconciliation_ledger_id(value.approval_id())?,
             new_version: value.new_version(),
@@ -114,10 +120,24 @@ fn generation_outcome(outcome: &Outcome) -> Result<LedgerOutcome, AppCoreError> 
                 task_run_stream_version: value.task_run_stream_version,
                 user_message: ledger_message(&value.user_message)?,
                 assistant: Box::new(GenerationAssistant::Rejected {
-                    reserved_message_id: reconciliation_ledger_id(value.reserved_assistant_message_id)?,
+                    reserved_message_id: reconciliation_ledger_id(
+                        value.reserved_assistant_message_id,
+                    )?,
                     reason: match value.reason {
                         ConversationGenerationFailureReason::ProviderOutputRejected => {
                             GenerationFailureReason::ProviderOutputRejected
+                        }
+                        ConversationGenerationFailureReason::ProviderExecutionRejected => {
+                            GenerationFailureReason::ProviderExecutionRejected
+                        }
+                        ConversationGenerationFailureReason::ProviderExecutionFailed => {
+                            GenerationFailureReason::ProviderExecutionFailed
+                        }
+                        ConversationGenerationFailureReason::ProviderAccountingUnknown => {
+                            GenerationFailureReason::ProviderAccountingUnknown
+                        }
+                        ConversationGenerationFailureReason::Cancelled => {
+                            GenerationFailureReason::Cancelled
                         }
                     },
                 }),
@@ -149,3 +169,7 @@ fn ledger_message(
         committed_at: value.committed_at,
     })
 }
+
+#[cfg(test)]
+#[path = "outcome_tests.rs"]
+mod outcome_tests;

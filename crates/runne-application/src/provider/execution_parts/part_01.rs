@@ -1,7 +1,7 @@
 use core::fmt;
 
 use runne_domain::id::{AttemptId, ConversationId, TaskRunId};
-use runne_provider::{DispatchAttemptId, ProviderCallDigestVersion};
+use runne_provider::{DispatchAttemptId, ProviderCallDigestVersion, ProviderRemoteOperationProof};
 use thiserror::Error;
 
 /// Non-secret runne-secure-store binding for one provider journal key.
@@ -174,6 +174,7 @@ pub enum ProviderJournalAppendOutcome {
 /// Store-derived immutable pricing binding for one admitted attempt.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProviderTerminalPricingBinding {
+    call_digest_version: ProviderCallDigestVersion,
     pricing_revision_digest: [u8; 32],
     currency: String,
     reserved_input_tokens: u64,
@@ -186,6 +187,7 @@ impl ProviderTerminalPricingBinding {
     /// Constructs the exact pricing and worst-case reservation binding loaded
     /// from authoritative admission state.
     pub fn with_reservation(
+        call_digest_version: ProviderCallDigestVersion,
         pricing_revision_digest: [u8; 32],
         currency: String,
         reserved_input_tokens: u64,
@@ -205,6 +207,7 @@ impl ProviderTerminalPricingBinding {
             return Err(ProviderExecutionError::JournalCorrupt);
         }
         Ok(Self {
+            call_digest_version,
             pricing_revision_digest,
             currency,
             reserved_input_tokens,
@@ -212,6 +215,11 @@ impl ProviderTerminalPricingBinding {
             reserved_cost_micros,
             effect_started_at,
         })
+    }
+
+    /// Returns the admitted canonical provider-call digest version.
+    pub const fn call_digest_version(&self) -> ProviderCallDigestVersion {
+        self.call_digest_version
     }
 
     /// Returns the exact immutable pricing revision.

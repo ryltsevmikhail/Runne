@@ -1,5 +1,4 @@
 use runne_application::provider::{ProviderAdmissionError, ProviderAuthorityIssueRequest};
-use runne_domain::id::{AttemptId, ConversationId, TaskRunId};
 use runne_provider::{
     ModelRef, PreparedProviderRecord as ContractPreparedProviderRecord, PreparedRequest,
     ProviderCall, ProviderCallId, ProviderDispatchClaim, ProviderId,
@@ -16,21 +15,32 @@ struct ArmedProviderTestDatabase {
     database: validated_reopen::ProviderTestDatabase,
     execution: SqliteProviderExecutionStore,
     launch: RefCell<runne_store::provider::ProviderRuntimeLaunchCapability>,
+    taskrun_receipts:
+        std::collections::HashMap<u8, runne_application::ports::TextGenerationReceipt>,
 }
 
 impl ArmedProviderTestDatabase {
     fn new(name: &str) -> Self {
         let database = validated_reopen::ProviderTestDatabase::new(name);
+        let mut discriminators = (1..=19).collect::<Vec<_>>();
+        discriminators.push(81);
+        let receipts = crate::online_stream_fixture::begin_taskruns(
+            &database,
+            [1; 16],
+            "principal-1",
+            "provider recovery audit fixture",
+            &discriminators,
+        );
+        let taskrun_receipts = discriminators.into_iter().zip(receipts).collect();
         let execution = database.execution();
         let config = runtime_config::runtime_config();
-        let launch = execution
-            .activate_runtime_launch(&config)
-            .unwrap();
+        let launch = execution.activate_runtime_launch(&config).unwrap();
         crate::online_proof::arm(&execution, config.database_generation);
         Self {
             database,
             execution,
             launch: RefCell::new(launch),
+            taskrun_receipts,
         }
     }
 
@@ -110,9 +120,9 @@ fn prepared_request(
     let request = ProviderAuthorityIssueRequest {
         provider_id: call.model_ref().provider_id().clone(),
         principal_id: "principal-1".into(),
-        conversation_id: ConversationId::from_bytes([call_byte.wrapping_add(10); 16]),
-        taskrun_id: TaskRunId::from_bytes([call_byte.wrapping_add(20); 16]),
-        execution_attempt_id: AttemptId::from_bytes([call_byte.wrapping_add(30); 16]),
+        conversation_id: database.taskrun_receipts[&call_byte].conversation_id,
+        taskrun_id: database.taskrun_receipts[&call_byte].taskrun_id,
+        execution_attempt_id: database.taskrun_receipts[&call_byte].attempt_id,
         prepared: ContractPreparedProviderRecord {
             call_id: record.call_id,
             call_digest_version: record.call_digest_version,
@@ -162,9 +172,7 @@ fn issue_winner(
     database: &ArmedProviderTestDatabase,
     request: &ProviderAuthorityIssueRequest,
 ) -> ProviderDispatchClaim {
-    let ProviderAuthorityIssueOutcome::Winner(admission) =
-        database.issue(request).unwrap()
-    else {
+    let ProviderAuthorityIssueOutcome::Winner(admission) = database.issue(request).unwrap() else {
         panic!("first exact issue must win");
     };
     admission.claim().clone()

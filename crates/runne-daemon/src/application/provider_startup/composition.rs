@@ -76,12 +76,19 @@ impl DaemonApplication {
             Arc::clone(&prohibited_content),
         )
         .map_err(|error| DaemonError::Bootstrap(format!("open runtime store: {error:?}")))?;
-        let service: Arc<SqliteTaskRunService> = Arc::new(TaskRunService::new(
-            store.clone(),
-            store.clone(),
-            store.clone(),
-            authority.clone(),
-        ));
+        let service: Arc<SqliteTaskRunService> = Arc::new(
+            TaskRunService::new(
+                store.clone(),
+                store.clone(),
+                store.clone(),
+                authority.clone(),
+            )
+            .with_unknown_successor_repository(Arc::new(
+                store.unknown_successor_repository(Arc::new(
+                    crate::canonical_provider::CompiledHistoricalProviderModelResolver,
+                )),
+            )),
+        );
         let conversation_service: Arc<SqliteConversationService> = Arc::new(
             ConversationService::new(store.clone(), store.clone(), authority.clone()),
         );
@@ -89,7 +96,7 @@ impl DaemonApplication {
             Arc::new(ConversationTextService::new(
                 store.clone(),
                 store.clone(),
-                authority,
+                authority.clone(),
                 Arc::clone(&prohibited_content),
             ));
         // X2 restart settlement: close provably effect-free generations the
@@ -97,6 +104,7 @@ impl DaemonApplication {
         let settled = super::startup_settlement::settle_interrupted_text_generations(
             &bootstrap.db_conn,
             &conversation_text_service,
+            &authority,
         )?;
         if settled > 0 {
             tracing::info!(
@@ -116,6 +124,7 @@ impl DaemonApplication {
             dependencies,
             root_admission_keys,
             enrollment_capability,
+            secondary_catalog,
         ) = startup.into_parts();
         let launch_authority_id =
             launch_authority_id.unwrap_or(bootstrap.local_session_authority_id);
@@ -193,6 +202,7 @@ impl DaemonApplication {
                                 runtime_generation: bootstrap.launch_generation,
                                 activation_provenance,
                                 expected_profile_digest: provider_profile_digest,
+                                secondary_catalog,
                                 conversation_store,
                                 conversation_service,
                                 prohibited_content,

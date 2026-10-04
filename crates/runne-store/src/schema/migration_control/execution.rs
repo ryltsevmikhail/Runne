@@ -27,5 +27,50 @@ fn apply_execution_migrations(
     if source_version < 48 && target_version >= 48 {
         apply_v48_migration(conn)?;
     }
+    if source_version < 49 && target_version >= 49 {
+        apply_v49_migration(conn)?;
+    }
+    if source_version < 50 && target_version >= 50 {
+        apply_v50_migration(conn)?;
+    }
+    if source_version < 51 && target_version >= 51 {
+        apply_v51_migration(conn)?;
+    }
+    if source_version < 52 && target_version >= 52 {
+        apply_v52_migration(conn)?;
+    }
+    if source_version < 53 && target_version >= 53 {
+        apply_v53_migration(conn)?;
+    }
+    if source_version < 54 && target_version >= 54 {
+        apply_v54_migration(conn)?;
+    }
+    if source_version < 55 && target_version >= 55 {
+        apply_v55_migration(conn)?;
+    }
+    if source_version < 56 && target_version >= 56 {
+        apply_v56_migration(conn)?;
+    }
+    if source_version < 57 && target_version >= 57 {
+        apply_v57_migration(conn)?;
+    }
+    if source_version < 58 && target_version >= 58 {
+        apply_v58_migration(conn)?;
+    }
+    if source_version < 59 && target_version >= 59 {
+        apply_v59_migration(conn)?;
+    }
+    if source_version < 60 && target_version >= 60 {
+        apply_v60_migration(conn)?;
+    }
+    if source_version < 61 && target_version >= 61 {
+        apply_v61_migration(conn)?;
+    }
+    if source_version < 62 && target_version >= 62 {
+        apply_v62_migration(conn)?;
+    }
+    if source_version < 63 && target_version >= 63 {
+        apply_v63_migration(conn)?;
+    }
     Ok(())
 }

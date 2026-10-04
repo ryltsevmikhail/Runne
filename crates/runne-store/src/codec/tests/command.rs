@@ -121,3 +121,19 @@
         let decoded = codec.decode(&bytes).unwrap();
         assert_eq!(original, decoded);
     }
+
+    #[test]
+    fn unknown_successor_command_outcome_has_stable_roundtrip() {
+        let codec = CommandOutcomeCodec;
+        let original = CommandOutcome::UnknownSuccessorCreated {
+            predecessor_taskrun_id: TR_ID.parse().unwrap(),
+            predecessor_version: 8,
+            conversation_id: CONV_ID.parse().unwrap(),
+            conversation_version: 12,
+            successor_taskrun_id: WS_ID.parse().unwrap(),
+            successor_version: 2,
+        };
+        let bytes = codec.encode(&original).unwrap();
+        assert_eq!(bytes[2], 0x14);
+        assert_eq!(codec.decode(&bytes).unwrap(), original);
+    }

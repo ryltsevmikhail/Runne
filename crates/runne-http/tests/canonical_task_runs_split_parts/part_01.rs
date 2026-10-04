@@ -1,18 +1,22 @@
 use std::sync::{Arc, Mutex};
 
 use axum::body::{Body, to_bytes};
+use http::{Request, Response, StatusCode};
 use runne_api::{
     ApiActor, CanonicalTaskRunState, CanonicalTerminalResult, CompleteTaskRunCommand,
-    CreateTaskRunCommand, ExistingTaskRunCommand, LegacySubmitTaskRunCommand, SubmitTaskRunCommand, TaskRunCommandAck,
-    TaskRunCommandAckKind, TaskRunCommandContext, TaskRunCommandHostPort, TaskRunHostError,
-    TaskRunQueryHostPort, TaskRunSnapshot,
+    CreateTaskRunCommand, ExistingTaskRunCommand, LegacySubmitTaskRunCommand, RemoteAccountingV1,
+    RemoteCancellationV1, RemoteEffectAvailabilityV1, RemoteEffectCapabilitiesV1,
+    RemoteEffectOutcomeV1, RemoteEffectV1, RemotePublicationV1, SubmitTaskRunCommand,
+    SuccessorEligibilityV1, TaskRunCommandAck, TaskRunCommandAckKind, TaskRunCommandContext,
+    TaskRunCommandHostPort, TaskRunEffectsV1, TaskRunHostError, TaskRunQueryHostPort,
+    TaskRunSnapshot,
 };
 use runne_domain::id::{AttemptId, TaskRunId};
 use runne_http::admission::AdmissionState;
 use runne_http::health::{HealthState, RecoveryState};
 use runne_http::router::create_router_with_task_run_profile;
 use runne_http::task_runs::TaskRunHttpState;
-use http::{Request, Response, StatusCode};
+use runne_security::SecretBroker;
 use serde_json::Value;
 use tower::ServiceExt;
 
@@ -86,9 +90,17 @@ impl TaskRunCommandHostPort for RecordingHost {
         })
     }
 
-    async fn submit_task_run_legacy(&self, context: TaskRunCommandContext, command: LegacySubmitTaskRunCommand) -> Result<TaskRunCommandAck, TaskRunHostError> {
+    async fn submit_task_run_legacy(
+        &self,
+        context: TaskRunCommandContext,
+        command: LegacySubmitTaskRunCommand,
+    ) -> Result<TaskRunCommandAck, TaskRunHostError> {
         self.record(Call::LegacySubmit(context, command))?;
-        Ok(TaskRunCommandAck { taskrun_id: TASKRUN_ID.parse().unwrap(), new_version: 2, kind: TaskRunCommandAckKind::Submitted })
+        Ok(TaskRunCommandAck {
+            taskrun_id: TASKRUN_ID.parse().unwrap(),
+            new_version: 2,
+            kind: TaskRunCommandAckKind::Submitted,
+        })
     }
 
     async fn queue_task_run(
@@ -177,6 +189,33 @@ impl TaskRunQueryHostPort for RecordingHost {
             terminal_result: None,
         })
     }
+
+    async fn get_task_run_effects(
+        &self,
+        taskrun_id: TaskRunId,
+    ) -> Result<TaskRunEffectsV1, TaskRunHostError> {
+        Ok(TaskRunEffectsV1 {
+            taskrun_id,
+            stream_version: 4,
+            attempt_id: Some(ATTEMPT_ID.parse().unwrap()),
+            cancellation_requested: false,
+            local_command: None,
+            remote: RemoteEffectV1 {
+                outcome: RemoteEffectOutcomeV1::Unknown,
+                publication: RemotePublicationV1::Unknown,
+                accounting: RemoteAccountingV1::Unknown,
+                cancellation: RemoteCancellationV1::NotRequested,
+                availability: RemoteEffectAvailabilityV1::Unknown,
+                capabilities: RemoteEffectCapabilitiesV1 {
+                    status_check: false,
+                    stream_resume: false,
+                    remote_cancel: false,
+                },
+                usage_known: None,
+            },
+            successor: SuccessorEligibilityV1::RequiresDuplicateEffectAcknowledgment,
+        })
+    }
 }
 
 fn app(host: RecordingHost) -> axum::Router {
@@ -186,9 +225,13 @@ fn app(host: RecordingHost) -> axum::Router {
             recovery_state: RecoveryState::Ready,
         },
         AdmissionState::new(RecoveryState::Ready),
-        TaskRunHttpState::new(host, ApiActor::new("runne-http-test").unwrap(), None),
+        TaskRunHttpState::new(host, ApiActor::new("runne-http-test").unwrap(), None)
+            .with_prohibited_content(Arc::new(SecretBroker::new().prohibited_content_guard())),
         runne_http::runtime_profile::RuntimeProfileHttpState::new(
-            "test", "test", "0.1.0-test", &["task_run.submit.v2"],
+            "test",
+            "test",
+            "0.1.0-test",
+            &["task_run.submit.v2"],
         ),
     )
 }

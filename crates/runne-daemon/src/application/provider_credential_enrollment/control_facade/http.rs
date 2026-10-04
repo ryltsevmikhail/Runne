@@ -153,6 +153,15 @@ impl DaemonProviderCredentialEnrollmentControl {
         }
     }
 
+    #[cfg(all(test, unix))]
+    pub(crate) fn poison_http_facts_for_test(&self) {
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            if let Ok(_guard) = self.http_facts.lock() {
+                panic!("poison enrollment facts lock for rollback regression");
+            }
+        }));
+    }
+
     #[cfg(all(
         test,
         feature = "desktop-protected",

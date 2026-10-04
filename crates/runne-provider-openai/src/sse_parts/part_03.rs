@@ -1,4 +1,19 @@
 impl Lifecycle {
+    fn accept_queued(&mut self, event: &Map<String, Value>) -> Result<(), OpenAiStreamError> {
+        require_keys(event, &["response", "sequence_number", "type"])?;
+        if !self.background || self.stage != LifecycleStage::CreatedQueued {
+            return Err(OpenAiStreamError::IllegalTransition);
+        }
+        let response = required_object(event, "response")?;
+        self.bind_response(response, "queued")?;
+        require_empty_output(response)?;
+        require_null_or_missing(response, "usage")?;
+        self.stage = LifecycleStage::Queued;
+        Ok(())
+    }
+}
+
+impl Lifecycle {
     fn validate_item_indexes(&self, event: &Map<String, Value>) -> Result<(), OpenAiStreamError> {
         if required_u64(event, "output_index")? != 0
             || required_u64(event, "content_index")? != 0
@@ -8,7 +23,6 @@ impl Lifecycle {
         }
         Ok(())
     }
-
 }
 impl Lifecycle {
     fn accept_optional_terminal_output(
@@ -58,7 +72,6 @@ impl Lifecycle {
         }
         validate_completed_item(item, self.item_id()?, &self.text, status)
     }
-
 }
 impl Lifecycle {
     fn push_optional_usage(
@@ -73,33 +86,31 @@ impl Lifecycle {
             Some(_) | None => self.push_normalized(ProviderStreamEventKind::UsageUnavailable),
         }
     }
-
 }
 impl Lifecycle {
     fn ensure_terminal_prefix_allowed(&mut self) -> Result<(), OpenAiStreamError> {
         self.ensure_started()
     }
-
 }
 impl Lifecycle {
     fn ensure_started(&mut self) -> Result<(), OpenAiStreamError> {
-        if self.normalized.is_empty() {
+        if self.next_normalized_sequence == 0 {
             self.push_normalized(ProviderStreamEventKind::Started)?;
         }
         Ok(())
     }
-
 }
 impl Lifecycle {
     fn push_normalized(&mut self, kind: ProviderStreamEventKind) -> Result<(), OpenAiStreamError> {
-        let sequence = u64::try_from(self.normalized.len())
-            .map_err(|_| OpenAiStreamError::StreamLimitExceeded)?;
+        let sequence = self.next_normalized_sequence;
         let event = ProviderStreamEvent::new(sequence, kind)
             .map_err(|_| OpenAiStreamError::MalformedEvent)?;
         self.normalized.push(event);
+        self.next_normalized_sequence = sequence
+            .checked_add(1)
+            .ok_or(OpenAiStreamError::StreamLimitExceeded)?;
         Ok(())
     }
-
 }
 impl Lifecycle {
     fn item_id(&self) -> Result<&str, OpenAiStreamError> {
@@ -127,19 +138,26 @@ pub fn validate_remote_rejection(body: &[u8]) -> Result<(), OpenAiStreamError> {
     }
     Ok(())
 }
-fn validate_response_guards(response: &Map<String, Value>) -> Result<(), OpenAiStreamError> {
+fn validate_response_guards(
+    response: &Map<String, Value>,
+    background: bool,
+) -> Result<(), OpenAiStreamError> {
     if response.get("object").and_then(Value::as_str) != Some("response")
         || response.get("model").and_then(Value::as_str) != Some(OPENAI_REQUEST_MODEL)
         || response.get("service_tier").and_then(Value::as_str) != Some(OPENAI_SERVICE_TIER)
     {
         return Err(OpenAiStreamError::CorrelationMismatch);
     }
-    if response
-        .get("background")
-        .is_some_and(|value| value != false)
-        || response
-            .get("tools")
-            .is_some_and(|value| value.as_array().is_none_or(|tools| !tools.is_empty()))
+    if if background {
+        response.get("background") != Some(&Value::Bool(true))
+            || response.get("store") != Some(&Value::Bool(false))
+    } else {
+        response
+            .get("background")
+            .is_some_and(|value| value != &Value::Bool(false))
+    } || response
+        .get("tools")
+        .is_some_and(|value| value.as_array().is_none_or(|tools| !tools.is_empty()))
     {
         return Err(OpenAiStreamError::UnknownEvent);
     }
@@ -186,7 +204,7 @@ fn validate_added_item(item: &Map<String, Value>) -> Result<(), OpenAiStreamErro
     Ok(())
 }
 
-fn terminal_item_text<'a>(
+pub fn terminal_item_text<'a>(
     item: &'a Map<String, Value>,
     status: &str,
 ) -> Result<&'a str, OpenAiStreamError> {

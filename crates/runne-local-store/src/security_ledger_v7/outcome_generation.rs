@@ -5,6 +5,29 @@ use super::outcome::{
 };
 use crate::SecurityStateError;
 
+impl GenerationFailureReason {
+    pub(super) const fn tag(self) -> u8 {
+        match self {
+            Self::ProviderOutputRejected => 1,
+            Self::ProviderExecutionRejected => 2,
+            Self::ProviderExecutionFailed => 3,
+            Self::Cancelled => 4,
+            Self::ProviderAccountingUnknown => 5,
+        }
+    }
+
+    pub(super) const fn from_tag(value: u8) -> Option<Self> {
+        match value {
+            1 => Some(Self::ProviderOutputRejected),
+            2 => Some(Self::ProviderExecutionRejected),
+            3 => Some(Self::ProviderExecutionFailed),
+            4 => Some(Self::Cancelled),
+            5 => Some(Self::ProviderAccountingUnknown),
+            _ => None,
+        }
+    }
+}
+
 pub(super) fn generation(
     input: &mut &[u8],
 ) -> Result<CanonicalMutationOutcome, SecurityStateError> {
@@ -60,6 +83,7 @@ pub(super) fn generation(
 
 pub(super) fn validate(
     terminal: GenerationTerminal,
+    task_run_stream_version: u64,
     task_run_id: &crate::BoundedCanonicalId,
     attempt_id: &crate::BoundedCanonicalId,
     user_message: &LedgerMessage,
@@ -73,6 +97,7 @@ pub(super) fn validate(
     }
     match assistant {
         GenerationAssistant::Completed(value) => (terminal == GenerationTerminal::Completed
+            && task_run_stream_version == 5
             && value.role == MessageRole::Assistant
             && value.task_run_id == *task_run_id
             && value.attempt_id == *attempt_id
@@ -81,8 +106,26 @@ pub(super) fn validate(
             .ok_or(SecurityStateError::InvalidTransition),
         GenerationAssistant::Rejected {
             reserved_message_id,
-            ..
+            reason,
         } => (terminal != GenerationTerminal::Completed
+            && matches!(
+                (terminal, task_run_stream_version, reason),
+                (
+                    GenerationTerminal::Rejected,
+                    6,
+                    GenerationFailureReason::Cancelled
+                ) | (
+                    GenerationTerminal::Rejected | GenerationTerminal::Prohibited,
+                    5,
+                    GenerationFailureReason::ProviderOutputRejected
+                        | GenerationFailureReason::ProviderExecutionRejected
+                        | GenerationFailureReason::ProviderExecutionFailed,
+                ) | (
+                    GenerationTerminal::Rejected,
+                    5,
+                    GenerationFailureReason::ProviderAccountingUnknown,
+                )
+            )
             && *reserved_message_id != user_message.message_id)
             .then_some(())
             .ok_or(SecurityStateError::InvalidTransition),

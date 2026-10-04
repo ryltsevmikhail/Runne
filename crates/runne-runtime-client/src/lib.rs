@@ -17,6 +17,9 @@ mod sse;
 
 pub use canonical::CommandReconciliationOutcome;
 pub use canonical::ConversationContextScope;
+#[cfg(feature = "test-support")]
+#[doc(hidden)]
+pub use canonical::test_decode_task_run_effects_wire;
 pub use canonical::{
     APPROVALS_CAPABILITY_V1, ApprovalDecisionAcknowledgementDto, ApprovalDecisionDto,
     ApprovalDecisionRequest, ApprovalStateDto, ApprovalSummaryDto, AuthenticatedRuntimeClient,
@@ -32,8 +35,9 @@ pub use canonical::{
     REQUIRED_RUNTIME_CAPABILITIES_V2, REQUIRED_RUNTIME_CAPABILITIES_V3, RuntimeApiError,
     RuntimeApiErrorKind, RuntimeSessionAuthority, RuntimeSessionInfo, RuntimeTransportKind,
     StartProcessRequest, StopProcessRequest, SubmitTaskRunRequest, SubmitTaskRunV1Request,
-    TaskRunCancellationAcknowledgement, TaskRunSnapshot, TaskRunState,
-    TaskRunSubmitAcknowledgement, TaskRunTerminalResult, WORKSPACE_DIFFS_CAPABILITY_V1,
+    SupersedeUnknownTaskRunRequest, TaskRunCancellationAcknowledgement, TaskRunSnapshot,
+    TaskRunState, TaskRunSubmitAcknowledgement, TaskRunSuccessorAcknowledgement,
+    TaskRunTerminalResult, UnknownSuccessorAcknowledgment, WORKSPACE_DIFFS_CAPABILITY_V1,
     WORKSPACE_EDITOR_CAPABILITY_V1, WORKSPACE_FILES_CAPABILITY_V1, WorkspaceChangeEntryDto,
     WorkspaceChangeKindDto, WorkspaceChangeSetDto, WorkspaceDiffDto, WorkspaceDiffHunkDto,
     WorkspaceDiffLineDto, WorkspaceDiffLineKindDto, WorkspaceFileContentDto, WorkspaceFileEntryDto,
@@ -48,6 +52,12 @@ pub use canonical::{
 };
 pub use canonical::{CommandReconciliationDisposition, CommandReconciliationRequest};
 pub use canonical::{ConversationGenerationFailureReason, ConversationTextRejection};
+pub use canonical::{
+    LocalCommandEffect, LocalExecutionOutcome, LocalStopEvidence, RemoteAccountingDisposition,
+    RemoteCancellationEvidence, RemoteEffect, RemoteEffectAvailability, RemoteEffectCapabilities,
+    RemoteEffectOutcome, RemotePublicationDisposition, TaskRunEffectsV1,
+    TaskRunSuccessorEligibility,
+};
 pub use canonical::{ProviderCredentialMutationAckDto, RevokeProviderCredentialRequest};
 pub use local_profile::{
     LocalProfileError, LocalRuntimeConnectError, LocalRuntimeProfile, default_local_profile_path,

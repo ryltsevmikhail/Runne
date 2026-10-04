@@ -41,6 +41,45 @@ fn verify_current_runtime_lease(
         .optional()
         .map_err(|_| ProviderExecutionError::StoreUnavailable)?
         .ok_or(ProviderExecutionError::StaleGeneration)?;
+    let primary_profile_current =
+        current.6 == attempt.profile_digest && current.7 == attempt.pricing_revision_digest;
+    let secondary_profile_current = if primary_profile_current {
+        false
+    } else {
+        connection
+            .query_row(
+                "SELECT EXISTS(
+                    SELECT 1 FROM provider_secondary_profile_attempts binding
+                    JOIN provider_secondary_profile_grants grant_row USING(grant_id)
+                    JOIN provider_secondary_profile_bindings historical ON historical.binding_id=binding.binding_id
+                    JOIN provider_execution_admissions admission ON admission.dispatch_attempt_id=binding.dispatch_attempt_id
+                    JOIN provider_runtime_authority_state runtime ON runtime.id=1
+                    WHERE binding.dispatch_attempt_id=?1
+                      AND binding.profile_digest=?2
+                      AND binding.pricing_revision_digest=?3
+                      AND grant_row.profile_digest=?2
+                      AND grant_row.pricing_revision_digest=?3
+                      AND grant_row.runtime_authority_id=runtime.runtime_authority_id
+                      AND grant_row.database_generation=runtime.database_generation
+                      AND admission.owner_id=historical.owner_id
+                      AND admission.authority_revision=historical.authority_revision
+                      AND admission.scope=historical.scope
+                      AND admission.activation_binding_kind=historical.activation_binding_kind
+                      AND admission.activation_binding_digest=historical.activation_binding_digest
+                      AND historical.grant_id=grant_row.grant_id
+                      AND grant_row.runtime_authority_id=?4
+                      AND grant_row.database_generation=?5)",
+                params![
+                    attempt.dispatch_attempt_id.as_bytes().as_slice(),
+                    attempt.profile_digest.as_slice(),
+                    attempt.pricing_revision_digest.as_slice(),
+                    attempt.runtime_authority_id.as_slice(),
+                    execution_i64(attempt.database_generation)?,
+                ],
+                |row| row.get(0),
+            )
+            .map_err(|_| ProviderExecutionError::StoreUnavailable)?
+    };
     if !current.8
         || current.0 != attempt.runtime_authority_id
         || current.1 != attempt.database_generation
@@ -48,8 +87,7 @@ fn verify_current_runtime_lease(
         || current.3 != attempt.generation
         || current.4 != attempt.fencing_token
         || current.5 != attempt.fencing_token
-        || current.6 != attempt.profile_digest
-        || current.7 != attempt.pricing_revision_digest
+        || (!primary_profile_current && !secondary_profile_current)
     {
         return Err(ProviderExecutionError::StaleGeneration);
     }
@@ -225,8 +263,7 @@ fn insert_nonce(
 fn validate_terminal_commit(
     request: &ProviderTerminalCommitRequest,
 ) -> Result<(), ProviderExecutionError> {
-    let completed =
-        request.disposition() == runne_provider::ProviderTerminalDisposition::Completed;
+    let completed = request.disposition() == runne_provider::ProviderTerminalDisposition::Completed;
     if request.outbox_id() == &[0; 16]
         || request.fencing_token() == 0
         || request.runtime_generation() == 0

@@ -3,6 +3,8 @@
 pub enum ProviderCredentialId {
     /// `OpenAI` Responses API credential.
     OpenAi,
+    /// Separately enrolled `OpenAI` background Responses API credential.
+    OpenAiBackground,
     /// `DeepSeek` Responses API credential.
     DeepSeek,
     /// Z.ai Coding Plan credential.
@@ -21,6 +23,7 @@ impl ProviderCredentialId {
     pub fn from_account(account: &str) -> Option<Self> {
         match account {
             "openai" => Some(Self::OpenAi),
+            "openai-background" => Some(Self::OpenAiBackground),
             "deepseek" => Some(Self::DeepSeek),
             "zai" => Some(Self::Zai),
             "qwen-token-plan-individual" => Some(Self::QwenTokenPlanIndividual),
@@ -70,6 +73,7 @@ impl ProviderCredentialId {
     pub const fn account(self) -> &'static str {
         match self {
             Self::OpenAi => "openai",
+            Self::OpenAiBackground => "openai-background",
             Self::DeepSeek => "deepseek",
             Self::Zai => "zai",
             Self::QwenTokenPlanIndividual => "qwen-token-plan-individual",
@@ -90,6 +94,7 @@ mod tests {
             "ant-ling",
             "azure-openai-responses",
             "openai",
+            "openai-background",
             "deepseek",
             "nvidia",
             "google",
@@ -131,5 +136,9 @@ mod tests {
             assert_eq!(provider.account(), account);
         }
         assert!(ProviderCredentialId::from_account("fireworks/other").is_none());
+        assert_ne!(
+            ProviderCredentialId::from_account("openai-background"),
+            ProviderCredentialId::from_account("openai")
+        );
     }
 }

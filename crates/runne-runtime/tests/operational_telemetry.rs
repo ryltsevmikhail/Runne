@@ -92,7 +92,9 @@ fn pending_outbox_id<S>(
     >,
 ) -> [u8; 16]
 where
-    S: ProviderExecutionStore + ProviderTerminalPersistence,
+    S: ProviderExecutionStore
+        + ProviderTerminalPersistence
+        + runne_application::provider::ProviderRemoteRecoveryStore,
 {
     runtime.recover_pending_terminal_outputs().unwrap()[0]
         .record()

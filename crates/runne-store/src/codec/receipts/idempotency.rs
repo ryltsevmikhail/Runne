@@ -106,6 +106,8 @@ impl StoreCodec<IdempotencyScope> for IdempotencyScopeCodec {
             20 => OperationTag::SubmitTaskRun,
             21 => OperationTag::TaskRunClaim,
             22 => OperationTag::TaskRunNoEffectRelease,
+            23 => OperationTag::CompleteQueuedCancellation,
+            24 => OperationTag::SupersedeUnknownTaskRun,
             t => {
                 return Err(StoreCodecError::UnknownTag {
                     tag: t,

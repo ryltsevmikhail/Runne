@@ -3,7 +3,8 @@ use runne_provider::{
     CredentialDispatchCapability, CredentialFence, CredentialLifecycleRevision, ProviderFuture,
 };
 use runne_provider_openai::{
-    OpenAiCredentialError, OpenAiCredentialMaterializer, OpenAiTransportPolicy,
+    OpenAiBackgroundCredentialMaterializer, OpenAiCredentialError, OpenAiCredentialMaterializer,
+    OpenAiTransportPolicy,
 };
 use runne_secure_store::{
     ProviderCredentialDispatchMaterializer, ProviderCredentialDispatchRead, SecureStoreError,
@@ -12,6 +13,9 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use subtle::ConstantTimeEq as _;
 use zeroize::Zeroizing;
+
+mod background_credential;
+pub(super) use background_credential::NativeBackgroundCredential;
 
 pub(super) fn production_client(policy: &OpenAiTransportPolicy) -> Result<reqwest::Client, ()> {
     client_builder(policy).build().map_err(|_| ())
@@ -153,6 +157,8 @@ impl OpenAiCredentialMaterializer for FixtureCredential {
         Box::pin(async { Ok(Zeroizing::new(FIXTURE_CREDENTIAL.to_vec())) })
     }
 }
+
+impl OpenAiBackgroundCredentialMaterializer for FixtureCredential {}
 
 #[cfg(test)]
 mod tests {

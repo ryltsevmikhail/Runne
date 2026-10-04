@@ -202,6 +202,20 @@ impl CommandReconciliationRequest {
             },
         }
     }
+    #[must_use]
+    pub const fn supersede_unknown_task_run(
+        identity: CommandIdentity,
+        predecessor_task_run_id: CanonicalId,
+        expected_version: u64,
+    ) -> Self {
+        Self {
+            identity,
+            witness: CommandReconciliationWitness::SupersedeUnknownTaskRun {
+                predecessor_task_run_id,
+                expected_version,
+            },
+        }
+    }
     /// Builds an atomic-submit reconciliation witness. The runtime owns the
     /// resulting `TaskRun` identity; the witness pins only the referenced
     /// aggregate roots of the submitted command.
@@ -223,6 +237,9 @@ impl CommandReconciliationRequest {
                 conversation_id,
                 workspace_id,
                 prompt: Some(prompt),
+                model: None,
+                profile: None,
+                local_command: None,
             },
         })
     }
@@ -241,6 +258,9 @@ impl CommandReconciliationRequest {
                 conversation_id,
                 workspace_id,
                 prompt: None,
+                model: None,
+                profile: None,
+                local_command: None,
             },
         }
     }

@@ -38,5 +38,6 @@ fn receipt(credential_version: u64) -> ProviderEffectStartReceipt {
         credential_owner: [10; 16],
         credential_expires_at: 40,
         credential_fencing_token: 11,
+        final_send: None,
     }
 }

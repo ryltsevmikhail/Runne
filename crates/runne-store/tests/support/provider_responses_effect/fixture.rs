@@ -1,5 +1,4 @@
 use runne_application::provider::ProviderCoordinatorRequest;
-use runne_domain::id::{AttemptId, ConversationId, TaskRunId};
 use runne_provider::{
     ModelRef, ProviderCall, ProviderCallId, ProviderCapability, ProviderId, ProviderInputRole,
     ProviderTextInput,
@@ -12,6 +11,7 @@ use runne_store::provider::{
 
 pub struct Fixture {
     pub(crate) _database: crate::validated_reopen::ProviderTestDatabase,
+    pub(crate) _taskrun_store: runne_store::store::StoreTransaction,
     pub(crate) dispatch: SqliteProviderDispatchStore,
     pub(crate) execution: SqliteProviderExecutionStore,
     pub(crate) credential: SqliteProviderCredentialLifecycleStore,
@@ -36,6 +36,8 @@ data: {"type":"response.completed","sequence_number":2,"response":{"id":"resp_fi
 
 pub(crate) fn fixture() -> Fixture {
     let database = crate::validated_reopen::ProviderTestDatabase::new("responses-effect");
+    let started =
+        crate::provider_taskrun_start::begin(database.path(), [1; 16], "principal", "hello");
     let dispatch = database.dispatch();
     let execution = database.execution();
     let credential = crate::online_credential_fixture::credential(&database, "xai", 31);
@@ -88,6 +90,7 @@ pub(crate) fn fixture() -> Fixture {
     .with_required_capabilities(vec![ProviderCapability::Streaming]);
     Fixture {
         _database: database,
+        _taskrun_store: started._store,
         dispatch,
         execution,
         credential,
@@ -96,9 +99,9 @@ pub(crate) fn fixture() -> Fixture {
         request: ProviderCoordinatorRequest {
             call,
             principal_id: "principal".into(),
-            conversation_id: ConversationId::from_bytes([6; 16]),
-            taskrun_id: TaskRunId::from_bytes([7; 16]),
-            execution_attempt_id: AttemptId::from_bytes([8; 16]),
+            conversation_id: started.receipt.conversation_id,
+            taskrun_id: started.receipt.taskrun_id,
+            execution_attempt_id: started.receipt.attempt_id,
             profile_digest: digest,
             pricing_revision_digest: [3; 32],
             requested_input_tokens: 32,

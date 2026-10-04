@@ -3,8 +3,8 @@ fn v37_upgrade_preserves_legacy_schema_and_allows_only_typed_zero_cost() {
     let conn = Connection::open_in_memory().unwrap();
     initialize_released_v13(&conn);
     apply_migrations(&conn).unwrap();
-    assert_eq!(schema_marker(&conn), 48);
-    assert!(v48_matches(&conn, 48).unwrap());
+    assert_eq!(schema_marker(&conn), CURRENT_SCHEMA_VERSION);
+    assert!(v63_matches(&conn, CURRENT_SCHEMA_VERSION).unwrap());
     let trigger: String = conn
         .query_row(
             "SELECT sql FROM sqlite_master WHERE type = 'trigger' AND name = ?1",
@@ -22,14 +22,15 @@ fn v37_upgrade_preserves_legacy_schema_and_allows_only_typed_zero_cost() {
         [],
     )
     .unwrap();
-    assert!(conn
-        .execute(
+    assert!(
+        conn.execute(
             "INSERT INTO provider_budget_reservations
              (reservation_id, provider_idempotency_key, dimension, amount, state)
              VALUES (randomblob(16), 'paid-key', 1, 0, 1)",
             [],
         )
-        .is_err());
+        .is_err()
+    );
 }
 
 #[test]

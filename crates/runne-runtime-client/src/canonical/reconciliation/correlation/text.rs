@@ -36,6 +36,9 @@ fn completed(
     wire: TextTerminalWire,
 ) -> Result<CommandReconciliationOutcome, RuntimeApiError> {
     validate_terminal(conversation, expected, input, &wire)?;
+    if wire.task_run_stream_version != 5 {
+        return Err(invalid_response());
+    }
     let assistant = wire
         .assistant_message
         .into_option()
@@ -84,10 +87,34 @@ fn rejection(
         return Err(invalid_response());
     }
     let reason = match wire.reason.into_option().ok_or_else(invalid_response)? {
-        FailureReasonWire::ProviderOutputRejected => {
+        FailureReasonWire::OutputRejected => {
             ConversationGenerationFailureReason::ProviderOutputRejected
         }
+        FailureReasonWire::ExecutionRejected => {
+            ConversationGenerationFailureReason::ProviderExecutionRejected
+        }
+        FailureReasonWire::ExecutionFailed => {
+            ConversationGenerationFailureReason::ProviderExecutionFailed
+        }
+        FailureReasonWire::AccountingUnknown => {
+            ConversationGenerationFailureReason::ProviderAccountingUnknown
+        }
+        FailureReasonWire::Cancelled => ConversationGenerationFailureReason::Cancelled,
     };
+    let valid_taskrun_version = matches!(
+        (wire.task_run_stream_version, reason, prohibited),
+        (
+            5,
+            ConversationGenerationFailureReason::ProviderOutputRejected
+                | ConversationGenerationFailureReason::ProviderExecutionRejected
+                | ConversationGenerationFailureReason::ProviderExecutionFailed
+                | ConversationGenerationFailureReason::ProviderAccountingUnknown,
+            _
+        ) | (6, ConversationGenerationFailureReason::Cancelled, false)
+    );
+    if !valid_taskrun_version {
+        return Err(invalid_response());
+    }
     let value = ConversationTextRejection {
         conversation_id: wire.conversation_id,
         task_run_id: wire.task_run_id,
@@ -113,7 +140,6 @@ fn validate_terminal(
 ) -> Result<(), RuntimeApiError> {
     if conversation != wire.conversation_id
         || expected.checked_add(2) != Some(wire.conversation_stream_version)
-        || wire.task_run_stream_version != 5
         || wire.user_message.text != input
     {
         return Err(invalid_response());

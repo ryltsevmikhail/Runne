@@ -111,7 +111,13 @@ impl ResponsesTransport for NoTransport {
         _: &'a str,
         _: reqwest::header::HeaderMap,
         _: Vec<u8>,
+        final_send: runne_store::provider::ProviderFinalSendAuthority,
     ) -> runne_provider::ProviderFuture<'a, Result<TransportResponse, DispatchError>> {
-        Box::pin(async { Err(DispatchError::MaybeDispatched) })
+        Box::pin(async move {
+            final_send
+                .consume()
+                .map_err(|_| DispatchError::MaybeDispatched)?;
+            Err(DispatchError::MaybeDispatched)
+        })
     }
 }

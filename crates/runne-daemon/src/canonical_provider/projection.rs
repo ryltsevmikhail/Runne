@@ -28,10 +28,9 @@ pub(super) fn project_call(
         return Err(CanonicalProviderExecutionError::Conflict);
     }
     let mut inputs = Vec::new();
-    // The failed turn's user message, tracked so a GenerationFailed can drop
-    // it: a retry's user message replaces the failed turn instead of
-    // stacking a second consecutive user input (strict user/assistant
-    // alternation downstream).
+    // The unresolved turn's user message is removed when its generation fails
+    // or is explicitly superseded; a retry replaces it instead of stacking a
+    // second consecutive user input downstream.
     let mut failed_turn_user: Option<(TaskRunId, AttemptId)> = None;
     let mut manifest = Sha256::new();
     manifest.update(b"GOCODE_CONVERSATION_TEXT_PATH_V2\0");
@@ -62,6 +61,11 @@ pub(super) fn project_call(
                 );
             }
             ConversationEvent::GenerationFailed {
+                taskrun_id,
+                attempt_id,
+                ..
+            }
+            | ConversationEvent::GenerationSupersededUnknown {
                 taskrun_id,
                 attempt_id,
                 ..

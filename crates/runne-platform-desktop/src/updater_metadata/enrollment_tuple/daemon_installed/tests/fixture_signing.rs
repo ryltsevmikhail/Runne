@@ -156,7 +156,8 @@ pub(super) fn fixture_linux_target(
         expires_at,
     )
     .unwrap();
-    target.native_enrollment_tuple = Some(tuple.with_qualification(&target, qualification).unwrap());
+    target.native_enrollment_tuple =
+        Some(tuple.with_qualification(&target, qualification).unwrap());
     target
 }
 

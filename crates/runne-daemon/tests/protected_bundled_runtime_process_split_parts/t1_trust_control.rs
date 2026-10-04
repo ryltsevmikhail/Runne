@@ -126,7 +126,7 @@ pub(super) fn assert_persistence_sinks(
     assert_eq!(
         std::fs::read_to_string(provider_root.join("fixture-provider-request-count"))
             .expect("fixture request count"),
-        "1"
+        "3"
     );
     let receipt: serde_json::Value = serde_json::from_slice(
         &std::fs::read(provider_root.join("fixture-provider-wire-scan-receipt.json"))

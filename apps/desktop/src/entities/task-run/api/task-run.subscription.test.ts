@@ -13,12 +13,105 @@ describe('TaskRun subscription lifecycle', () => {
     const order: string[] = []
     const invoke = vi.fn(async (command: string, args?: Record<string, unknown>) => {
       if (command === 'subscribe_task_run_timeline') { delivery = (args?.onUpdate as { onmessage: (value: unknown) => void }).onmessage; return '018f2e3a-7000-7000-8000-000000000220' }
+      if (command === 'get_task_run_timeline') return { ...snapshot, projectionRevision: 1, streamVersion: 1, entries: [{ eventId: '018f2e3a-7000-7000-8000-000000000211', sequence: 1, committedAt: 1, kind: 'attempt_started', attemptId: null }] }
       if (command === 'ack_task_run_update') order.push(`ack:${String(args?.projectionRevision)}`)
     })
     const session = await subscribeTaskRunTimeline(id, snapshot, value => order.push(`render:${value.projectionRevision}`), invoke)
     delivery?.({ kind: 'update', taskRunId: id, projectionRevision: 1, streamVersion: 1, entry: { eventId: '018f2e3a-7000-7000-8000-000000000211', sequence: 1, committedAt: 1, kind: 'attempt_started', attemptId: null }, recovery: 'live' })
     await vi.waitFor(() => expect(order).toEqual(['render:1', 'ack:1']))
     await session.unsubscribe()
+  })
+
+  it('refreshes authoritative typed failure after a terminal event before acknowledging', async () => {
+    let delivery: ((value: unknown) => void) | undefined
+    const order: string[] = []
+    const failed: TaskRunTimeline = { ...snapshot, projectionRevision: 1, streamVersion: 1, state: 'succeeded', terminal: 'failure', entries: [{ eventId: '018f2e3a-7000-7000-8000-000000000211', sequence: 1, committedAt: 1, kind: 'completed', attemptId: null }] }
+    const invoke = vi.fn(async (command: string, args?: Record<string, unknown>) => {
+      if (command === 'subscribe_task_run_timeline') { delivery = (args?.onUpdate as { onmessage: (value: unknown) => void }).onmessage; return '018f2e3a-7000-7000-8000-000000000220' }
+      if (command === 'get_task_run_timeline') return failed
+      if (command === 'ack_task_run_update') order.push(`ack:${String(args?.projectionRevision)}`)
+    })
+    const session = await subscribeTaskRunTimeline(id, snapshot, value => order.push(`render:${value.terminal ?? value.state}`), invoke)
+    delivery?.({ kind: 'update', taskRunId: id, projectionRevision: 1, streamVersion: 1, entry: failed.entries[0], recovery: 'live' })
+    await vi.waitFor(() => expect(order).toEqual(['render:failure', 'ack:1']))
+    expect(invoke).toHaveBeenCalledWith('get_task_run_timeline', { taskRunId: id })
+    await session.unsubscribe()
+  })
+
+  it('refreshes lifecycle state from running through cancelling to cancelled', async () => {
+    let delivery: ((value: unknown) => void) | undefined
+    const order: string[] = []
+    let refresh = 0
+    const states: TaskRunTimeline[] = [
+      { ...snapshot, projectionRevision: 1, streamVersion: 1, state: 'cancelling', entries: [{ eventId: '018f2e3a-7000-7000-8000-000000000211', sequence: 1, committedAt: 1, kind: 'cancellation_requested', attemptId: null }] },
+      { ...snapshot, projectionRevision: 2, streamVersion: 2, state: 'cancelled', terminal: 'cancelled', entries: [{ eventId: '018f2e3a-7000-7000-8000-000000000211', sequence: 1, committedAt: 1, kind: 'cancellation_requested', attemptId: null }, { eventId: '018f2e3a-7000-7000-8000-000000000212', sequence: 2, committedAt: 2, kind: 'cancellation_completed', attemptId: null }] },
+    ]
+    const invoke = vi.fn(async (command: string, args?: Record<string, unknown>) => {
+      if (command === 'subscribe_task_run_timeline') { delivery = (args?.onUpdate as { onmessage: (value: unknown) => void }).onmessage; return '018f2e3a-7000-7000-8000-000000000220' }
+      if (command === 'get_task_run_timeline') return states[refresh++]
+      if (command === 'ack_task_run_update') order.push(`ack:${String(args?.projectionRevision)}`)
+    })
+    const session = await subscribeTaskRunTimeline(id, snapshot, value => order.push(`render:${value.state}:${value.terminal ?? 'none'}`), invoke)
+    delivery?.({ kind: 'update', taskRunId: id, projectionRevision: 1, streamVersion: 1, entry: states[0]!.entries[0]!, recovery: 'live' })
+    delivery?.({ kind: 'update', taskRunId: id, projectionRevision: 2, streamVersion: 2, entry: states[1]!.entries[1]!, recovery: 'live' })
+    await vi.waitFor(() => expect(order).toEqual(['render:cancelling:none', 'ack:1', 'render:cancelled:cancelled', 'ack:2']))
+    await session.unsubscribe()
+  })
+
+  it('drops a held authoritative refresh after unsubscribe without a late render or ACK', async () => {
+    let delivery: ((value: unknown) => void) | undefined
+    let finishRefresh: ((value: TaskRunTimeline) => void) | undefined
+    const updates: TaskRunTimeline[] = []
+    const invoke = vi.fn((command: string, args?: Record<string, unknown>) => {
+      if (command === 'subscribe_task_run_timeline') { delivery = (args?.onUpdate as { onmessage: (value: unknown) => void }).onmessage; return Promise.resolve('018f2e3a-7000-7000-8000-000000000220') }
+      if (command === 'get_task_run_timeline') return new Promise<TaskRunTimeline>(resolve => { finishRefresh = resolve })
+      return Promise.resolve(undefined)
+    })
+    const session = await subscribeTaskRunTimeline(id, snapshot, value => updates.push(value), invoke)
+    delivery?.({ kind: 'update', taskRunId: id, projectionRevision: 1, streamVersion: 1, entry: { eventId: '018f2e3a-7000-7000-8000-000000000211', sequence: 1, committedAt: 1, kind: 'attempt_started', attemptId: null }, recovery: 'live' })
+    await vi.waitFor(() => expect(invoke).toHaveBeenCalledWith('get_task_run_timeline', { taskRunId: id }))
+    await session.unsubscribe()
+    finishRefresh?.({ ...snapshot, projectionRevision: 1, streamVersion: 1, state: 'running' })
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(updates).toEqual([])
+    expect(invoke).not.toHaveBeenCalledWith('ack_task_run_update', expect.anything())
+  })
+
+  it('drops a held gap refresh after unsubscribe without publishing stale history', async () => {
+    let delivery: ((value: unknown) => void) | undefined
+    let finishRefresh: ((value: TaskRunTimeline) => void) | undefined
+    const updates: TaskRunTimeline[] = []
+    const invoke = vi.fn((command: string, args?: Record<string, unknown>) => {
+      if (command === 'subscribe_task_run_timeline') { delivery = (args?.onUpdate as { onmessage: (value: unknown) => void }).onmessage; return Promise.resolve('018f2e3a-7000-7000-8000-000000000220') }
+      if (command === 'get_task_run_timeline') return new Promise<TaskRunTimeline>(resolve => { finishRefresh = resolve })
+      return Promise.resolve(undefined)
+    })
+    const session = await subscribeTaskRunTimeline(id, snapshot, value => updates.push(value), invoke)
+    delivery?.({ kind: 'update', taskRunId: id, projectionRevision: 2, streamVersion: 2, entry: null, recovery: 'live' })
+    await vi.waitFor(() => expect(invoke).toHaveBeenCalledWith('get_task_run_timeline', { taskRunId: id }))
+    await session.unsubscribe()
+    finishRefresh?.({ ...snapshot, projectionRevision: 2, streamVersion: 2, state: 'cancelled', terminal: 'cancelled' })
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(updates).toEqual([])
+    expect(invoke).not.toHaveBeenCalledWith('ack_task_run_update', expect.anything())
+  })
+
+  it('ignores a rejected held gap refresh after unsubscribe', async () => {
+    let delivery: ((value: unknown) => void) | undefined
+    let rejectRefresh: ((error: Error) => void) | undefined
+    const updates: TaskRunTimeline[] = []
+    const invoke = vi.fn((command: string, args?: Record<string, unknown>) => {
+      if (command === 'subscribe_task_run_timeline') { delivery = (args?.onUpdate as { onmessage: (value: unknown) => void }).onmessage; return Promise.resolve('018f2e3a-7000-7000-8000-000000000220') }
+      if (command === 'get_task_run_timeline') return new Promise<TaskRunTimeline>((_resolve, reject) => { rejectRefresh = reject })
+      return Promise.resolve(undefined)
+    })
+    const session = await subscribeTaskRunTimeline(id, snapshot, value => updates.push(value), invoke)
+    delivery?.({ kind: 'update', taskRunId: id, projectionRevision: 2, streamVersion: 2, entry: null, recovery: 'live' })
+    await vi.waitFor(() => expect(invoke).toHaveBeenCalledWith('get_task_run_timeline', { taskRunId: id }))
+    await session.unsubscribe()
+    rejectRefresh?.(new Error('late refresh failure'))
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(updates).toEqual([])
   })
 
   it('buffers a synchronous first update until its subscription ID can acknowledge it', async () => {
@@ -144,7 +237,7 @@ describe('TaskRun subscription lifecycle', () => {
     const recoveries: string[] = []
     const invoke = vi.fn(async (command: string, args?: Record<string, unknown>) => {
       if (command === 'subscribe_task_run_timeline') { delivery = (args?.onUpdate as { onmessage: (value: unknown) => void }).onmessage; return '018f2e3a-7000-7000-8000-000000000220' }
-      if (command === 'get_task_run_timeline') return { ...snapshot, projectionRevision: 1, streamVersion: 1 }
+      if (command === 'get_task_run_timeline') return { ...snapshot, projectionRevision: 2, streamVersion: 2 }
       if (command === 'cancel_task_run_subscription') throw new Error('termination unresolved')
     })
     const session = await subscribeTaskRunTimeline(id, snapshot, value => recoveries.push(value.recovery), invoke)

@@ -212,6 +212,7 @@ fn catalog_is_exactly_closed_and_each_entry_has_a_classification() {
         "anthropic",
         "google",
         "openai",
+        "openai-background",
         "xai",
         "ant-ling",
         "google-vertex",

@@ -15,10 +15,28 @@ impl DaemonProviderCredentialEnrollmentControl {
         }
         let handles = ProviderCredentialOperationHandleIssuer::new(http::generate_handle_key()?);
         let rendezvous = PendingBrokerRendezvousRegistry::new(handles.duplicate());
-        #[cfg(any(all(feature = "desktop-protected", target_os = "linux"), all(feature = "desktop-protected", target_os = "macos", target_arch = "aarch64")))]
+        #[cfg(any(
+            all(feature = "desktop-protected", target_os = "linux"),
+            all(
+                feature = "desktop-protected",
+                target_os = "macos",
+                target_arch = "aarch64"
+            )
+        ))]
         let (http_authority_issuer, http_authority_verifier) =
             ProviderCredentialRequestAuthorityPair::new().split();
-        #[cfg(all(test, unix, not(any(all(feature = "desktop-protected", target_os = "linux"), all(feature = "desktop-protected", target_os = "macos", target_arch = "aarch64")))))]
+        #[cfg(all(
+            test,
+            unix,
+            not(any(
+                all(feature = "desktop-protected", target_os = "linux"),
+                all(
+                    feature = "desktop-protected",
+                    target_os = "macos",
+                    target_arch = "aarch64"
+                )
+            ))
+        ))]
         let (http_authority_issuer, _) = ProviderCredentialRequestAuthorityPair::new().split();
         Ok(Self {
             store,
@@ -27,15 +45,50 @@ impl DaemonProviderCredentialEnrollmentControl {
             enrollment_store_authority,
             handles,
             rendezvous,
-            #[cfg(any(all(test, unix), target_os = "linux", all(feature = "desktop-protected", target_os = "macos", target_arch = "aarch64")))]
+            #[cfg(any(
+                all(test, unix),
+                target_os = "linux",
+                all(
+                    feature = "desktop-protected",
+                    target_os = "macos",
+                    target_arch = "aarch64"
+                )
+            ))]
             verification: OnceLock::new(),
-            #[cfg(any(all(test, unix), all(feature = "desktop-protected", target_os = "linux"), all(target_os = "macos", feature = "desktop-protected")))]
+            #[cfg(any(
+                all(test, unix),
+                all(feature = "desktop-protected", target_os = "linux"),
+                all(target_os = "macos", feature = "desktop-protected")
+            ))]
             local_readback: OnceLock::new(),
-            #[cfg(any(all(test, unix), all(feature = "desktop-protected", target_os = "linux"), all(feature = "desktop-protected", target_os = "macos", target_arch = "aarch64")))]
+            #[cfg(any(
+                all(test, unix),
+                all(feature = "desktop-protected", target_os = "linux"),
+                all(
+                    feature = "desktop-protected",
+                    target_os = "macos",
+                    target_arch = "aarch64"
+                )
+            ))]
             http_authority_issuer,
-            #[cfg(any(all(feature = "desktop-protected", target_os = "linux"), all(feature = "desktop-protected", target_os = "macos", target_arch = "aarch64")))]
+            #[cfg(any(
+                all(feature = "desktop-protected", target_os = "linux"),
+                all(
+                    feature = "desktop-protected",
+                    target_os = "macos",
+                    target_arch = "aarch64"
+                )
+            ))]
             http_authority_verifier,
-            #[cfg(any(all(test, unix), target_os = "linux", all(feature = "desktop-protected", target_os = "macos", target_arch = "aarch64")))]
+            #[cfg(any(
+                all(test, unix),
+                target_os = "linux",
+                all(
+                    feature = "desktop-protected",
+                    target_os = "macos",
+                    target_arch = "aarch64"
+                )
+            ))]
             http_facts: super::http_admission_resolver::live_credential_http_facts(),
             #[cfg(any(
                 target_os = "linux",
@@ -48,7 +101,14 @@ impl DaemonProviderCredentialEnrollmentControl {
             runtime_authority,
             #[cfg(target_os = "linux")]
             linux_preadmission: std::sync::Mutex::new(None),
-            #[cfg(any(all(feature = "desktop-protected", target_os = "linux"), all(feature = "desktop-protected", target_os = "macos", target_arch = "aarch64")))]
+            #[cfg(any(
+                all(feature = "desktop-protected", target_os = "linux"),
+                all(
+                    feature = "desktop-protected",
+                    target_os = "macos",
+                    target_arch = "aarch64"
+                )
+            ))]
             database_generation,
             #[cfg(all(target_os = "macos", feature = "desktop-protected"))]
             credential_service,
@@ -64,7 +124,14 @@ impl DaemonProviderCredentialEnrollmentControl {
         )
     ))]
     #[cfg_attr(
-        not(any(test, all(target_os = "macos", target_arch = "aarch64", feature = "desktop-protected"))),
+        not(any(
+            test,
+            all(
+                target_os = "macos",
+                target_arch = "aarch64",
+                feature = "desktop-protected"
+            )
+        )),
         expect(
             dead_code,
             reason = "the D1 Linux composition slice consumes the construction accessors; the macOS flow and tests drive them today"
@@ -96,7 +163,14 @@ impl DaemonProviderCredentialEnrollmentControl {
         )
     ))]
     #[cfg_attr(
-        not(any(test, all(target_os = "macos", target_arch = "aarch64", feature = "desktop-protected"))),
+        not(any(
+            test,
+            all(
+                target_os = "macos",
+                target_arch = "aarch64",
+                feature = "desktop-protected"
+            )
+        )),
         expect(
             dead_code,
             reason = "the D1 Linux composition slice consumes the construction accessors; the macOS flow and tests drive them today"
@@ -115,7 +189,14 @@ impl DaemonProviderCredentialEnrollmentControl {
         )
     ))]
     #[cfg_attr(
-        not(any(test, all(target_os = "macos", target_arch = "aarch64", feature = "desktop-protected"))),
+        not(any(
+            test,
+            all(
+                target_os = "macos",
+                target_arch = "aarch64",
+                feature = "desktop-protected"
+            )
+        )),
         expect(
             dead_code,
             reason = "the D1 Linux composition slice consumes the construction accessors; the macOS flow and tests drive them today"
@@ -205,54 +286,5 @@ impl DaemonProviderCredentialEnrollmentControl {
             self.rendezvous.clone(),
         )
         .admit(authority, proof, context, command, now_high_water)
-    }
-
-    #[cfg(any(
-        all(feature = "desktop-protected", target_os = "linux"),
-        all(
-            target_os = "macos",
-            target_arch = "aarch64",
-            feature = "desktop-protected"
-        )
-    ))]
-    pub(crate) fn start_protected_session(
-        self: &Arc<Self>,
-        keys: &runne_api::ProtectedActivationKeys,
-        owned: &runne_api::ProtectedCredentialEnrollmentOwnedLaunchV3,
-        rendezvous: super::broker::rendezvous::DaemonOwnedUnixBrokerRendezvous,
-        #[cfg(all(
-            target_os = "macos",
-            target_arch = "aarch64",
-            feature = "desktop-protected"
-        ))]
-        installed_facts: runne_platform_desktop::VerifiedInstalledEnrollmentMeasurementFacts,
-    ) -> Result<DaemonProtectedCredentialEnrollmentSession, ProviderCredentialEnrollmentHostError>
-    {
-        let facts = ProtectedEnrollmentSessionFacts::from_owned(
-            owned,
-            self.runtime_authority,
-            self.database_generation,
-        )?;
-        #[cfg(all(feature = "desktop-protected", target_os = "linux"))]
-        let session = DaemonProtectedCredentialEnrollmentSession::new(
-            Arc::clone(self),
-            keys,
-            facts.clone(),
-            rendezvous,
-        )?;
-        #[cfg(all(
-            target_os = "macos",
-            target_arch = "aarch64",
-            feature = "desktop-protected"
-        ))]
-        let session = DaemonProtectedCredentialEnrollmentSession::new(
-            Arc::clone(self),
-            keys,
-            facts.clone(),
-            rendezvous,
-            Some(installed_facts),
-        )?;
-        self.publish_http_facts(facts)?;
-        Ok(session)
     }
 }

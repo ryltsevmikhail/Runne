@@ -66,31 +66,27 @@ impl TaskRunExecutionInputPort for StoreTransaction {
                 _ => Error::CorruptData,
             },
         )?;
-        let payload: Vec<u8> = tx
-            .query_row(
-                "SELECT payload FROM events WHERE aggregate_type=1 AND aggregate_id=?1 AND sequence=1",
-                [identity.taskrun_id.as_bytes()],
-                |row| row.get(0),
-            )
-            .map_err(|_| Error::CorruptData)?;
-        let event = TaskRunEventCodec
-            .decode(&payload)
-            .map_err(|_| Error::CorruptData)?;
-        let result = match event {
-            TaskRunEvent::TaskRunSubmitted {
-                conversation_id,
-                workspace_id,
-                input,
-            } => TaskRunExecutionInputV2 {
-                taskrun_id: identity.taskrun_id,
-                attempt_id: identity.attempt_id,
-                stream_version: version,
-                conversation_id,
-                workspace_id,
-                input,
-            },
-            TaskRunEvent::TaskRunCreated => return Err(Error::UnsupportedInput),
-            _ => return Err(Error::CorruptData),
+        let origin = super::taskrun_submit_origin::verify_submitted_v2_origin(
+            &tx,
+            identity.taskrun_id,
+            &self.runtime_authority_id,
+        )
+        .map_err(|_| Error::CorruptData)?;
+        let Some(origin) = origin else {
+            return Err(Error::UnsupportedInput);
+        };
+        let input = origin.input;
+        let result = TaskRunExecutionInputV2 {
+            taskrun_id: identity.taskrun_id,
+            attempt_id: identity.attempt_id,
+            stream_version: version,
+            conversation_id: origin.conversation_id,
+            workspace_id: origin.workspace_id,
+            principal_id: origin.principal_id,
+            submit_actor: origin.actor,
+            requested_model: input.requested_model().map(str::to_owned),
+            selected_profile: input.selected_profile().cloned(),
+            input,
         };
         tx.commit().map_err(|_| Error::Unavailable)?;
         Ok(result)

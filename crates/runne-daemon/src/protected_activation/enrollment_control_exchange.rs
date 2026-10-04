@@ -138,9 +138,7 @@ where
         feature = "desktop-protected",
         any(target_os = "linux", all(target_os = "macos", target_arch = "aarch64"))
     ))]
-    if let Some(control) = composition.enrollment_control.as_ref() {
-        control.clear_http_facts(*owned.session_id());
-    }
+    composition.clear_http_facts(*owned.session_id());
     let next_binding = rotate_to_reserved(
         sessions,
         session_clock,

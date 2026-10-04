@@ -2,12 +2,57 @@ use super::event_context::*;
 use super::parse_helpers::*;
 use super::*;
 
+fn validate_text_receipt_origin(
+    connection: &Connection,
+    receipt: &TextGenerationReceipt,
+    text_command: CommandId,
+    text_scope: &IdempotencyScope,
+    authority: &RuntimeAuthorityId,
+) -> Result<(), CommitError> {
+    if text_scope.runtime_authority_id != *authority {
+        return Err(storage_failure(StorageFailureKind::IntegrityViolation));
+    }
+    let payload: Vec<u8> = connection
+        .query_row(
+            "SELECT payload FROM events WHERE aggregate_type=1 AND aggregate_id=?1 AND sequence=1",
+            [receipt.taskrun_id.as_bytes()],
+            |row| row.get(0),
+        )
+        .map_err(|_| storage_failure(StorageFailureKind::CorruptData))?;
+    let submitted = TaskRunEventCodec
+        .decode(&payload)
+        .map_err(|_| storage_failure(StorageFailureKind::CorruptData))?;
+    if !matches!(submitted, TaskRunEvent::TaskRunSubmitted { .. }) {
+        return crate::project_workspace::lineage::validate_text_taskrun_lineage(
+            connection,
+            receipt.taskrun_id,
+            receipt.workspace_id,
+            text_command,
+            text_scope,
+        );
+    }
+    let origin = super::taskrun_submit_origin::verify_submitted_v2_origin(
+        connection,
+        receipt.taskrun_id,
+        authority,
+    )?
+    .ok_or_else(|| storage_failure(StorageFailureKind::IntegrityViolation))?;
+    if origin.conversation_id != receipt.conversation_id
+        || origin.workspace_id != receipt.workspace_id
+        || origin.principal_id != text_scope.principal_id
+    {
+        return Err(storage_failure(StorageFailureKind::IntegrityViolation));
+    }
+    Ok(())
+}
+
 pub(super) fn lookup_text_receipt(
     connection: &Connection,
     command_id: CommandId,
     idempotency_key: &runne_domain::id::IdempotencyKey,
     scope: &[u8],
     fingerprint: &CommandFingerprint,
+    authority: &RuntimeAuthorityId,
 ) -> Result<TextGenerationReceiptLookup, CommitError> {
     if let Some(stored_fingerprint) = connection
         .query_row(
@@ -61,17 +106,27 @@ pub(super) fn lookup_text_receipt(
                 | TextGenerationPhase::Rejected
                 | TextGenerationPhase::ProhibitedInputRejected => {
                     stored_result.taskrun_version == 5
+                        || (stored_result.phase == TextGenerationPhase::Rejected
+                            && stored_result.taskrun_version == 6)
                 }
             };
             if stored_scope.operation != OperationTag::GenerateConversationText || !version_valid {
                 return Err(storage_failure(StorageFailureKind::IntegrityViolation));
             }
-            crate::project_workspace::lineage::validate_text_taskrun_lineage(
+            if stored_result.phase == TextGenerationPhase::Rejected
+                && stored_result.taskrun_version == 6
+            {
+                super::terminal_cancellation_receipt::validate_terminal_cancellation_receipt(
+                    connection,
+                    &stored_result,
+                )?;
+            }
+            validate_text_receipt_origin(
                 connection,
-                stored_result.taskrun_id,
-                stored_result.workspace_id,
+                &stored_result,
                 command_id,
                 &stored_scope,
+                authority,
             )?;
             return Ok(TextGenerationReceiptLookup::Duplicate { stored_result });
         }

@@ -27,6 +27,8 @@ mod fixture;
 mod online_credential_fixture;
 #[path = "support/online_proof.rs"]
 mod online_proof;
+#[path = "support/provider_taskrun_start.rs"]
+mod provider_taskrun_start;
 #[path = "support/validated_reopen.rs"]
 mod validated_reopen;
 
@@ -72,11 +74,19 @@ impl ResponsesTransport for Transport {
         url: &'a str,
         headers: reqwest::header::HeaderMap,
         body: Vec<u8>,
+        final_send: runne_store::provider::ProviderFinalSendAuthority,
     ) -> ProviderFuture<'a, Result<TransportResponse, DispatchError>> {
         let expected = "https://api.x.ai/v1/responses";
         let valid_auth = headers
             .get(reqwest::header::AUTHORIZATION)
             .is_some_and(|h| h.is_sensitive());
+        if final_send.consume().is_err() {
+            return Box::pin(async {
+                Err(DispatchError::RejectedBeforeEffect(
+                    runne_provider::ProviderPreEffectRejection::AdapterRejected,
+                ))
+            });
+        }
         self.calls.fetch_add(1, Ordering::SeqCst);
         self.bodies.lock().unwrap().push(body);
         let response = TransportResponse {

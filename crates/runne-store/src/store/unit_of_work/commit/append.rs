@@ -19,6 +19,7 @@ impl StoreTransaction {
         let new_version = current_version + payload.events.len() as i64;
         let envelope_timestamp = Timestamp::from_unix_micros(now);
         for (i, event) in payload.events.iter().enumerate() {
+            crate::store::event_guard::guard_local_command_terminal(&tx, event)?;
             let sequence = u64::try_from(current_version + 1 + i as i64)
                 .map_err(|_| storage_failure(StorageFailureKind::IntegrityViolation))?;
             let global_position = base_gp
@@ -174,11 +175,41 @@ impl StoreTransaction {
             })?;
         }
 
+        // The accepted-cancellation fence validates the complete TaskRun
+        // prefix, so append it after the stream head is advanced while still
+        // holding the same IMMEDIATE transaction.
+        for (index, event) in payload.events.iter().enumerate() {
+            if matches!(
+                event.payload(),
+                runne_domain::task_run::TaskRunEvent::CancellationRequested
+            ) {
+                let sequence = current_version + 1 + index as i64;
+                crate::provider::record_taskrun_provider_cancel_fence(
+                    &tx,
+                    taskrun_id,
+                    *event.event_id(),
+                    sequence,
+                    now,
+                )
+                .map_err(|_| storage_failure(StorageFailureKind::IntegrityViolation))?;
+            }
+        }
+
         crate::store::snapshot::refresh_aggregate_snapshot(
             &tx,
             CORRELATION_TYPE_TASK_RUN,
             taskrun_bytes,
         )?;
+
+        if let Some(first) = payload.events.first() {
+            crate::store::taskrun_local_command::insert_preflight(
+                &tx,
+                taskrun_id,
+                first.payload(),
+                now,
+            )
+            .map_err(|_| CommitError::StorageFailure(StorageFailureKind::IntegrityViolation))?;
+        }
 
         // Update global position
         tx.execute(

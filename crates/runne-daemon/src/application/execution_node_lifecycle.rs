@@ -2,33 +2,53 @@ use super::{DaemonError, StoreTransaction};
 use runne_application::local_session::LocalSessionService;
 use runne_store::execution_node::{LinuxNodeDescriptor, NodeRegistryError};
 use std::future::Future;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 const NODE_TTL_SECONDS: u32 = 30;
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(10);
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub(super) struct LinuxExecutionNode {
     authority_id: [u8; 16],
     local_session_authority_id: [u8; 16],
     daemon_instance_id: [u8; 16],
     launch_generation: u64,
+    worker_epoch: Arc<AtomicU64>,
     registered: bool,
 }
 
 impl LinuxExecutionNode {
-    pub(super) const fn new(
+    #[cfg(test)]
+    pub(super) fn new(
         authority_id: [u8; 16],
         local_session_authority_id: [u8; 16],
         daemon_instance_id: [u8; 16],
         launch_generation: u64,
+    ) -> Self {
+        Self::with_worker_epoch(
+            authority_id,
+            local_session_authority_id,
+            daemon_instance_id,
+            launch_generation,
+            Arc::new(AtomicU64::new(launch_generation)),
+        )
+    }
+
+    pub(super) fn with_worker_epoch(
+        authority_id: [u8; 16],
+        local_session_authority_id: [u8; 16],
+        daemon_instance_id: [u8; 16],
+        launch_generation: u64,
+        worker_epoch: Arc<AtomicU64>,
     ) -> Self {
         Self {
             authority_id,
             local_session_authority_id,
             daemon_instance_id,
             launch_generation,
+            worker_epoch,
             registered: false,
         }
     }
@@ -113,6 +133,7 @@ impl LinuxExecutionNode {
             ) {
                 Ok(_) => {
                     self.launch_generation = generation;
+                    self.worker_epoch.store(generation, Ordering::Release);
                     self.registered = true;
                     Ok(())
                 }
@@ -125,6 +146,31 @@ impl LinuxExecutionNode {
             }
         }
     }
+}
+
+pub(super) fn heartbeat_recovery_lease(
+    store: &StoreTransaction,
+    sessions: &Arc<Mutex<LocalSessionService>>,
+    authority_id: [u8; 16],
+    local_session_authority_id: [u8; 16],
+    daemon_instance_id: [u8; 16],
+    expected_generation: u64,
+) -> Result<(), DaemonError> {
+    let sessions = sessions
+        .lock()
+        .map_err(|_| DaemonError::Bootstrap("Linux execution node session unavailable".into()))?;
+    let binding = sessions.current_binding();
+    if binding.stable().authority_id() != &local_session_authority_id
+        || binding.ephemeral().daemon_instance_id().into_bytes() != daemon_instance_id
+        || binding.ephemeral().launch_generation() != expected_generation
+    {
+        return Err(DaemonError::Bootstrap(
+            "Linux execution node session ownership changed".into(),
+        ));
+    }
+    store
+        .heartbeat_local_linux_node(authority_id, expected_generation, NODE_TTL_SECONDS)
+        .map_err(registry_error)
 }
 
 fn pending_successor_is_current(

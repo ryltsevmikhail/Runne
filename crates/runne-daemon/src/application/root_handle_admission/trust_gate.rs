@@ -11,8 +11,8 @@ use std::sync::Arc;
 
 use runne_application::ports::{ProjectWorkspaceRepository, ProjectWorkspaceRepositoryError};
 use runne_application::project_trust::{
-    PermissionMode, ProjectTrustProjectId, SourceAdmission, SourceAdmissionRequest, SourceChannel,
-    TrustAdmissionError,
+    LocalCommandAdmission, PermissionMode, ProjectTrustEffectLease, ProjectTrustProjectId,
+    SourceAdmission, SourceAdmissionRequest, SourceChannel, TrustAdmissionError, TrustToken,
 };
 use runne_domain::id::WorkspaceId;
 use runne_platform_desktop::VerifiedRootHandle;
@@ -110,6 +110,46 @@ impl TrustGate {
                 | TrustAdmissionError::AuthorityUnavailable => TrustSourceError::Unavailable,
             })
     }
+
+    fn admit_local_command(
+        &self,
+        project: ProjectTrustProjectId,
+    ) -> Result<LocalCommandAdmission, TrustSourceError> {
+        let Some(authority) = &self.0 else {
+            return Err(TrustSourceError::Denied);
+        };
+        authority
+            .admit_local_command(project, None)
+            .map_err(|error| match error {
+                TrustAdmissionError::DeniedByPolicy { .. }
+                | TrustAdmissionError::MissingPath
+                | TrustAdmissionError::AmbiguousPath => TrustSourceError::Denied,
+                TrustAdmissionError::StaleRevision { .. }
+                | TrustAdmissionError::ForeignEpoch { .. }
+                | TrustAdmissionError::AuthorityUnavailable => TrustSourceError::Unavailable,
+            })
+    }
+
+    fn acquire_local_command_effect_lease(
+        &self,
+        project: ProjectTrustProjectId,
+        expected: TrustToken,
+    ) -> Result<Box<dyn ProjectTrustEffectLease>, TrustSourceError> {
+        let Some(authority) = &self.0 else {
+            return Err(TrustSourceError::Denied);
+        };
+        authority
+            .acquire_local_command_effect_lease(project, expected)
+            .map(|(lease, _)| lease)
+            .map_err(|error| match error {
+                TrustAdmissionError::DeniedByPolicy { .. }
+                | TrustAdmissionError::MissingPath
+                | TrustAdmissionError::AmbiguousPath => TrustSourceError::Denied,
+                TrustAdmissionError::StaleRevision { .. }
+                | TrustAdmissionError::ForeignEpoch { .. }
+                | TrustAdmissionError::AuthorityUnavailable => TrustSourceError::Unavailable,
+            })
+    }
 }
 
 impl RootHandleAdmissionAuthority {
@@ -130,6 +170,41 @@ impl RootHandleAdmissionAuthority {
             ProjectTrustProjectId::from_bytes(*workspace.project_id().as_bytes()),
             channel,
             path,
+        )
+    }
+
+    pub(super) fn admit_workspace_local_command(
+        &self,
+        workspace_id: WorkspaceId,
+    ) -> Result<LocalCommandAdmission, TrustSourceError> {
+        let workspace = self
+            .store
+            .get_workspace(PRINCIPAL, workspace_id)
+            .map_err(|error| match error {
+                ProjectWorkspaceRepositoryError::NotFound => TrustSourceError::NotFound,
+                _ => TrustSourceError::Unavailable,
+            })?;
+        self.trust
+            .admit_local_command(ProjectTrustProjectId::from_bytes(
+                *workspace.project_id().as_bytes(),
+            ))
+    }
+
+    pub(super) fn acquire_workspace_local_command_effect_lease(
+        &self,
+        workspace_id: WorkspaceId,
+        expected: TrustToken,
+    ) -> Result<Box<dyn ProjectTrustEffectLease>, TrustSourceError> {
+        let workspace = self
+            .store
+            .get_workspace(PRINCIPAL, workspace_id)
+            .map_err(|error| match error {
+                ProjectWorkspaceRepositoryError::NotFound => TrustSourceError::NotFound,
+                _ => TrustSourceError::Unavailable,
+            })?;
+        self.trust.acquire_local_command_effect_lease(
+            ProjectTrustProjectId::from_bytes(*workspace.project_id().as_bytes()),
+            expected,
         )
     }
 

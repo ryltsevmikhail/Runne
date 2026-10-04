@@ -2,7 +2,19 @@ use rusqlite::Connection;
 
 pub fn drop_v42_v43_taskrun_schema(connection: &Connection) -> rusqlite::Result<()> {
     connection.execute_batch(
-        "DROP TRIGGER IF EXISTS text_only_taskrun_lineage_immutable;
+        "DROP TRIGGER IF EXISTS provider_terminal_dispositions_immutable;
+         DROP TRIGGER IF EXISTS provider_terminal_dispositions_no_delete;
+         DROP TRIGGER IF EXISTS schema_v12_fence_provider_terminal_dispositions_insert;
+         DROP TRIGGER IF EXISTS schema_v12_fence_provider_terminal_dispositions_update;
+         DROP TRIGGER IF EXISTS schema_v12_fence_provider_terminal_dispositions_delete;
+         DROP TABLE IF EXISTS provider_terminal_dispositions;
+         DROP TRIGGER IF EXISTS taskrun_terminal_settlement_immutable;
+         DROP TRIGGER IF EXISTS taskrun_terminal_settlement_no_delete;
+         DROP TRIGGER IF EXISTS schema_v12_fence_taskrun_terminal_settlement_receipts_insert;
+         DROP TRIGGER IF EXISTS schema_v12_fence_taskrun_terminal_settlement_receipts_update;
+         DROP TRIGGER IF EXISTS schema_v12_fence_taskrun_terminal_settlement_receipts_delete;
+         DROP TABLE IF EXISTS taskrun_terminal_settlement_receipts;
+         DROP TRIGGER IF EXISTS text_only_taskrun_lineage_immutable;
          DROP TRIGGER IF EXISTS text_only_taskrun_lineage_no_delete;
          DROP TRIGGER IF EXISTS text_only_taskrun_lineage_no_workspace_collision;
          DROP TRIGGER IF EXISTS schema_v12_fence_text_only_taskrun_lineage_insert;

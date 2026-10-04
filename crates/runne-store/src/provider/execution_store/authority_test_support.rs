@@ -4,17 +4,19 @@ use std::sync::OnceLock;
 use std::sync::atomic::{AtomicI64, AtomicUsize, Ordering};
 
 use super::super::{PreparedProviderRecord, SqliteProviderDispatchStore};
+pub(super) use super::authority_row_test_support::authority_row;
 use super::{
     ProviderAuthorityIssueOutcome, ProviderRuntimeAuthorityConfig, SqliteProviderExecutionStore,
 };
 use runne_application::provider::{ProviderAuthorityIssueRequest, ProviderLeaseBindingKind};
-use runne_domain::id::{AttemptId, ConversationId, TaskRunId};
 use runne_provider::{
     CredentialLease, CredentialVersionRef, ModelRef, PrepareCredentialVersion,
     PreparedProviderRecord as ContractPreparedProviderRecord, PreparedRequest, ProviderCall,
     ProviderCallId, ProviderCredentialVersionStore, ProviderId,
 };
-use rusqlite::Connection;
+
+type OnlineCredentialSetup =
+    Box<dyn FnOnce(&crate::provider::SqliteProviderCredentialLifecycleStore)>;
 
 pub(super) struct TestClock {
     now: AtomicI64,
@@ -79,11 +81,31 @@ pub(super) struct Fixture {
 }
 
 impl Fixture {
-    pub(super) fn new_unarmed(now: i64) -> Self {
-        Self::new(now)
+    pub(super) fn new(now: i64) -> Self {
+        Self::construct(now, None).0
     }
 
-    pub(super) fn new(now: i64) -> Self {
+    pub(super) fn new_with_online_credentials(
+        now: i64,
+        setup: impl FnOnce(&crate::provider::SqliteProviderCredentialLifecycleStore) + 'static,
+    ) -> (
+        Self,
+        crate::provider::SqliteProviderCredentialLifecycleStore,
+    ) {
+        let (fixture, lifecycle) = Self::construct(now, Some(Box::new(setup)));
+        (
+            fixture,
+            lifecycle.expect("requested online credential fixture"),
+        )
+    }
+
+    fn construct(
+        now: i64,
+        online_setup: Option<OnlineCredentialSetup>,
+    ) -> (
+        Self,
+        Option<crate::provider::SqliteProviderCredentialLifecycleStore>,
+    ) {
         let directory = tempfile::tempdir().unwrap();
         let daemon = directory.path().join("runne-daemon");
         std::fs::create_dir(&daemon).unwrap();
@@ -95,6 +117,14 @@ impl Fixture {
             std::fs::set_permissions(&daemon, std::fs::Permissions::from_mode(0o700)).unwrap();
         }
         let path = daemon.join("provider-v14.sqlite");
+        let lifecycle = online_setup.as_ref().map(|_| {
+            crate::provider::credential_lifecycle::online_claim_test_support::open_test_store(
+                &path, now,
+            )
+        });
+        if let (Some(setup), Some(lifecycle)) = (online_setup, lifecycle.as_ref()) {
+            setup(lifecycle);
+        }
         let clock = Arc::new(TestClock {
             now: AtomicI64::new(now),
             reads: AtomicUsize::new(0),
@@ -102,17 +132,23 @@ impl Fixture {
             step_to: AtomicI64::new(now),
         });
         let captured = Arc::clone(&clock);
-        let store =
-            SqliteProviderExecutionStore::open_with_now(&path, Arc::new(move || captured.get()))
-                .unwrap();
-        Self {
-            directory,
-            path,
-            clock,
-            store,
-            config: config(),
-            launch: OnceLock::new(),
-        }
+        let store = SqliteProviderExecutionStore::open_with_connection_and_now(
+            path.to_str().unwrap(),
+            configured_connection(&path),
+            Arc::new(move || captured.get()),
+        )
+        .unwrap();
+        (
+            Self {
+                directory,
+                path,
+                clock,
+                store,
+                config: config(),
+                launch: OnceLock::new(),
+            },
+            lifecycle,
+        )
     }
 
     pub(super) fn install(&self) {
@@ -173,18 +209,6 @@ impl Fixture {
     }
 }
 
-impl SqliteProviderExecutionStore {
-    pub(super) fn pause_next_effect_receipt_lock(
-        &self,
-    ) -> (Arc<std::sync::Barrier>, Arc<std::sync::Barrier>) {
-        let reached = Arc::new(std::sync::Barrier::new(2));
-        let release = Arc::new(std::sync::Barrier::new(2));
-        *self.effect_receipt_pause.lock().unwrap() =
-            Some((Arc::clone(&reached), Arc::clone(&release)));
-        (reached, release)
-    }
-}
-
 pub(super) fn config() -> ProviderRuntimeAuthorityConfig {
     ProviderRuntimeAuthorityConfig {
         runtime_authority_id: [1; 16],
@@ -227,6 +251,8 @@ pub(super) fn prepare_request_for_provider(
     discriminator: u8,
     provider: &str,
 ) -> ProviderAuthorityIssueRequest {
+    let (conversation_id, taskrun_id, execution_attempt_id) =
+        super::canonical_started_test_support::seed(path, discriminator);
     let call = ProviderCall::new(
         ProviderCallId::from_bytes([discriminator; 16]),
         ModelRef::new(ProviderId::new(provider).unwrap(), "fixture-model", "v1").unwrap(),
@@ -251,9 +277,9 @@ pub(super) fn prepare_request_for_provider(
     ProviderAuthorityIssueRequest {
         provider_id: ProviderId::new(provider).unwrap(),
         principal_id: "principal-1".into(),
-        conversation_id: ConversationId::from_bytes([6; 16]),
-        taskrun_id: TaskRunId::from_bytes([7; 16]),
-        execution_attempt_id: AttemptId::from_bytes([8; 16]),
+        conversation_id,
+        taskrun_id,
+        execution_attempt_id,
         prepared: ContractPreparedProviderRecord {
             call_id: record.call_id,
             call_digest_version: record.call_digest_version,
@@ -268,31 +294,4 @@ pub(super) fn prepare_request_for_provider(
         currency: "USD".into(),
         provider_idempotency_key: format!("provider-v14-{discriminator}"),
     }
-}
-
-#[derive(Debug, PartialEq, Eq)]
-pub(super) struct AuthorityRow {
-    pub(super) capability_expires_at: i64,
-    pub(super) approval_expires_at: i64,
-    pub(super) state_revision: i64,
-    pub(super) active: i64,
-}
-
-pub(super) fn authority_row(path: &Path) -> AuthorityRow {
-    Connection::open(path)
-        .unwrap()
-        .query_row(
-            "SELECT capability_expires_at, approval_expires_at, state_revision, active
-             FROM provider_runtime_authority_state WHERE id = 1",
-            [],
-            |row| {
-                Ok(AuthorityRow {
-                    capability_expires_at: row.get(0)?,
-                    approval_expires_at: row.get(1)?,
-                    state_revision: row.get(2)?,
-                    active: row.get(3)?,
-                })
-            },
-        )
-        .unwrap()
 }

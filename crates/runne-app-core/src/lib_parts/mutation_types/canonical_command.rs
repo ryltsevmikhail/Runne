@@ -43,6 +43,7 @@ pub enum CanonicalMutationCommand {
     CancelTaskRun {
         task_run_id: CanonicalId,
     },
+    SupersedeUnknownTaskRun { predecessor_task_run_id: CanonicalId },
     /// `prompt` is absent only when recovering a pre-prompt tag 12 record.
     SubmitTaskRun {
         conversation_id: CanonicalId,

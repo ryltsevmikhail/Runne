@@ -161,6 +161,69 @@ async fn taskrun_uses_the_same_v2_coordinator_without_a_renderer_surface() {
 }
 
 #[tokio::test]
+async fn taskrun_snapshot_is_refetched_after_replay_catches_up() {
+    let fixture = support::Fixture::opened().await;
+    let task_run = runne_app_core::CanonicalId::parse("018f2e3a-7000-7000-8000-000000000150")
+        .expect("TaskRun ID");
+    fixture.runtime.set_task_run_snapshots(vec![
+        support::task_run_snapshot_json(
+            &task_run.to_string(),
+            "running",
+            1,
+            &serde_json::Value::Null,
+        ),
+        support::task_run_snapshot_json(
+            &task_run.to_string(),
+            "succeeded",
+            2,
+            &serde_json::json!({"type":"success"}),
+        ),
+    ]);
+    fixture.runtime.set_task_run_events(vec![
+        support::task_run_event(&task_run.to_string(), 1, "taskRun.created"),
+        support::task_run_event(&task_run.to_string(), 2, "taskRun.queued"),
+    ]);
+    let first = fixture
+        .runtime
+        .protected_client()
+        .get_task_run(task_run)
+        .await
+        .expect("stale initial TaskRun snapshot");
+    assert_eq!(first.stream_version(), 1);
+    fixture.runtime.set_task_run_snapshots(vec![
+        support::task_run_snapshot_json(
+            &task_run.to_string(),
+            "running",
+            1,
+            &serde_json::Value::Null,
+        ),
+        support::task_run_snapshot_json(
+            &task_run.to_string(),
+            "succeeded",
+            2,
+            &serde_json::json!({"type":"success"}),
+        ),
+    ]);
+
+    let snapshot = fixture
+        .core
+        .get_task_run_timeline(&task_run.to_string())
+        .await
+        .expect("authoritative TaskRun snapshot after replay");
+
+    assert_eq!(
+        snapshot.state,
+        runne_app_core::TaskRunProjectionState::Succeeded
+    );
+    assert_eq!(
+        snapshot.terminal,
+        Some(runne_app_core::TaskRunTerminalDisposition::Success)
+    );
+    assert_eq!(snapshot.stream_version, 2);
+    assert_eq!(snapshot.entries.len(), 2);
+}
+
+#[tokio::test]
 async fn reopened_taskrun_subscription_stays_blocked_by_authenticated_opaque_baseline() {
     let fixture = support::Fixture::opened().await;
     let task_run = runne_app_core::CanonicalId::parse("018f2e3a-7000-7000-8000-000000000150")

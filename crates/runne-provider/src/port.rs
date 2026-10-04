@@ -5,8 +5,9 @@ use thiserror::Error;
 
 use crate::{
     DispatchAttemptId, PreparedRequest, ProviderCall, ProviderCallDigestVersion,
-    ProviderCapability, ProviderDispatchClaim, ProviderStreamId, ProviderStreamItem, StreamCursor,
-    StreamError,
+    ProviderCapability, ProviderDispatchClaim, ProviderRecoveryCapabilities, ProviderRecoveryError,
+    ProviderRecoveryRequest, ProviderRemoteCheck, ProviderResumeRequest, ProviderStreamId,
+    ProviderStreamItem, StreamCursor, StreamError,
 };
 
 /// Runtime-neutral boxed future returned by adapter operations.
@@ -169,6 +170,11 @@ pub enum ReconciliationDisposition {
 
 /// Provider-neutral adapter boundary.
 pub trait ProviderPort: Send + Sync {
+    /// Declares independent remote controls; legacy adapters fail closed.
+    fn recovery_capabilities(&self) -> ProviderRecoveryCapabilities {
+        ProviderRecoveryCapabilities::default()
+    }
+
     /// Deterministically prepares a non-secret request without dispatch.
     fn prepare(&self, call: &ProviderCall) -> Result<PreparedRequest, PrepareError>;
 
@@ -203,4 +209,31 @@ pub trait ProviderPort: Send + Sync {
         &self,
         request: ReconcileRequest,
     ) -> ProviderFuture<'_, Result<ReconciliationDisposition, DispatchError>>;
+
+    /// Checks status for one persisted remote response without redispatching it.
+    /// The caller must separately authorize a fresh control operation.
+    fn check_remote_status(
+        &self,
+        _request: ProviderRecoveryRequest,
+    ) -> ProviderFuture<'_, Result<ProviderRemoteCheck, ProviderRecoveryError>> {
+        Box::pin(async { Err(ProviderRecoveryError::Unsupported) })
+    }
+
+    /// Resumes one persisted response after the supplied durable sequence cursor.
+    /// The caller must separately authorize a fresh control operation.
+    fn resume_remote_stream(
+        &self,
+        _request: ProviderResumeRequest,
+    ) -> ProviderFuture<'_, Result<Vec<crate::ProviderStreamEvent>, ProviderRecoveryError>> {
+        Box::pin(async { Err(ProviderRecoveryError::Unsupported) })
+    }
+
+    /// Requests remote cancellation for one persisted response identity.
+    /// The caller must separately authorize a fresh control operation.
+    fn cancel_remote(
+        &self,
+        _request: ProviderRecoveryRequest,
+    ) -> ProviderFuture<'_, Result<ProviderRemoteCheck, ProviderRecoveryError>> {
+        Box::pin(async { Err(ProviderRecoveryError::Unsupported) })
+    }
 }

@@ -3,12 +3,13 @@ import { Channel, invoke as tauriInvoke } from '@tauri-apps/api/core'
 export type TaskRunRecovery = 'live' | 'reconnecting' | 'incompatible' | 'revoked' | 'resync_required' | 'fatal'
 export type TaskRunTerminal = 'success' | 'failure' | 'cancelled' | 'budget_exhausted' | 'policy_denied' | 'unrecoverable'
 export type TaskRunState = 'created' | 'queued' | 'admitted' | 'running' | 'waiting' | 'retrying' | 'checkpointing' | 'cancelling' | 'reconciling' | 'succeeded' | 'failed' | 'cancelled' | 'budget_exhausted' | 'policy_denied' | 'unrecoverable'
-export type TaskRunTimelineKind = 'created' | 'queued' | 'admitted' | 'attempt_started' | 'wait_started' | 'resumed' | 'retrying' | 'checkpoint_started' | 'checkpoint_committed' | 'cancellation_requested' | 'cancellation_completed' | 'cancelled' | 'completed' | 'failed' | 'budget_exhausted' | 'policy_denied' | 'reconciliation_started' | 'reconciliation_completed' | 'unrecoverable' | 'cycle_started' | 'context_committed' | 'plan_committed' | 'step_outcome_recorded' | 'cycle_completed' | 'next_cycle_created' | 'retry_scheduled' | 'retry_attempt_activated' | 'recovery_resume_started' | 'loop_checkpoint_started' | 'loop_checkpoint_recorded' | 'loop_checkpoint_committed' | 'loop_wake_accepted'
+export type TaskRunTimelineKind = 'created' | 'queued' | 'admitted' | 'attempt_started' | 'wait_started' | 'resumed' | 'retrying' | 'checkpoint_started' | 'checkpoint_committed' | 'cancellation_requested' | 'cancellation_completed' | 'cancelled' | 'completed' | 'failed' | 'budget_exhausted' | 'policy_denied' | 'reconciliation_started' | 'reconciliation_completed' | 'unrecoverable' | 'superseded_unknown' | 'cycle_started' | 'context_committed' | 'plan_committed' | 'step_outcome_recorded' | 'cycle_completed' | 'next_cycle_created' | 'retry_scheduled' | 'retry_attempt_activated' | 'recovery_resume_started' | 'loop_checkpoint_started' | 'loop_checkpoint_recorded' | 'loop_checkpoint_committed' | 'loop_wake_accepted'
 export interface TaskRunTimelineEntry { readonly eventId: string, readonly sequence: number, readonly committedAt: number, readonly kind: TaskRunTimelineKind, readonly attemptId: string | null }
 export interface TaskRunTimeline { readonly taskRunId: string, readonly projectionRevision: number, readonly streamVersion: number, readonly state: TaskRunState, readonly activeAttemptId: string | null, readonly terminal: TaskRunTerminal | null, readonly entries: readonly TaskRunTimelineEntry[], readonly recovery: TaskRunRecovery }
 export interface TaskRunSession { readonly resync: () => Promise<TaskRunTimeline>, readonly unsubscribe: () => Promise<void> }
 export interface TaskRunCancellation { readonly taskRunId: string, readonly streamVersion: number }
 export interface TaskRunSubmission { readonly taskRunId: string, readonly streamVersion: 2 }
+export interface TaskRunSuccessor { readonly predecessorTaskRunId: string, readonly predecessorVersion: number, readonly taskRunId: string, readonly streamVersion: number }
 
 type Invoke = (command: string, args?: Record<string, unknown>) => Promise<unknown>
 type Update = { readonly kind: 'update', readonly taskRunId: string, readonly projectionRevision: number, readonly streamVersion: number, readonly entry: TaskRunTimelineEntry | null, readonly recovery: TaskRunRecovery }
@@ -17,8 +18,9 @@ const canonicalId = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-
 const recoveries = ['live', 'reconnecting', 'incompatible', 'revoked', 'resync_required', 'fatal'] as const
 const terminals = ['success', 'failure', 'cancelled', 'budget_exhausted', 'policy_denied', 'unrecoverable'] as const
 const states = ['created', 'queued', 'admitted', 'running', 'waiting', 'retrying', 'checkpointing', 'cancelling', 'reconciling', 'succeeded', 'failed', 'cancelled', 'budget_exhausted', 'policy_denied', 'unrecoverable'] as const
-const kinds = ['created', 'queued', 'admitted', 'attempt_started', 'wait_started', 'resumed', 'retrying', 'checkpoint_started', 'checkpoint_committed', 'cancellation_requested', 'cancellation_completed', 'cancelled', 'completed', 'failed', 'budget_exhausted', 'policy_denied', 'reconciliation_started', 'reconciliation_completed', 'unrecoverable', 'cycle_started', 'context_committed', 'plan_committed', 'step_outcome_recorded', 'cycle_completed', 'next_cycle_created', 'retry_scheduled', 'retry_attempt_activated', 'recovery_resume_started', 'loop_checkpoint_started', 'loop_checkpoint_recorded', 'loop_checkpoint_committed', 'loop_wake_accepted'] as const
+const kinds = ['created', 'queued', 'admitted', 'attempt_started', 'wait_started', 'resumed', 'retrying', 'checkpoint_started', 'checkpoint_committed', 'cancellation_requested', 'cancellation_completed', 'cancelled', 'completed', 'failed', 'budget_exhausted', 'policy_denied', 'reconciliation_started', 'reconciliation_completed', 'unrecoverable', 'superseded_unknown', 'cycle_started', 'context_committed', 'plan_committed', 'step_outcome_recorded', 'cycle_completed', 'next_cycle_created', 'retry_scheduled', 'retry_attempt_activated', 'recovery_resume_started', 'loop_checkpoint_started', 'loop_checkpoint_recorded', 'loop_checkpoint_committed', 'loop_wake_accepted'] as const
 const errorCodes = ['task_run_subscription_unavailable', 'runtime_incompatible', 'runtime_revoked', 'replay_resync_required', 'runtime_identity_conflict', 'local_projection_unavailable'] as const
+const snapshotRefreshKinds: readonly TaskRunTimelineKind[] = ['created', 'queued', 'admitted', 'attempt_started', 'wait_started', 'resumed', 'retrying', 'checkpoint_started', 'checkpoint_committed', 'cancellation_requested', 'cancellation_completed', 'cancelled', 'completed', 'failed', 'budget_exhausted', 'policy_denied', 'reconciliation_started', 'reconciliation_completed', 'unrecoverable', 'superseded_unknown', 'retry_scheduled', 'retry_attempt_activated', 'recovery_resume_started']
 
 export async function getTaskRunTimeline(taskRunId: string, invoke: Invoke = tauriInvoke): Promise<TaskRunTimeline> {
   validateId(taskRunId)
@@ -34,6 +36,28 @@ export async function cancelTaskRun(taskRunId: string, expectedVersion: number, 
   const response = value as { taskRunId?: unknown, streamVersion?: unknown }
   if (!record(value, ['taskRunId', 'streamVersion']) || response.taskRunId !== taskRunId || typeof response.streamVersion !== 'number' || !integer(response.streamVersion) || response.streamVersion <= expectedVersion) throw new Error('Invalid TaskRun cancellation response')
   return response as TaskRunCancellation
+}
+
+export async function supersedeUnknownTaskRun(
+  predecessorTaskRunId: string,
+  expectedVersion: number,
+  acknowledgment: { readonly acknowledgeDuplicateExecutionAndCost: true },
+  invoke: Invoke = tauriInvoke,
+): Promise<TaskRunSuccessor> {
+  validateId(predecessorTaskRunId)
+  if (!Number.isSafeInteger(expectedVersion) || expectedVersion < 1
+      || acknowledgment.acknowledgeDuplicateExecutionAndCost !== true) throw new Error('Explicit duplicate execution acknowledgment is required')
+  const value = await invoke('supersede_unknown_task_run', {
+    request: { taskRunId: predecessorTaskRunId, expectedVersion, acknowledgeDuplicateExecutionAndCost: true },
+  })
+  if (!record(value, ['predecessorTaskRunId', 'predecessorVersion', 'taskRunId', 'streamVersion'])
+      || value.predecessorTaskRunId !== predecessorTaskRunId
+      || typeof value.predecessorVersion !== 'number' || !integer(value.predecessorVersion)
+      || !(value.predecessorVersion === expectedVersion || expectedVersion + 1 === value.predecessorVersion)
+      || typeof value.taskRunId !== 'string' || !canonicalId.test(value.taskRunId)
+      || value.taskRunId === predecessorTaskRunId
+      || value.streamVersion !== 2) throw new Error('Invalid TaskRun successor response')
+  return value as TaskRunSuccessor
 }
 
 export async function submitTaskRun(conversationId: string, workspaceId: string, prompt: string, invoke: Invoke = tauriInvoke): Promise<TaskRunSubmission> {
@@ -58,7 +82,7 @@ export async function subscribeTaskRunTimeline(taskRunId: string, initial: TaskR
   let pending: unknown[] = []
   let processing = Promise.resolve()
   const close = (error: unknown): void => {
-    if (failure !== null) return
+    if (failure !== null || closed || terminal) return
     failure = error
     closed = true
     terminal = true
@@ -95,11 +119,29 @@ export async function subscribeTaskRunTimeline(taskRunId: string, initial: TaskR
         onTimeline(snapshot)
         return
       }
-      if (update.projectionRevision <= snapshot.projectionRevision) return
+      if (update.projectionRevision <= snapshot.projectionRevision) {
+        if (subscriptionId !== null) await invoke('ack_task_run_update', { subscriptionId, projectionRevision: update.projectionRevision })
+        return
+      }
       if (update.projectionRevision !== snapshot.projectionRevision + 1 || update.streamVersion < snapshot.streamVersion) {
-        try { snapshot = await getTaskRunTimeline(taskRunId, invoke); onTimeline(snapshot); await stop(); if (!closed && snapshot.recovery === 'live') await start() } catch (error) { close(error) }; return
+        try {
+          const authoritative = await getTaskRunTimeline(taskRunId, invoke)
+          if (closed || terminal) return
+          if (authoritative.projectionRevision < update.projectionRevision || authoritative.streamVersion < update.streamVersion) throw new Error('Stale TaskRun lifecycle snapshot')
+          snapshot = authoritative
+          onTimeline(snapshot)
+          await stop()
+          if (!closed && !terminal && snapshot.recovery === 'live') await start()
+        } catch (error) { close(error) }
+        return
       }
       snapshot = { ...snapshot, projectionRevision: update.projectionRevision, streamVersion: update.streamVersion, entries: update.entry === null ? snapshot.entries : [...snapshot.entries, update.entry], recovery: update.recovery }
+      if (update.entry !== null && snapshotRefreshKinds.includes(update.entry.kind)) {
+        const authoritative = await getTaskRunTimeline(taskRunId, invoke)
+        if (closed || terminal) return
+        if (authoritative.projectionRevision < snapshot.projectionRevision || authoritative.streamVersion < update.streamVersion) throw new Error('Stale TaskRun lifecycle snapshot')
+        snapshot = authoritative
+      }
       onTimeline(snapshot)
       if (subscriptionId !== null) await invoke('ack_task_run_update', { subscriptionId, projectionRevision: update.projectionRevision })
   }

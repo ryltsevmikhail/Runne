@@ -37,7 +37,7 @@ impl CommandReconciliationHostPort for Host {
 }
 
 #[tokio::test]
-async fn all_nine_witnesses_reach_the_read_only_host_with_middleware_principal() {
+async fn witnesses_reach_the_read_only_host_with_middleware_principal() {
     let calls: Calls = Arc::default();
     let app = create_router_with_command_reconciliation(
         TOKEN,
@@ -103,6 +103,12 @@ async fn all_nine_witnesses_reach_the_read_only_host_with_middleware_principal()
             ),
             ReconciliationOperation::GenerateConversationText,
         ),
+        (
+            format!(
+                r#"{{"operation":"submit_task_run","conversationId":"{CONVERSATION}","workspaceId":"{WORKSPACE}","prompt":"hello","model":"provider/model-v2"}}"#
+            ),
+            ReconciliationOperation::SubmitTaskRun,
+        ),
     ];
     for (body, _) in &cases {
         let response = app
@@ -131,4 +137,37 @@ async fn all_nine_witnesses_reach_the_read_only_host_with_middleware_principal()
         assert_eq!(context.principal().as_str(), "local-owner");
         assert_eq!(witness.operation(), operation);
     }
+    assert!(matches!(
+        calls.last().unwrap().1.view(),
+        runne_api::CommandReconciliationWitnessRef::SubmitTaskRun {
+            input: Some(input),
+            ..
+        } if input.requested_model() == Some("provider/model-v2")
+    ));
+}
+
+#[tokio::test]
+async fn reconciliation_rejects_model_without_prompt() {
+    let app = create_router_with_command_reconciliation(
+        TOKEN,
+        HealthState {
+            recovery_state: RecoveryState::Ready,
+        },
+        AdmissionState::new(RecoveryState::Ready),
+        CommandReconciliationHttpState::new(Host(Arc::default())),
+    );
+    let response = app.oneshot(
+        Request::builder()
+            .method("POST")
+            .uri("/v1/commands/reconcile")
+            .header("authorization", format!("Bearer {}", hex::encode(TOKEN)))
+            .header("x-command-id", COMMAND)
+            .header("idempotency-key", "reconcile-test")
+            .header("content-type", "application/json")
+            .body(Body::from(format!(
+                r#"{{"operation":"submit_task_run","conversationId":"{CONVERSATION}","workspaceId":"{WORKSPACE}","model":"provider/model-v2"}}"#
+            )))
+            .unwrap(),
+    ).await.unwrap();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 }

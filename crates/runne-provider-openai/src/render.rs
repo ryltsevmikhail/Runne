@@ -67,7 +67,7 @@ impl OpenAiResponsesTextRenderer {
             reasoning: Reasoning { effort: "none" },
             tools: Vec::new(),
             tool_choice: "none",
-            background: false,
+            background: self.profile.is_background(),
             store: false,
             stream: true,
         };

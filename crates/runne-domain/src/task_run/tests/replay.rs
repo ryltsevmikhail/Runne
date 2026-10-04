@@ -17,6 +17,67 @@
         assert!(agg.state().is_terminal());
     }
 
+    #[test]
+    fn explicit_unknown_successor_is_terminal_from_running_and_rejects_queued() {
+        let mut agg = create_aggregate();
+        agg.apply_payload(&TaskRunEvent::TaskRunQueued).unwrap();
+        agg.apply_payload(&TaskRunEvent::TaskRunAdmitted).unwrap();
+        let aid: AttemptId = ATTEMPT_ID.parse().unwrap();
+        agg.apply_payload(&TaskRunEvent::AttemptStarted { attempt_id: aid })
+            .unwrap();
+        let successor: TaskRunId = "018f0000-0000-7000-8000-000000000002".parse().unwrap();
+        let digest = IntegrityDigest::from_bytes([0x5a; 32]);
+        let drafts = agg
+            .decide(TaskRunCommand::UserSupersedeUnknown {
+                predecessor_attempt_id: aid,
+                successor_taskrun_id: successor,
+                acknowledgement_digest: digest,
+            })
+            .unwrap();
+        assert_eq!(
+            drafts[0].payload(),
+            &TaskRunEvent::UserSupersedeUnknown {
+                predecessor_attempt_id: aid,
+                successor_taskrun_id: successor,
+                acknowledgement_digest: digest,
+            }
+        );
+        agg.apply_payload(drafts[0].payload()).unwrap();
+        assert_eq!(agg.state(), TaskRunState::Unrecoverable);
+        assert!(agg.active_attempt().is_none());
+
+        let queued = create_aggregate();
+        assert!(matches!(
+            queued.decide(TaskRunCommand::UserSupersedeUnknown {
+                predecessor_attempt_id: aid,
+                successor_taskrun_id: successor,
+                acknowledgement_digest: digest,
+            }),
+            Err(DomainError::InvalidTransition { .. })
+        ));
+    }
+
+    #[test]
+    fn unknown_successor_replay_requires_the_exact_active_attempt() {
+        let mut agg = create_aggregate();
+        agg.apply_payload(&TaskRunEvent::TaskRunQueued).unwrap();
+        agg.apply_payload(&TaskRunEvent::TaskRunAdmitted).unwrap();
+        let aid: AttemptId = ATTEMPT_ID.parse().unwrap();
+        let wrong: AttemptId = "018f0000-0000-7000-8000-000000000099".parse().unwrap();
+        agg.apply_payload(&TaskRunEvent::AttemptStarted { attempt_id: aid })
+            .unwrap();
+        let event = TaskRunEvent::UserSupersedeUnknown {
+            predecessor_attempt_id: wrong,
+            successor_taskrun_id: "018f0000-0000-7000-8000-000000000002"
+                .parse()
+                .unwrap(),
+            acknowledgement_digest: IntegrityDigest::from_bytes([0x5a; 32]),
+        };
+        assert!(agg.apply_payload(&event).is_err());
+        assert_eq!(agg.state(), TaskRunState::Running);
+        assert_eq!(agg.active_attempt(), Some(&aid));
+    }
+
     // ─── Direct cancel from non-running states ────────────────────────────
 
     #[test]

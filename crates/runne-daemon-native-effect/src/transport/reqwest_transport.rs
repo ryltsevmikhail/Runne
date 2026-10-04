@@ -2,6 +2,7 @@ use std::time::Duration;
 
 use reqwest::header::{CONTENT_TYPE, HeaderMap};
 use runne_provider::ProviderFuture;
+use runne_store::provider::ProviderFinalSendAuthority;
 use tokio::time::timeout;
 
 use super::{NativeTransport, NativeTransportError, NativeTransportResponse};
@@ -44,8 +45,10 @@ impl NativeTransport for ReqwestNativeTransport {
         url: String,
         headers: HeaderMap,
         body: Vec<u8>,
+        final_send: ProviderFinalSendAuthority,
     ) -> ProviderFuture<'_, Result<NativeTransportResponse, NativeTransportError>> {
         Box::pin(async move {
+            final_send.consume().map_err(|_| NativeTransportError)?;
             let mut response = self
                 .client
                 .post(url)

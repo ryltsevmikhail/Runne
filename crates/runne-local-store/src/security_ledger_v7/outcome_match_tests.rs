@@ -19,6 +19,39 @@ fn bounded_id(value: &str) -> BoundedCanonicalId {
     BoundedCanonicalId::parse(value.as_bytes()).expect("canonical v7 id")
 }
 
+#[test]
+fn successor_v2_codec_keeps_both_versions_and_legacy_tag_is_inert() {
+    let predecessor = bounded_id(TASK_RUN_ID);
+    let successor = bounded_id("2a3b4c5d-6e7f-7a1b-9c2d-3e4f5a6b7c8d");
+    let outcome = CanonicalMutationOutcome::TaskRunUnknownSuccessorCreated {
+        predecessor_task_run_id: predecessor.clone(),
+        successor_task_run_id: successor.clone(),
+        predecessor_version: 6,
+        successor_version: 2,
+    };
+    let bytes = outcome.encode().expect("encode v2 successor");
+    assert_eq!(bytes[1], 25);
+    assert_eq!(CanonicalMutationOutcome::decode(&bytes).unwrap(), outcome);
+    let mut trailing = bytes.clone();
+    trailing.push(0);
+    assert!(CanonicalMutationOutcome::decode(&trailing).is_err());
+    let mut wrong_successor_version = bytes;
+    *wrong_successor_version.last_mut().unwrap() = 3;
+    assert!(CanonicalMutationOutcome::decode(&wrong_successor_version).is_err());
+
+    let legacy = CanonicalMutationOutcome::TaskRunUnknownSuccessorCreatedLegacy {
+        predecessor_task_run_id: predecessor,
+        successor_task_run_id: successor,
+        new_version: 7,
+    };
+    let legacy_bytes = legacy.encode().expect("encode legacy v1 outcome");
+    assert_eq!(legacy_bytes[1], 24);
+    assert_eq!(
+        CanonicalMutationOutcome::decode(&legacy_bytes).unwrap(),
+        legacy
+    );
+}
+
 fn ledger_message(message_id: &str, role: MessageRole, committed_at: u64) -> LedgerMessage {
     LedgerMessage {
         message_id: bounded_id(message_id),
@@ -44,6 +77,110 @@ fn generation_outcome(user: LedgerMessage, assistant: LedgerMessage) -> Canonica
         task_run_stream_version: 5,
         user_message: user,
         assistant: Box::new(GenerationAssistant::Completed(assistant)),
+    }
+}
+
+#[test]
+fn generation_failure_reasons_keep_legacy_tag_and_round_trip_new_tags() {
+    for (reason, expected_tag, taskrun_version) in [
+        (
+            super::outcome::GenerationFailureReason::ProviderOutputRejected,
+            1,
+            5,
+        ),
+        (
+            super::outcome::GenerationFailureReason::ProviderExecutionRejected,
+            2,
+            5,
+        ),
+        (
+            super::outcome::GenerationFailureReason::ProviderExecutionFailed,
+            3,
+            5,
+        ),
+        (
+            super::outcome::GenerationFailureReason::ProviderAccountingUnknown,
+            5,
+            5,
+        ),
+        (super::outcome::GenerationFailureReason::Cancelled, 4, 6),
+    ] {
+        let outcome = CanonicalMutationOutcome::Generation {
+            terminal: GenerationTerminal::Rejected,
+            conversation_id: bounded_id(CONVERSATION_ID),
+            task_run_id: bounded_id(TASK_RUN_ID),
+            attempt_id: bounded_id(ATTEMPT_ID),
+            conversation_stream_version: 3,
+            task_run_stream_version: taskrun_version,
+            user_message: ledger_message(USER_MESSAGE_ID, MessageRole::User, SAME_MILLISECOND),
+            assistant: Box::new(GenerationAssistant::Rejected {
+                reserved_message_id: bounded_id(ASSISTANT_MESSAGE_ID_AFTER),
+                reason,
+            }),
+        };
+        let encoded = outcome.encode().expect("encode failure outcome");
+        assert_eq!(encoded.last(), Some(&expected_tag));
+        assert_eq!(
+            CanonicalMutationOutcome::decode(&encoded).expect("decode failure outcome"),
+            outcome.clone()
+        );
+        assert!(outcome.correlates_to_command(&generate_text_command()));
+        if reason == super::outcome::GenerationFailureReason::Cancelled {
+            let mut unknown_reason = encoded;
+            *unknown_reason.last_mut().unwrap() = 0xff;
+            assert!(CanonicalMutationOutcome::decode(&unknown_reason).is_err());
+        }
+    }
+}
+
+#[test]
+fn generation_cancelled_reason_requires_rejected_v6() {
+    for (terminal, taskrun_version, reason) in [
+        (
+            GenerationTerminal::Rejected,
+            5,
+            super::outcome::GenerationFailureReason::Cancelled,
+        ),
+        (
+            GenerationTerminal::Rejected,
+            6,
+            super::outcome::GenerationFailureReason::ProviderExecutionFailed,
+        ),
+        (
+            GenerationTerminal::Prohibited,
+            6,
+            super::outcome::GenerationFailureReason::Cancelled,
+        ),
+        (
+            GenerationTerminal::Completed,
+            6,
+            super::outcome::GenerationFailureReason::Cancelled,
+        ),
+        (
+            GenerationTerminal::Prohibited,
+            5,
+            super::outcome::GenerationFailureReason::ProviderAccountingUnknown,
+        ),
+        (
+            GenerationTerminal::Completed,
+            5,
+            super::outcome::GenerationFailureReason::ProviderAccountingUnknown,
+        ),
+    ] {
+        let outcome = CanonicalMutationOutcome::Generation {
+            terminal,
+            conversation_id: bounded_id(CONVERSATION_ID),
+            task_run_id: bounded_id(TASK_RUN_ID),
+            attempt_id: bounded_id(ATTEMPT_ID),
+            conversation_stream_version: 3,
+            task_run_stream_version: taskrun_version,
+            user_message: ledger_message(USER_MESSAGE_ID, MessageRole::User, SAME_MILLISECOND),
+            assistant: Box::new(GenerationAssistant::Rejected {
+                reserved_message_id: bounded_id(ASSISTANT_MESSAGE_ID_AFTER),
+                reason,
+            }),
+        };
+        assert!(outcome.encode().is_err());
     }
 }
 

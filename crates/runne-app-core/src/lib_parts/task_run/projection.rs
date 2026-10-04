@@ -18,9 +18,20 @@ const fn task_run_state(state: TaskRunState) -> TaskRunProjectionState {
     }
 }
 
-const fn task_run_terminal(state: TaskRunState) -> Option<TaskRunTerminalDisposition> {
+const fn task_run_terminal(
+    state: TaskRunState,
+    result: Option<&runne_runtime_client::TaskRunTerminalResult>,
+) -> Option<TaskRunTerminalDisposition> {
     match state {
-        TaskRunState::Succeeded => Some(TaskRunTerminalDisposition::Success),
+        TaskRunState::Succeeded => match result {
+            Some(runne_runtime_client::TaskRunTerminalResult::Success) => {
+                Some(TaskRunTerminalDisposition::Success)
+            }
+            Some(runne_runtime_client::TaskRunTerminalResult::Failure { .. }) => {
+                Some(TaskRunTerminalDisposition::Failure)
+            }
+            None => None,
+        },
         TaskRunState::Failed => Some(TaskRunTerminalDisposition::Failure),
         TaskRunState::Cancelled => Some(TaskRunTerminalDisposition::Cancelled),
         TaskRunState::BudgetExhausted => Some(TaskRunTerminalDisposition::BudgetExhausted),

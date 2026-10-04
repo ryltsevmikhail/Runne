@@ -15,6 +15,12 @@ struct ExecCommand {
     workspace_id: CanonicalId,
     prompt: Option<String>,
     model: Option<String>,
+    profile_id: Option<String>,
+    profile_digest: Option<String>,
+    local_executable: Option<runne_api::TaskRunExecutable>,
+    command_cwd: Option<String>,
+    command_args: Vec<String>,
+    command_env: Vec<(String, String)>,
 }
 
 fn parse_exec(mut arguments: VecDeque<OsString>) -> Result<ExecCommand, CliError> {
@@ -22,6 +28,12 @@ fn parse_exec(mut arguments: VecDeque<OsString>) -> Result<ExecCommand, CliError
     let mut workspace_id = None;
     let mut prompt = None;
     let mut model = None;
+    let mut profile_id = None;
+    let mut profile_digest = None;
+    let mut local_executable = None;
+    let mut command_cwd = None;
+    let mut command_args = Vec::new();
+    let mut command_env = Vec::new();
 
     while let Some(arg) = arguments.pop_front() {
         match arg.to_str() {
@@ -34,6 +46,33 @@ fn parse_exec(mut arguments: VecDeque<OsString>) -> Result<ExecCommand, CliError
             }
             Some("--prompt") => prompt = Some(pop_string(&mut arguments)?),
             Some("--model") => model = Some(pop_string(&mut arguments)?),
+            Some("--profile-id") => profile_id = Some(pop_string(&mut arguments)?),
+            Some("--profile-digest") => profile_digest = Some(pop_string(&mut arguments)?),
+            Some("--workspace-executable") => {
+                if local_executable.is_some() {
+                    return Err(CliError::Usage);
+                }
+                local_executable = Some(
+                    runne_api::TaskRunExecutable::workspace_relative(pop_string(&mut arguments)?)
+                        .map_err(|_| CliError::Usage)?,
+                );
+            }
+            Some("--system-executable") => {
+                if local_executable.is_some() {
+                    return Err(CliError::Usage);
+                }
+                local_executable = Some(
+                    runne_api::TaskRunExecutable::system_program(pop_string(&mut arguments)?)
+                        .map_err(|_| CliError::Usage)?,
+                );
+            }
+            Some("--cwd") => command_cwd = Some(pop_string(&mut arguments)?),
+            Some("--arg") => command_args.push(pop_string(&mut arguments)?),
+            Some("--env") => {
+                let value = pop_string(&mut arguments)?;
+                let (key, value) = value.split_once('=').ok_or(CliError::Usage)?;
+                command_env.push((key.to_owned(), value.to_owned()));
+            }
             _ => return Err(CliError::Usage),
         }
     }
@@ -43,6 +82,12 @@ fn parse_exec(mut arguments: VecDeque<OsString>) -> Result<ExecCommand, CliError
         workspace_id: workspace_id.ok_or(CliError::Usage)?,
         prompt,
         model,
+        profile_id,
+        profile_digest,
+        local_executable,
+        command_cwd,
+        command_args,
+        command_env,
     })
 }
 
@@ -95,6 +140,13 @@ async fn run_exec(
     format: OutputFormat,
 ) -> Result<CommandOutput, CliError> {
     let command = parse_exec(arguments)?;
+    if command.local_executable.is_some()
+        && (command.model.is_some()
+            || command.profile_id.is_some()
+            || command.profile_digest.is_some())
+    {
+        return Err(CliError::Usage);
+    }
     let prompt = resolve_exec_prompt(command.prompt)?;
     let client = connect_exec_client(profile_path).await?;
 
@@ -106,18 +158,52 @@ async fn run_exec(
     )
     .map_err(CliError::Api)?;
     let request = match command.model {
-        Some(model) => request.with_model(model),
+        Some(model) => request.with_model(model).map_err(CliError::Api)?,
         None => request,
+    };
+    let request = match (command.profile_id, command.profile_digest) {
+        (Some(id), Some(hex_digest)) => {
+            let digest = parse_profile_digest(&hex_digest).ok_or(CliError::Usage)?;
+            let selected =
+                runne_api::SelectedProviderProfile::new(id, digest).map_err(|_| CliError::Usage)?;
+            request
+                .with_selected_profile(selected)
+                .map_err(CliError::Api)?
+        }
+        (None, None) => request,
+        _ => return Err(CliError::Usage),
+    };
+    let request = if let Some(executable) = command.local_executable {
+        let mut argv = vec![executable.value().to_owned()];
+        argv.extend(command.command_args);
+        let local = runne_api::TaskRunLocalCommand::new(
+            executable,
+            command.command_cwd.unwrap_or_else(|| ".".to_owned()),
+            argv,
+            command.command_env,
+        )
+        .map_err(|_| CliError::Usage)?;
+        request.with_local_command(local).map_err(CliError::Api)?
+    } else {
+        if command.command_cwd.is_some()
+            || !command.command_args.is_empty()
+            || !command.command_env.is_empty()
+        {
+            return Err(CliError::Usage);
+        }
+        request
     };
     // The signal stream is installed BEFORE the submit so a SIGINT arriving
     // immediately after the submitted event can never hit the default
     // disposition (observed as a signal exit on slow hosted workers).
-    let Ok(mut sigint) =
-        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())
+    let Ok(mut sigint) = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())
     else {
         return Err(CliError::Runtime);
     };
-    let acknowledgement = client.submit_task_run(request).await.map_err(CliError::Api)?;
+    let acknowledgement = client
+        .submit_task_run(request)
+        .await
+        .map_err(CliError::Api)?;
 
     let task_run_id = acknowledgement.task_run_id();
     let mut events = Vec::new();
@@ -134,12 +220,64 @@ async fn run_exec(
     let (snapshot, _sigints_received, mut events) =
         poll_until_terminal(&client, &acknowledgement, events, format, &mut sigint).await?;
 
-
     record_event(&mut events, format, terminal_event(&snapshot))?;
     let output = exec_output(&events, Some(&snapshot), format);
-    if snapshot.state() == TaskRunState::Succeeded {
+    if exec_terminal_is_success(snapshot.state(), snapshot.terminal_result()) {
         Ok(output)
     } else {
         Err(CliError::TaskNonHealthy(output))
+    }
+}
+
+fn exec_terminal_is_success(state: TaskRunState, result: Option<&TaskRunTerminalResult>) -> bool {
+    state == TaskRunState::Succeeded && matches!(result, Some(TaskRunTerminalResult::Success))
+}
+
+fn parse_profile_digest(value: &str) -> Option<[u8; 32]> {
+    if value.len() != 64 || !value.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return None;
+    }
+    let mut digest = [0u8; 32];
+    for (index, byte) in digest.iter_mut().enumerate() {
+        *byte = u8::from_str_radix(&value[index * 2..index * 2 + 2], 16).ok()?;
+    }
+    Some(digest)
+}
+
+#[cfg(test)]
+mod local_result_tests {
+    use super::*;
+
+    #[test]
+    fn exit_code_tracks_terminal_result_even_when_task_state_is_succeeded() {
+        assert!(exec_terminal_is_success(
+            TaskRunState::Succeeded,
+            Some(&TaskRunTerminalResult::Success)
+        ));
+        let failure = TaskRunTerminalResult::Failure {
+            reason: "local_command_exit_7".to_owned(),
+        };
+        assert!(!exec_terminal_is_success(
+            TaskRunState::Succeeded,
+            Some(&failure)
+        ));
+        let output = CommandOutput::Jsonl(vec![serde_json::json!({
+            "type": "terminal",
+            "state": "succeeded",
+            "terminalResult": { "kind": "failure", "reason": "local_command_exit_7" },
+        })]);
+        let result = if exec_terminal_is_success(TaskRunState::Succeeded, Some(&failure)) {
+            Ok(output)
+        } else {
+            Err(CliError::TaskNonHealthy(output))
+        };
+        let process = process_outcome(result, OutputFormat::Jsonl);
+        assert_ne!(process.exit_code, 0);
+        assert!(process.stdout.contains("local_command_exit_7"));
+        assert!(!exec_terminal_is_success(TaskRunState::Succeeded, None));
+        assert!(!exec_terminal_is_success(
+            TaskRunState::Failed,
+            Some(&TaskRunTerminalResult::Success)
+        ));
     }
 }

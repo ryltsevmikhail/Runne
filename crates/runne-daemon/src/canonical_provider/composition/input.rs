@@ -6,6 +6,7 @@ use runne_provider_quota::QuotaStateStore;
 use runne_secure_store::ProviderCredentialId;
 use runne_store::store::StoreTransaction;
 
+use super::super::VerifiedSecondaryCatalog;
 use super::super::{DaemonActivationProvenance, ProviderEffectFactory, SharedTextProviderProfile};
 use crate::application::workspace_internal::ProtectedProviderDependencyCapsule;
 
@@ -18,6 +19,7 @@ pub(crate) struct DaemonCanonicalProviderComposition {
     pub(crate) runtime_generation: u64,
     pub(crate) activation_provenance: DaemonActivationProvenance,
     pub(crate) expected_profile_digest: [u8; 32],
+    pub(crate) secondary_catalog: Option<VerifiedSecondaryCatalog>,
     pub(crate) conversation_store: StoreTransaction,
     pub(crate) conversation_service: Arc<dyn ConversationTextCommandService>,
     pub(crate) prohibited_content: Arc<dyn ProhibitedContentPort>,

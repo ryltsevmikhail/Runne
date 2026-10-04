@@ -11,6 +11,14 @@ where
         self.begin(context, input)
     }
 
+    fn begin_claimed_text(
+        &self,
+        context: &ApplicationCommandContext,
+        input: crate::commands::BeginClaimedConversationTextInput,
+    ) -> Result<TextGenerationReceipt, ConversationTextServiceError> {
+        self.begin_claimed(context, input)
+    }
+
     fn finish_text(
         &self,
         context: &ApplicationCommandContext,

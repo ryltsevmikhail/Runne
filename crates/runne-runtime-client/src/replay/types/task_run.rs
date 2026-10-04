@@ -21,6 +21,7 @@ pub enum TaskRunTimelineKind {
     ReconciliationStarted,
     ReconciliationCompleted,
     Unrecoverable,
+    SupersededUnknown,
     CycleStarted,
     ContextCommitted,
     PlanCommitted,
@@ -58,6 +59,7 @@ impl TaskRunTimelineKind {
             "taskRun.reconciliation.started" => Self::ReconciliationStarted,
             "taskRun.reconciliation.completed" => Self::ReconciliationCompleted,
             "taskRun.unrecoverable" => Self::Unrecoverable,
+            "taskRun.superseded.unknown" => Self::SupersededUnknown,
             "taskRun.loop.cycle.started" => Self::CycleStarted,
             "taskRun.context.committed" => Self::ContextCommitted,
             "taskRun.plan.committed" => Self::PlanCommitted,
@@ -98,6 +100,7 @@ impl TaskRunTimelineKind {
             Self::ReconciliationStarted => "reconciliation_started",
             Self::ReconciliationCompleted => "reconciliation_completed",
             Self::Unrecoverable => "unrecoverable",
+            Self::SupersededUnknown => "superseded_unknown",
             Self::CycleStarted => "cycle_started",
             Self::ContextCommitted => "context_committed",
             Self::PlanCommitted => "plan_committed",
@@ -131,5 +134,19 @@ impl TaskRunReplayPayload {
     #[must_use]
     pub const fn attempt_id(&self) -> Option<CanonicalId> {
         self.attempt_id
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::TaskRunTimelineKind;
+
+    #[test]
+    fn unknown_successor_event_survives_as_safe_timeline_history() {
+        assert_eq!(
+            TaskRunTimelineKind::parse("taskRun.superseded.unknown")
+                .map(TaskRunTimelineKind::as_str),
+            Some("superseded_unknown"),
+        );
     }
 }

@@ -80,3 +80,17 @@ const fn state(value: CredentialOperationState) -> ProviderCredentialOperationSt
         CredentialOperationState::Tombstoned => ProviderCredentialOperationStateV2::Tombstoned,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::provider;
+    use runne_api::ProviderCredentialProviderV2;
+
+    #[test]
+    fn background_operation_projection_keeps_its_separate_provider_account() {
+        assert_eq!(
+            provider("openai-background").unwrap(),
+            ProviderCredentialProviderV2::OpenAiBackground
+        );
+    }
+}

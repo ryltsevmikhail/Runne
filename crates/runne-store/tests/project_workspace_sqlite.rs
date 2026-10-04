@@ -9,12 +9,20 @@ mod project_workspace_sqlite {
     mod claim;
     mod claim_event_integrity;
     mod claim_failures;
+    mod claimed_text_authority_scope;
+    mod claimed_text_taskrun;
     mod command_id;
     mod durability;
     mod execution_input;
+    mod execution_input_submit_origin;
     mod fence;
     mod history;
     mod integrity;
+    mod local_command_effects_proof;
+    mod local_command_lifecycle;
+    mod local_command_outcome_unknown;
+    mod local_command_preintent_no_effect;
+    mod local_command_terminal_guard;
     mod no_effect_release;
     mod origin_mutations;
     mod origin_race;
@@ -24,7 +32,10 @@ mod project_workspace_sqlite {
     mod submit_conversation_binding;
     mod submit_fence;
     mod support;
+    mod taskrun_claimed_cancellation;
+    mod taskrun_legacy_cancellation;
     mod taskrun_queue_scan;
     mod text_fence;
+    mod unknown_successor;
     mod workspace_snapshot;
 }

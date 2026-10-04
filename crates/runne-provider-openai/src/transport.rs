@@ -3,6 +3,8 @@ use std::time::Duration;
 
 use thiserror::Error;
 
+use runne_provider::RemoteResponseId;
+
 use crate::OpenAiResponsesTextProfile;
 
 const METHOD: &str = "POST";
@@ -28,6 +30,7 @@ pub const OPENAI_MAX_NORMALIZED_TEXT_BYTES: usize = 65_536;
 pub struct OpenAiTransportPolicy {
     origin: String,
     path: String,
+    background: bool,
 }
 
 impl OpenAiTransportPolicy {
@@ -43,6 +46,7 @@ impl OpenAiTransportPolicy {
         Ok(Self {
             origin: profile.origin().to_owned(),
             path: profile.path().to_owned(),
+            background: profile.is_background(),
         })
     }
 
@@ -55,6 +59,42 @@ impl OpenAiTransportPolicy {
     #[must_use]
     pub fn path(&self) -> &str {
         &self.path
+    }
+    /// Builds the exact same-response status URL for the background profile.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for a non-background profile or unsafe response ID.
+    pub fn status_url(&self, id: &RemoteResponseId) -> Result<String, OpenAiTransportError> {
+        self.response_control_url(id, false)
+    }
+    /// Builds the exact same-response cancellation URL for the background profile.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for a non-background profile or unsafe response ID.
+    pub fn cancellation_url(&self, id: &RemoteResponseId) -> Result<String, OpenAiTransportError> {
+        self.response_control_url(id, true)
+    }
+    fn response_control_url(
+        &self,
+        id: &RemoteResponseId,
+        cancel: bool,
+    ) -> Result<String, OpenAiTransportError> {
+        let value = id.as_str();
+        let suffix = value
+            .strip_prefix("resp_")
+            .ok_or(OpenAiTransportError::RequestRejected)?;
+        if !self.background
+            || suffix.is_empty()
+            || !suffix
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
+        {
+            return Err(OpenAiTransportError::RequestRejected);
+        }
+        let action = if cancel { "/cancel" } else { "" };
+        Ok(format!("{}{}/{}{}", self.origin, self.path, value, action))
     }
     /// Returns the sole method allowed by the profile.
     #[must_use]
@@ -224,3 +264,7 @@ pub enum OpenAiTransportError {
     #[error("OpenAI TLS validation failed")]
     TlsFailure,
 }
+
+#[cfg(test)]
+#[path = "transport_tests.rs"]
+mod transport_tests;

@@ -8,18 +8,35 @@ pub(super) const TAG_CONVERSATION_CLOSED: u8 = 0x21;
 pub(super) const TAG_USER_MESSAGE_APPENDED: u8 = 0x22;
 pub(super) const TAG_ASSISTANT_MESSAGE_APPENDED: u8 = 0x23;
 pub(super) const TAG_GENERATION_FAILED: u8 = 0x24;
+pub(super) const TAG_GENERATION_SUPERSEDED_UNKNOWN: u8 = 0x25;
 pub(super) const REASON_PROVIDER_OUTPUT_REJECTED: u8 = 0x00;
 pub(super) const REASON_INTERRUPTED_BY_RESTART: u8 = 0x01;
+pub(super) const REASON_PROVIDER_EXECUTION_REJECTED: u8 = 0x02;
+pub(super) const REASON_PROVIDER_EXECUTION_FAILED: u8 = 0x03;
+pub(super) const REASON_CANCELLED: u8 = 0x04;
+pub(super) const REASON_PROVIDER_ACCOUNTING_UNKNOWN: u8 = 0x05;
 
 /// Codec for [`ConversationEvent`] payload BLOBs.
 pub struct ConversationEventCodec;
 
 impl StoreCodec<ConversationEvent> for ConversationEventCodec {
-    const CODEC_VERSION: u16 = 1;
+    const CODEC_VERSION: u16 = 2;
 
     fn encode(&self, value: &ConversationEvent) -> Result<Vec<u8>, StoreCodecError> {
         let mut buffer = Vec::with_capacity(67);
-        write_u16_be(&mut buffer, Self::CODEC_VERSION);
+        let version = if matches!(
+            value,
+            ConversationEvent::GenerationSupersededUnknown { .. }
+                | ConversationEvent::GenerationFailed {
+                    reason: GenerationFailureReason::ProviderAccountingUnknown,
+                    ..
+                }
+        ) {
+            Self::CODEC_VERSION
+        } else {
+            1
+        };
+        write_u16_be(&mut buffer, version);
         match value {
             ConversationEvent::ConversationCreated { workspace_id } => {
                 buffer.push(TAG_CONVERSATION_CREATED);
@@ -57,7 +74,29 @@ impl StoreCodec<ConversationEvent> for ConversationEventCodec {
                         REASON_PROVIDER_OUTPUT_REJECTED
                     }
                     GenerationFailureReason::InterruptedByRestart => REASON_INTERRUPTED_BY_RESTART,
+                    GenerationFailureReason::ProviderExecutionRejected => {
+                        REASON_PROVIDER_EXECUTION_REJECTED
+                    }
+                    GenerationFailureReason::ProviderExecutionFailed => {
+                        REASON_PROVIDER_EXECUTION_FAILED
+                    }
+                    GenerationFailureReason::Cancelled => REASON_CANCELLED,
+                    GenerationFailureReason::ProviderAccountingUnknown => {
+                        REASON_PROVIDER_ACCOUNTING_UNKNOWN
+                    }
                 });
+            }
+            ConversationEvent::GenerationSupersededUnknown {
+                taskrun_id,
+                attempt_id,
+                successor_taskrun_id,
+                acknowledgement_digest,
+            } => {
+                buffer.push(TAG_GENERATION_SUPERSEDED_UNKNOWN);
+                write_uuid(&mut buffer, taskrun_id.as_bytes());
+                write_uuid(&mut buffer, attempt_id.as_bytes());
+                write_uuid(&mut buffer, successor_taskrun_id.as_bytes());
+                write_digest(&mut buffer, acknowledgement_digest);
             }
         }
         Ok(buffer)
@@ -66,7 +105,7 @@ impl StoreCodec<ConversationEvent> for ConversationEventCodec {
     fn decode(&self, bytes: &[u8]) -> Result<ConversationEvent, StoreCodecError> {
         let mut position = 0;
         let version = read_u16_be(bytes, &mut position)?;
-        if version != Self::CODEC_VERSION {
+        if !(1..=Self::CODEC_VERSION).contains(&version) {
             return Err(StoreCodecError::UnsupportedVersion {
                 found: version,
                 supported: Self::CODEC_VERSION,
@@ -120,6 +159,16 @@ impl StoreCodec<ConversationEvent> for ConversationEventCodec {
                         GenerationFailureReason::ProviderOutputRejected
                     }
                     REASON_INTERRUPTED_BY_RESTART => GenerationFailureReason::InterruptedByRestart,
+                    REASON_PROVIDER_EXECUTION_REJECTED => {
+                        GenerationFailureReason::ProviderExecutionRejected
+                    }
+                    REASON_PROVIDER_EXECUTION_FAILED => {
+                        GenerationFailureReason::ProviderExecutionFailed
+                    }
+                    REASON_CANCELLED => GenerationFailureReason::Cancelled,
+                    REASON_PROVIDER_ACCOUNTING_UNKNOWN if version >= 2 => {
+                        GenerationFailureReason::ProviderAccountingUnknown
+                    }
                     tag => {
                         return Err(StoreCodecError::UnknownTag {
                             tag,
@@ -131,6 +180,21 @@ impl StoreCodec<ConversationEvent> for ConversationEventCodec {
                     taskrun_id,
                     attempt_id,
                     reason,
+                }
+            }
+            TAG_GENERATION_SUPERSEDED_UNKNOWN if version >= 2 => {
+                let taskrun_id =
+                    parse_codec_uuid::<TaskRunId>(read_uuid(bytes, &mut position)?, "TaskRunId")?;
+                let attempt_id =
+                    parse_codec_uuid::<AttemptId>(read_uuid(bytes, &mut position)?, "AttemptId")?;
+                let successor_taskrun_id =
+                    parse_codec_uuid::<TaskRunId>(read_uuid(bytes, &mut position)?, "TaskRunId")?;
+                let acknowledgement_digest = read_digest(bytes, &mut position)?;
+                ConversationEvent::GenerationSupersededUnknown {
+                    taskrun_id,
+                    attempt_id,
+                    successor_taskrun_id,
+                    acknowledgement_digest,
                 }
             }
             _ => {

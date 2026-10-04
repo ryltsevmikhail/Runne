@@ -35,8 +35,14 @@ describe('TaskRun page actions', () => {
 
   it('issues exactly one cancel request per explicit action', async () => {
     const pending = deferred<TaskRunCancellation>()
+    let reads = 0
     mockedCancel.mockReturnValue(pending.promise)
-    const { wrapper } = await mountTaskRunPage()
+    const { wrapper } = await mountTaskRunPage({
+      loadTaskRun: async () => {
+        reads += 1
+        return reads === 1 ? liveTimeline : { ...liveTimeline, state: 'cancelling', streamVersion: 2 }
+      },
+    })
     const cancel = wrapper.get('[data-task-run-action="cancel"]')
     await cancel.trigger('click')
     await cancel.trigger('click')
@@ -48,6 +54,45 @@ describe('TaskRun page actions', () => {
     await flushPromises()
     expect(wrapper.find('[data-task-run-action="cancel"]').exists()).toBe(false)
     expect(mockedCancel).toHaveBeenCalledTimes(1)
+  })
+
+  it('clears the view-local pending state when a held cancel acknowledgment crosses routes', async () => {
+    const pending = deferred<TaskRunCancellation>()
+    mockedCancel.mockReturnValue(pending.promise)
+    const nextTimeline = { ...liveTimeline, taskRunId: '018f2e3a-7000-7000-8000-000000000214' }
+    const { wrapper, navigate, settle } = await mountTaskRunPage({
+      loadTaskRun: async id => id === nextTimeline.taskRunId ? nextTimeline : liveTimeline,
+    })
+    await wrapper.get('[data-task-run-action="cancel"]').trigger('click')
+    await navigate(nextTimeline.taskRunId)
+    await settle()
+    expect(wrapper.get('h1').text()).toBe('running')
+    expect(wrapper.get('[data-task-run-action="cancel"]').attributes('disabled')).toBeUndefined()
+    pending.resolve({ taskRunId, streamVersion: 2 })
+    await settle()
+    expect(wrapper.get('h1').text()).toBe('running')
+    expect(wrapper.get('[data-task-run-action="cancel"]').attributes('disabled')).toBeUndefined()
+    wrapper.unmount()
+  })
+
+  it('does not overwrite a newer terminal timeline when a cancel acknowledgment arrives late', async () => {
+    const pending = deferred<TaskRunCancellation>()
+    mockedCancel.mockReturnValue(pending.promise)
+    let deliver!: (value: TaskRunTimeline) => void
+    const { wrapper, settle } = await mountTaskRunPage({
+      subscribeTaskRun: async (_id, _initial, onTimeline) => {
+        deliver = onTimeline
+        return { unsubscribe: async () => {}, resync: async () => liveTimeline }
+      },
+    })
+    await wrapper.get('[data-task-run-action="cancel"]').trigger('click')
+    deliver({ ...liveTimeline, state: 'succeeded', terminal: 'success', streamVersion: 3 })
+    await settle()
+    pending.resolve({ taskRunId, streamVersion: 2 })
+    await settle()
+    expect(wrapper.get('h1').text()).toBe('completed')
+    expect(wrapper.find('[data-task-run-action="cancel"]').exists()).toBe(false)
+    wrapper.unmount()
   })
 
   it('issues exactly one resync request per explicit action', async () => {

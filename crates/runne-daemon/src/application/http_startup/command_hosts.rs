@@ -47,6 +47,7 @@ pub(super) struct CommandHosts {
         RuntimeProcessHost<NativeProcessProvider<AuthoritativeProcessInvocationRegistry>>,
     pub(super) root_control: Option<Arc<ProtectedRootControl>>,
     pub(super) trust_control_routes: Option<axum::Router>,
+    pub(super) root_admission: RootAdmissionGateway,
 }
 
 #[cfg(not(feature = "desktop-protected"))]
@@ -125,7 +126,7 @@ pub(super) fn compose(
         project_workspace: RuntimeProjectWorkspaceHost::new(
             repository.clone(),
             gateway.clone(),
-            gateway,
+            gateway.clone(),
         ),
         reconciliation: RuntimeCommandReconciliationHost::new(repository),
         approval: RuntimeApprovalHost::new(ProjectWorkspaceStore::from_store(store.clone())),
@@ -135,6 +136,7 @@ pub(super) fn compose(
         process,
         root_control: authority.map(ProtectedRootControl::new),
         trust_control_routes,
+        root_admission: gateway,
     }
 }
 

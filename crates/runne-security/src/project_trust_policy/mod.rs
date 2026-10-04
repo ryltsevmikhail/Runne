@@ -16,9 +16,10 @@ use runne_application::prohibited_content::{
     CanonicalContentBoundary, ContentDisposition, ContentGuardError, ProhibitedContentPort,
 };
 use runne_application::project_trust::{
-    FROZEN_POLICY_VERSION, ProjectTrustControlLease, ProjectTrustEffectLease,
-    ProjectTrustPersistence, ProjectTrustProjectId, ProjectTrustRecord, ProjectTrustStatus,
-    SourceAdmission, SourceAdmissionRequest, SourceChannel, SourceDenyReason, TrustAdmissionError,
+    FROZEN_POLICY_VERSION, LOCAL_COMMAND_POLICY_VERSION, LocalCommandAdmission,
+    ProjectTrustControlLease, ProjectTrustEffectLease, ProjectTrustPersistence,
+    ProjectTrustProjectId, ProjectTrustRecord, ProjectTrustStatus, SourceAdmission,
+    SourceAdmissionRequest, SourceChannel, SourceDenyReason, TrustAdmissionError, TrustToken,
 };
 use std::sync::Arc;
 
@@ -107,6 +108,73 @@ impl ProjectTrustPolicyAuthority {
         }
         Self::admit_record(record, request)?;
         Ok(lease)
+    }
+
+    /// Admits the explicit local-command TaskRun action without changing the
+    /// frozen `Helpers` source-channel gate.
+    pub fn admit_local_command(
+        &self,
+        project: ProjectTrustProjectId,
+        observed: Option<TrustToken>,
+    ) -> Result<LocalCommandAdmission, TrustAdmissionError> {
+        let record = self.load_record(project)?;
+        Self::local_command_record(record, observed)
+    }
+
+    /// Holds the trust-sidecar effect fence through a later canonical release
+    /// transaction. Callers acquire this before the SQLite writer transaction.
+    pub fn acquire_local_command_effect_lease(
+        &self,
+        project: ProjectTrustProjectId,
+        expected: TrustToken,
+    ) -> Result<(Box<dyn ProjectTrustEffectLease>, LocalCommandAdmission), TrustAdmissionError>
+    {
+        let lease = self
+            .persistence
+            .acquire_effect_lease(project)
+            .map_err(|_| TrustAdmissionError::AuthorityUnavailable)?;
+        let admission = Self::local_command_record(lease.record(), Some(expected))?;
+        Ok((lease, admission))
+    }
+
+    fn local_command_record(
+        record: ProjectTrustRecord,
+        observed: Option<TrustToken>,
+    ) -> Result<LocalCommandAdmission, TrustAdmissionError> {
+        if record.revision == 0 {
+            return Err(TrustAdmissionError::DeniedByPolicy {
+                reason: SourceDenyReason::Untrusted,
+            });
+        }
+        if let Some(observed) = observed {
+            if observed.instance_epoch != record.instance_epoch {
+                return Err(TrustAdmissionError::ForeignEpoch {
+                    observed_epoch: observed.instance_epoch,
+                    current_epoch: record.instance_epoch,
+                });
+            }
+            if observed.revision != record.revision {
+                return Err(TrustAdmissionError::StaleRevision {
+                    observed: observed.revision,
+                    current: record.revision,
+                });
+            }
+        }
+        if record.status == ProjectTrustStatus::Untrusted {
+            return Err(TrustAdmissionError::DeniedByPolicy {
+                reason: SourceDenyReason::Untrusted,
+            });
+        }
+        if record.managed_deny_mask & SourceChannel::Helpers.mask_bit() != 0 {
+            return Err(TrustAdmissionError::DeniedByPolicy {
+                reason: SourceDenyReason::ManagedDeny,
+            });
+        }
+        Ok(LocalCommandAdmission {
+            token: record.token(),
+            source_policy_version: FROZEN_POLICY_VERSION,
+            command_policy_version: LOCAL_COMMAND_POLICY_VERSION,
+        })
     }
 
     fn admit_record(

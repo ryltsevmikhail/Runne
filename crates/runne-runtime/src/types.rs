@@ -3,7 +3,7 @@
 use runne_application::commands::{
     AdmitTaskRunInput, BeginConversationTextInput, CancelTaskRunInput, CommandOutcome,
     CompleteTaskRunInput, CreateTaskRunInput, FinishConversationTextInput, QueueTaskRunInput,
-    StartAttemptInput, SubmitTaskRunInput,
+    StartAttemptInput, SubmitTaskRunInput, SupersedeUnknownTaskRunInput,
 };
 use runne_application::conversation_text_service::ConversationTextCommandService;
 use runne_application::errors::ApplicationError;
@@ -72,6 +72,11 @@ pub(crate) enum RuntimeRequest {
         input: runne_application::commands::LegacySubmitTaskRunInput,
         reply: Reply,
     },
+    SupersedeUnknown {
+        context: ApplicationCommandContext,
+        input: SupersedeUnknownTaskRunInput,
+        reply: Reply,
+    },
     Queue {
         context: ApplicationCommandContext,
         input: QueueTaskRunInput,
@@ -119,7 +124,10 @@ impl RuntimeRequest {
     /// generated inside the atomic submit unit-of-work).
     pub(crate) fn taskrun_id(&self) -> Option<runne_domain::id::TaskRunId> {
         match self {
-            Self::Create { .. } | Self::Submit { .. } | Self::SubmitLegacy { .. } => None,
+            Self::Create { .. }
+            | Self::Submit { .. }
+            | Self::SubmitLegacy { .. }
+            | Self::SupersedeUnknown { .. } => None,
             Self::Queue { input, .. } => Some(input.taskrun_id),
             Self::Admit { input, .. } => Some(input.taskrun_id),
             Self::StartAttempt { input, .. } => Some(input.taskrun_id),
@@ -140,7 +148,7 @@ pub(crate) enum ConversationTextCall {
     },
     Finish {
         context: ApplicationCommandContext,
-        input: FinishConversationTextInput,
+        input: Box<FinishConversationTextInput>,
     },
 }
 
@@ -155,7 +163,7 @@ impl ConversationTextCall {
     > {
         match self {
             Self::Begin { context, input } => service.begin_text(&context, input),
-            Self::Finish { context, input } => service.finish_text(&context, input),
+            Self::Finish { context, input } => service.finish_text(&context, *input),
         }
     }
 }

@@ -78,6 +78,35 @@ fn terminal_request_for_claim_with_pricing(
                 attempt_id: claim.attempt_id,
                 fencing_token: claim.fencing_token,
                 sequence: 0,
+                event_kind: 2,
+                terminal: false,
+                call_digest_version: ProviderCallDigestVersion::V2,
+                profile_digest: [2; 32],
+                runtime_generation: 11,
+                key,
+                encrypted: encrypted_payload(
+                    call_byte.wrapping_add(50),
+                    call_byte.wrapping_add(55)
+                ),
+            })
+            .unwrap(),
+        ProviderJournalAppendOutcome::Inserted
+    );
+    execution
+        .begin_provider_poll(&ProviderPollRequest {
+            attempt_id: claim.attempt_id,
+            fencing_token: claim.fencing_token,
+            cursor: 1,
+            profile_digest: [2; 32],
+            runtime_generation: 11,
+        })
+        .unwrap();
+    assert_eq!(
+        execution
+            .append_encrypted_event(&ProviderJournalAppendRequest {
+                attempt_id: claim.attempt_id,
+                fencing_token: claim.fencing_token,
+                sequence: 1,
                 event_kind: 5,
                 terminal: true,
                 call_digest_version: ProviderCallDigestVersion::V2,
@@ -96,7 +125,7 @@ fn terminal_request_for_claim_with_pricing(
         [call_byte.wrapping_add(80); 16],
         claim.attempt_id,
         claim.fencing_token,
-        0,
+        1,
         ProviderCallDigestVersion::V2,
         key,
         encrypted_payload(call_byte.wrapping_add(90), call_byte.wrapping_add(100)),

@@ -44,26 +44,9 @@ fn managed_runtime_reopen_rejects_authority_or_lineage_mismatch() {
 #[test]
 fn open_failure_surfaces_typed_recovery_state_without_raw_store_error() {
     let (_root, path, authority, lineage) = prepared_store();
+    let (root_page, page_size) = existing_table_page(&path, "event_log_state");
     checkpoint_and_remove_sidecars(&path);
-    // Corrupt one mid-file data page (not page 1: garbage over the unused
-    // page-1 bytes stays undetected, and structural page-1 corruption breaks
-    // schema reads so badly the reader itself fails; only a readable schema
-    // over a corrupt data page is attributed by `PRAGMA integrity_check`).
-    // Page 3 is a data page in the pinned bundled SQLite layout
-    // (libsqlite3-sys 0.32.0 via Cargo.lock). The size guard only keeps the
-    // slice below from panicking on an unexpectedly small fixture; the loud
-    // protection against a layout shift is the typed `IntegrityCheckFailed`
-    // assertion itself.
-    let mut bytes = std::fs::read(&path).unwrap();
-    assert!(
-        bytes.len() >= 5 * 4096,
-        "prepared fixture store is unexpectedly small"
-    );
-    let start = 3 * 4096;
-    for byte in &mut bytes[start..start + 32] {
-        *byte = 0xC3;
-    }
-    std::fs::write(&path, bytes).unwrap();
+    corrupt_table_root_page(&path, root_page, page_size);
 
     let error = open_rejected(&path, authority, lineage, "corrupt store");
     let rejection = store_rejection(&error);
@@ -83,6 +66,40 @@ fn open_failure_surfaces_typed_recovery_state_without_raw_store_error() {
         StoreRecoveryDiagnosis::IntegrityCheckFailed
     );
     assert_closed_display(&error, "IntegrityCheckFailed");
+}
+
+fn existing_table_page(path: &std::path::Path, table: &str) -> (usize, usize) {
+    let connection = rusqlite::Connection::open(path).unwrap();
+    let root_page: usize = connection
+        .query_row(
+            "SELECT rootpage FROM sqlite_master WHERE type='table' AND name=?1",
+            [table],
+            |row| row.get::<_, i64>(0),
+        )
+        .unwrap()
+        .try_into()
+        .unwrap();
+    let page_size: usize = connection
+        .query_row("PRAGMA page_size", [], |row| row.get::<_, i64>(0))
+        .unwrap()
+        .try_into()
+        .unwrap();
+    (root_page, page_size)
+}
+
+fn corrupt_table_root_page(path: &std::path::Path, root_page: usize, page_size: usize) {
+    let mut bytes = std::fs::read(path).unwrap();
+    let start = (root_page - 1) * page_size;
+    assert!(
+        start + 10 <= bytes.len(),
+        "corruption target page is absent"
+    );
+    let header = start + if root_page == 1 { 100 } else { 0 };
+    assert_eq!(bytes[header], 0x0d, "fixture root page is not a table leaf");
+    // Keep the schema catalog readable but make the canonical table page
+    // structurally invalid so the verify-stage integrity check rejects it.
+    bytes[header] = 0x00;
+    std::fs::write(path, bytes).unwrap();
 }
 
 #[test]

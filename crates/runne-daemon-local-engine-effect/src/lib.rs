@@ -42,12 +42,16 @@ pub struct LocalEngineEffectError;
 
 pub(crate) struct Sender {
     streams: Mutex<BTreeMap<ProviderStreamId, VecDeque<runne_provider::ProviderStreamEvent>>>,
+    #[cfg(feature = "test-support")]
+    invocation_counter: Option<Arc<std::sync::atomic::AtomicUsize>>,
 }
 
 impl Sender {
     fn new() -> Self {
         Self {
             streams: Mutex::new(BTreeMap::new()),
+            #[cfg(feature = "test-support")]
+            invocation_counter: None,
         }
     }
 
@@ -70,6 +74,17 @@ impl Sender {
 /// external secret material is read.
 pub fn production() -> Result<Arc<dyn LocalEngineEffect>, LocalEngineEffectError> {
     Ok(Arc::new(Sender::new()))
+}
+
+/// Creates a test-only local effect that counts execution after final-send authority consumption.
+#[cfg(feature = "test-support")]
+pub fn test_effect_with_invocation_counter(
+    counter: Arc<std::sync::atomic::AtomicUsize>,
+) -> Result<Arc<dyn LocalEngineEffect>, LocalEngineEffectError> {
+    Ok(Arc::new(Sender {
+        streams: Mutex::new(BTreeMap::new()),
+        invocation_counter: Some(counter),
+    }))
 }
 
 /// Validates the call binding for the local routing mode and prepares
@@ -109,10 +124,30 @@ impl Sender {
     pub(crate) fn dispatch_staged(
         &self,
         staged: Staged,
-        receipt: ProviderEffectStartReceipt,
+        mut receipt: ProviderEffectStartReceipt,
     ) -> Result<ProviderStreamId, DispatchError> {
         if !receipt.matches_claim(staged.request.claim()) {
             return Err(DispatchError::MaybeDispatched);
+        }
+        if std::time::Instant::now() >= receipt.deadline() {
+            return Err(DispatchError::MaybeDispatched);
+        }
+        receipt
+            .take_final_send_authority()
+            .map_err(|_| {
+                DispatchError::RejectedBeforeEffect(
+                    runne_provider::ProviderPreEffectRejection::AdapterRejected,
+                )
+            })?
+            .consume()
+            .map_err(|_| {
+                DispatchError::RejectedBeforeEffect(
+                    runne_provider::ProviderPreEffectRejection::AdapterRejected,
+                )
+            })?;
+        #[cfg(feature = "test-support")]
+        if let Some(counter) = &self.invocation_counter {
+            counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         }
         let events = engine::deterministic_events()?;
         self.store_events(staged.request.attempt_id(), events)

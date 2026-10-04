@@ -6,16 +6,30 @@ mod hardening;
 mod lexer;
 #[path = "closure/parser.rs"]
 mod parser;
+#[path = "closure/policy_compatibility_tests.rs"]
+mod policy_compatibility_tests;
+#[path = "closure/policy_composition.rs"]
+mod policy_composition;
+#[path = "closure/policy_composition_tests.rs"]
+mod policy_composition_tests;
 #[path = "closure/policy_fixtures.rs"]
 mod policy_fixtures;
 #[path = "closure/policy_helpers.rs"]
 mod policy_helpers;
 #[path = "closure/policy_io.rs"]
 mod policy_io;
+#[path = "closure/policy_known_shapes_tests.rs"]
+mod policy_known_shapes_tests;
 #[path = "closure/policy_macros.rs"]
 mod policy_macros;
 #[path = "closure/policy_runtime_client.rs"]
 mod policy_runtime_client;
+#[path = "closure/policy_startup.rs"]
+mod policy_startup;
+#[path = "closure/policy_uuid.rs"]
+mod policy_uuid;
+#[path = "closure/policy_uuid_tests.rs"]
+mod policy_uuid_tests;
 #[path = "closure/resolver.rs"]
 mod resolver;
 
@@ -144,7 +158,7 @@ fn closure_resolves_nested_path_and_support_modules_but_excludes_cfg_test() {
     )
     .unwrap();
     fs::write(source.parent().unwrap().join("root/nested/child.rs"), "").unwrap();
-    fs::write(source.parent().unwrap().join("root/custom.rs"), "").unwrap();
+    fs::write(source.parent().unwrap().join("custom.rs"), "").unwrap();
     fs::write(source.parent().unwrap().join("root/support.rs"), "").unwrap();
 
     let files = resolver::resolve_closure(workspace.path(), &["src/root.rs"]).unwrap();
@@ -153,7 +167,7 @@ fn closure_resolves_nested_path_and_support_modules_but_excludes_cfg_test() {
         files,
         [
             "src/root.rs",
-            "src/root/custom.rs",
+            "src/custom.rs",
             "src/root/nested/child.rs",
             "src/root/support.rs",
         ]

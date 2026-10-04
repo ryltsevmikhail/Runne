@@ -82,6 +82,25 @@ impl TaskRunNoEffectReleasePort for StoreTransaction {
         if intent != "absent" || ledger != 0 {
             return Err(Error::DispatchMayHaveStarted);
         }
+        super::taskrun_no_effect_proof::require_no_generation_evidence(
+            &tx,
+            id.taskrun_id,
+            id.attempt_id,
+            &self.runtime_authority_id,
+        )?;
+        let provider_evidence: bool = tx
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM taskrun_provider_bindings
+                               WHERE taskrun_id=?1)
+                  OR EXISTS(SELECT 1 FROM provider_execution_admissions
+                             WHERE taskrun_id=?1)",
+                [id.taskrun_id.as_bytes()],
+                |row| row.get(0),
+            )
+            .map_err(|_| Error::CorruptData)?;
+        if provider_evidence {
+            return Err(Error::DispatchMayHaveStarted);
+        }
         super::taskrun_claim::verify_active_assignment(&tx, id)
             .map_err(|_| Error::StaleAssignment)?;
         let current: i64 = tx.query_row("SELECT current_version FROM aggregate_streams WHERE aggregate_type=1 AND aggregate_id=?1", [id.taskrun_id.as_bytes()], |r| r.get(0)).map_err(|_| Error::CorruptData)?;
@@ -123,6 +142,13 @@ impl TaskRunNoEffectReleasePort for StoreTransaction {
                 |r| Ok((r.get(0)?,r.get(1)?)),
             )
             .map_err(|_| Error::Unavailable)?;
+        tx.execute(
+            "UPDATE taskrun_local_command_attempts SET state='no_effect_terminal',updated_at=?1
+             WHERE taskrun_id=?2 AND state IN ('preflight','approval_pending','approved')
+               AND attempt_id IS NULL AND managed_area_identity IS NULL",
+            params![now, id.taskrun_id.as_bytes()],
+        )
+        .map_err(|_| Error::CorruptData)?;
         let position: i64 = tx
             .query_row(
                 "SELECT next_global_position FROM event_log_state WHERE singleton=1",

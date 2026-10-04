@@ -3,6 +3,7 @@ use std::time::Duration;
 
 use crate::bounds::{append_bounded, record_chunk, wait_for_chunk};
 use runne_provider::ProviderFuture;
+use runne_store::provider::ProviderFinalSendAuthority;
 
 const MAX_BODY_BYTES: usize = 524_288;
 
@@ -33,6 +34,7 @@ pub trait ChatCompletionsTransport: Send + Sync {
         header: HeaderName,
         value: HeaderValue,
         body: Vec<u8>,
+        final_send: ProviderFinalSendAuthority,
     ) -> ProviderFuture<'_, Result<ChatTransportResponse, ChatTransportError>>;
 }
 
@@ -67,8 +69,10 @@ impl ChatCompletionsTransport for ReqwestChatTransport {
         header: HeaderName,
         value: HeaderValue,
         body: Vec<u8>,
+        final_send: ProviderFinalSendAuthority,
     ) -> ProviderFuture<'_, Result<ChatTransportResponse, ChatTransportError>> {
         Box::pin(async move {
+            final_send.consume().map_err(|_| ChatTransportError)?;
             let response = self
                 .client
                 .post(url)

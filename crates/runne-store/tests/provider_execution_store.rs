@@ -6,6 +6,7 @@ mod online_credential_fixture;
 mod online_proof;
 #[path = "support/online_stream_fixture.rs"]
 mod online_stream_fixture;
+use online_stream_fixture::provider_taskrun_start;
 #[path = "support/validated_reopen.rs"]
 mod validated_reopen;
 

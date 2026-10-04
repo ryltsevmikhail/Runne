@@ -15,9 +15,11 @@ use runne_secure_store::{
     ProviderCredentialReadback, SecureStoreError,
 };
 
-use super::{DaemonProviderCredentialEnrollmentControl, ProtectedEnrollmentSessionFacts};
+use crate::application::provider_credential_enrollment::{
+    DaemonProviderCredentialEnrollmentControl, ProtectedEnrollmentSessionFacts,
+};
 
-pub(super) struct NoReadback;
+pub(crate) struct NoReadback;
 
 impl ProviderCredentialReadback for NoReadback {
     fn readback_exact_version(
@@ -67,7 +69,7 @@ fn protected_begin_without_verified_request_admission_is_rejected_before_store()
     let keys = LaunchSecret::from_bytes([7; 32]).unwrap().derive_keys();
     let facts = ProtectedEnrollmentSessionFacts::for_test();
     let rendezvous =
-        super::super::broker::rendezvous::DaemonOwnedUnixBrokerRendezvous::create().unwrap();
+        crate::application::provider_credential_enrollment::broker::rendezvous::DaemonOwnedUnixBrokerRendezvous::create().unwrap();
     let mut session = control
         .start_test_protected_session(&keys, facts, rendezvous)
         .unwrap();
@@ -95,7 +97,7 @@ fn protected_request_admission_begin_and_exact_replay_return_one_safe_projection
     let (control, keys) = control();
     let facts = ProtectedEnrollmentSessionFacts::for_test();
     let rendezvous =
-        super::super::broker::rendezvous::DaemonOwnedUnixBrokerRendezvous::create().unwrap();
+        crate::application::provider_credential_enrollment::broker::rendezvous::DaemonOwnedUnixBrokerRendezvous::create().unwrap();
     let broker = runne_api::protected_credential_broker_evidence_binding(
         [6; 32],
         rendezvous.channel_binding(),
@@ -141,7 +143,10 @@ fn protected_request_admission_begin_and_exact_replay_return_one_safe_projection
     )
     .encode_frame();
     let (kind, admission) = session.accept_initial_request(&request, now).unwrap();
-    assert_eq!(kind, super::InitialCredentialExchange::Intent);
+    assert_eq!(
+        kind,
+        crate::application::provider_credential_enrollment::InitialCredentialExchange::Intent
+    );
     assert!(!admission.is_empty());
     assert_eq!(
         session.accept_request(&request, now),

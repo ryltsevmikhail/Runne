@@ -19,6 +19,7 @@ const PROJECT: &str = "018f2e3a-7000-7000-8000-000000000302";
 const WORKSPACE: &str = "018f2e3a-7000-7000-8000-000000000303";
 const CONVERSATION: &str = "018f2e3a-7000-7000-8000-000000000304";
 const TASK_RUN: &str = "018f2e3a-7000-7000-8000-000000000305";
+const SUCCESSOR_TASK_RUN: &str = "018f2e3a-7000-7000-8000-000000000306";
 
 #[derive(Clone)]
 struct OutcomeHost;
@@ -99,6 +100,22 @@ impl CommandReconciliationHostPort for OutcomeHost {
                     kind: TaskRunCommandAckKind::Submitted,
                 })
             }
+            CommandReconciliationWitnessRef::SupersedeUnknownTaskRun {
+                predecessor_taskrun_id,
+                expected_version,
+            } => {
+                let successor_taskrun_id = SUCCESSOR_TASK_RUN.parse().unwrap();
+                AuthoritativeCommandOutcome::unknown_successor_created(TaskRunCommandAck {
+                    taskrun_id: successor_taskrun_id,
+                    new_version: 2,
+                    kind: TaskRunCommandAckKind::UnknownSuccessorCreated {
+                        predecessor_taskrun_id,
+                        predecessor_version: expected_version + 1,
+                        successor_taskrun_id,
+                        successor_version: 2,
+                    },
+                })
+            }
             CommandReconciliationWitnessRef::ApprovalDecision { .. } => unreachable!(),
         };
         CommandReconciliationDisposition::durably_recorded(&witness, outcome)
@@ -171,6 +188,14 @@ async fn eight_non_text_operations_have_exact_closed_response_bodies() {
             ),
             format!(
                 r#"{{"disposition":"durably_recorded","outcome":{{"operation":"submit_task_run","taskRunId":"{TASK_RUN}","newVersion":2}}}}"#
+            ),
+        ),
+        (
+            format!(
+                r#"{{"operation":"supersede_unknown_task_run","predecessorTaskRunId":"{TASK_RUN}","expectedVersion":4}}"#
+            ),
+            format!(
+                r#"{{"disposition":"durably_recorded","outcome":{{"operation":"supersede_unknown_task_run","predecessorTaskRunId":"{TASK_RUN}","successorTaskRunId":"{SUCCESSOR_TASK_RUN}","newVersion":5}}}}"#
             ),
         ),
         (

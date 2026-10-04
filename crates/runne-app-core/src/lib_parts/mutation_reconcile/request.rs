@@ -25,6 +25,9 @@ fn task_run_reconciliation_request(
             id(task_run_id)?,
             *expected_version,
         ))),
+        Command::SupersedeUnknownTaskRun { predecessor_task_run_id, expected_version } => Some(Ok(Request::supersede_unknown_task_run(
+            identity.clone(), id(predecessor_task_run_id)?, *expected_version,
+        ))),
         Command::SubmitTaskRun {
             conversation_id,
             workspace_id,
@@ -192,6 +195,7 @@ fn standard_reconciliation_request(
         | Command::OpenWorkspace { .. }
         | Command::CreateWorkspace { .. }
         | Command::CancelTaskRun { .. }
+        | Command::SupersedeUnknownTaskRun { .. }
         | Command::SubmitTaskRun { .. }
         | Command::LegacySubmitTaskRun { .. } => None,
     }

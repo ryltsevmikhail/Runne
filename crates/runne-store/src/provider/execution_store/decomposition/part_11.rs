@@ -9,6 +9,7 @@ fn commit_issuance(
     authority_ref: ProviderEffectAuthorityRef,
     semantic_digest: [u8; 32],
     requested_tokens: u64,
+    profile_grant: Option<([u8; 16], [u8; 16])>,
     issued_at: i64,
     expires_at: i64,
 ) -> Result<(), ProviderAdmissionError> {
@@ -36,8 +37,26 @@ fn commit_issuance(
         encode_hex(&claim.cost_reservation_id)
     );
     let permit_hex = encode_hex(&claim.permit_id);
-    let reserved = transaction
-        .execute(
+    let reserved = match profile_grant {
+        Some((grant_id, binding_id)) => transaction.execute(
+            "UPDATE provider_secondary_profile_grants SET
+                token_budget_reserved=token_budget_reserved+?1,
+                cost_budget_reserved_micros=cost_budget_reserved_micros+?2
+             WHERE grant_id=?3 AND enabled=1
+               AND runtime_authority_id=?4 AND database_generation=?5
+               AND EXISTS(SELECT 1 FROM provider_secondary_profile_bindings b WHERE b.binding_id=?6
+                   AND b.grant_id=?3 AND b.closed_at IS NULL AND b.owner_id=?7
+                   AND b.authority_revision=?8 AND b.scope=?9
+                   AND b.activation_binding_kind=?10 AND b.activation_binding_digest=?11)
+               AND profile_digest=?12 AND pricing_revision_digest=?13
+               AND token_budget_reserved+token_budget_settled+?1<=token_budget_limit
+               AND cost_budget_reserved_micros+cost_budget_settled_micros+?2<=cost_budget_limit_micros",
+            params![requested_tokens_i64,max_cost_i64,grant_id.as_slice(),state.runtime_authority_id.as_slice(),
+                database_generation_i64,binding_id.as_slice(),state.owner_id,as_i64(state.state_revision)?,state.scope,
+                state.activation_binding_kind.ok_or(ProviderAdmissionError::AuthorityDenied)?.code(),
+                state.activation_binding_digest.as_slice(),request.prepared.profile_digest.as_slice(),request.pricing_revision_digest.as_slice()],
+        ),
+        None => transaction.execute(
             "UPDATE provider_runtime_authority_state SET
                 token_budget_reserved = token_budget_reserved + ?1,
                 cost_budget_reserved_micros = cost_budget_reserved_micros + ?2
@@ -48,7 +67,8 @@ fn commit_issuance(
                AND cost_budget_reserved_micros + cost_budget_settled_micros + ?2
                    <= cost_budget_limit_micros",
             params![requested_tokens_i64, max_cost_i64],
-        )
+        ),
+    }
         .map_err(|_| ProviderAdmissionError::RepositoryFailure)?;
     if reserved != 1 {
         return Err(ProviderAdmissionError::StaleFencingToken);
@@ -172,6 +192,15 @@ fn commit_issuance(
             ],
         )
         .map_err(|_| ProviderAdmissionError::AuthorityConflict)?;
+    if let Some((grant_id, binding_id)) = profile_grant {
+        transaction.execute(
+            "INSERT INTO provider_secondary_profile_attempts
+             (dispatch_attempt_id,grant_id,binding_id,provider_idempotency_key,profile_digest,pricing_revision_digest)
+             VALUES (?1,?2,?3,?4,?5,?6)",
+            params![claim.attempt_id.as_bytes().as_slice(),grant_id.as_slice(),binding_id.as_slice(),request.provider_idempotency_key,
+                request.prepared.profile_digest.as_slice(),request.pricing_revision_digest.as_slice()],
+        ).map_err(|_| ProviderAdmissionError::RepositoryFailure)?;
+    }
     persist_online_issuance_binding(transaction, request, claim, online_proof)?;
     for (reservation_id, dimension, amount) in [
         (claim.token_reservation_id, 1_i64, requested_tokens_i64),
@@ -192,35 +221,14 @@ fn commit_issuance(
             )
             .map_err(|_| ProviderAdmissionError::RepositoryFailure)?;
     }
-    transaction
-        .execute(
-            "INSERT INTO security_dispatch_intents (intent_id, status)
-             VALUES (?1, 'uncertain')",
-            [&intent_id],
-        )
-        .and_then(|_| {
-            transaction.execute(
-                "INSERT INTO security_authorization_decisions
-                 (intent_id, grant_id, allowed, reason)
-                 VALUES (?1, ?2, 1, 'provider-runtime-issued')",
-                params![intent_id, state.capability_grant_id],
-            )
-        })
-        .and_then(|_| {
-            transaction.execute(
-                "INSERT INTO security_budget_consumptions
-                 (intent_id, reservation_id, amount) VALUES (?1, ?2, ?3)",
-                params![intent_id, budget_binding, requested_tokens_i64],
-            )
-        })
-        .and_then(|_| {
-            transaction.execute(
-                "INSERT INTO security_permit_claims (permit_id, intent_id)
-                 VALUES (?1, ?2)",
-                params![permit_hex, intent_id],
-            )
-        })
-        .map_err(|_| ProviderAdmissionError::RepositoryFailure)?;
+    persist_issuance_security_records(
+        transaction,
+        &intent_id,
+        &budget_binding,
+        &permit_hex,
+        &state.capability_grant_id,
+        requested_tokens_i64,
+    )?;
     Ok(())
 }
 
@@ -233,9 +241,9 @@ struct IssuedIds {
 }
 
 impl IssuedIds {
-    fn random() -> Self {
+    fn random_with_dispatch_attempt_id(dispatch_attempt_id: Option<[u8; 16]>) -> Self {
         Self {
-            dispatch_attempt_id: random_nonzero_id(),
+            dispatch_attempt_id: dispatch_attempt_id.unwrap_or_else(random_nonzero_id),
             authority_id: random_nonzero_id(),
             permit_id: random_nonzero_id(),
             token_reservation_id: random_nonzero_id(),
@@ -252,35 +260,6 @@ fn random_nonzero_id() -> [u8; 16] {
             return id;
         }
     }
-}
-
-fn execution_semantic_digest(request: &ProviderAuthorityIssueRequest) -> [u8; 32] {
-    let mut hasher = Sha256::new();
-    hasher.update(PROVIDER_EXECUTION_SEMANTIC_V1);
-    hash_text(&mut hasher, &request.principal_id);
-    hasher.update(request.conversation_id.as_bytes());
-    hasher.update(request.taskrun_id.as_bytes());
-    hasher.update(request.execution_attempt_id.as_bytes());
-    hasher.update(request.prepared.call_id.as_bytes());
-    hasher.update([match request.prepared.call_digest_version {
-        ProviderCallDigestVersion::V1 => 1,
-        ProviderCallDigestVersion::V2 => 2,
-    }]);
-    hasher.update(request.prepared.prepared_digest);
-    hasher.update(request.prepared.render_digest);
-    hasher.update(request.prepared.profile_digest);
-    hasher.update(request.pricing_revision_digest);
-    hasher.update(request.requested_input_tokens.to_be_bytes());
-    hasher.update(request.requested_output_tokens.to_be_bytes());
-    hasher.update(request.max_cost_micros.to_be_bytes());
-    hash_text(&mut hasher, &request.currency);
-    hash_text(&mut hasher, &request.provider_idempotency_key);
-    hasher.finalize().into()
-}
-
-fn hash_text(hasher: &mut Sha256, text: &str) {
-    hasher.update((text.len() as u64).to_be_bytes());
-    hasher.update(text.as_bytes());
 }
 
 fn as_i64(value: u64) -> Result<i64, ProviderAdmissionError> {

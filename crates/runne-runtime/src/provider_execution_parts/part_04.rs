@@ -51,7 +51,9 @@ where
 impl<'a, K, S, P> RuntimeProviderExecution<'a, K, S, P>
 where
     K: ProviderJournalKeyring + ?Sized,
-    S: ProviderExecutionStore + ProviderTerminalPersistence,
+    S: ProviderExecutionStore
+        + ProviderTerminalPersistence
+        + runne_application::provider::ProviderRemoteRecoveryStore,
     P: ProviderTerminalPricing,
 {
     /// Applies every pending terminal output through an idempotent
@@ -68,16 +70,55 @@ where
         let pending = self.recover_pending_terminal_outputs()?;
         let mut applied = 0_usize;
         for recovered in pending {
-            let receipt_digest = application
+            let receipt_digest = match application
                 .complete_provider_terminal(recovered.record(), recovered.output())
-                .map_err(|error| match error {
-                    ProviderTerminalApplicationError::Unavailable => {
-                        RuntimeProviderExecutionError::ApplicationUnavailable
-                    }
-                    ProviderTerminalApplicationError::Conflict => {
-                        RuntimeProviderExecutionError::ApplicationConflict
-                    }
-                })?;
+            {
+                Ok(digest) => digest,
+                Err(ProviderTerminalApplicationError::Deferred) => continue,
+                Err(ProviderTerminalApplicationError::Unavailable) => {
+                    return Err(RuntimeProviderExecutionError::ApplicationUnavailable);
+                }
+                Err(ProviderTerminalApplicationError::Conflict) => {
+                    return Err(RuntimeProviderExecutionError::ApplicationConflict);
+                }
+            };
+            if receipt_digest == [0; 32] {
+                return Err(RuntimeProviderExecutionError::ApplicationConflict);
+            }
+            self.acknowledge_terminal_output(recovered.record().outbox_id, receipt_digest)?;
+            let _ = observer.observe_recovered_terminal_output();
+            applied = applied
+                .checked_add(1)
+                .ok_or(RuntimeProviderExecutionError::ApplicationConflict)?;
+        }
+        Ok(applied)
+    }
+
+    /// Applies pending-cancellation terminal evidence from boot recovery.
+    /// Foreground attempts never call this entrypoint.
+    pub fn apply_pending_terminal_cancellation_outputs<
+        A: ProviderTerminalOutboxApplication,
+        O: ProviderRecoveryObserver,
+    >(
+        &self,
+        application: &A,
+        observer: &O,
+    ) -> Result<usize, RuntimeProviderExecutionError> {
+        let pending = self.recover_pending_terminal_outputs()?;
+        let mut applied = 0_usize;
+        for recovered in pending {
+            let receipt_digest = match application
+                .complete_provider_terminal_cancellation(recovered.record(), recovered.output())
+            {
+                Ok(digest) => digest,
+                Err(ProviderTerminalApplicationError::Deferred) => continue,
+                Err(ProviderTerminalApplicationError::Unavailable) => {
+                    return Err(RuntimeProviderExecutionError::ApplicationUnavailable);
+                }
+                Err(ProviderTerminalApplicationError::Conflict) => {
+                    return Err(RuntimeProviderExecutionError::ApplicationConflict);
+                }
+            };
             if receipt_digest == [0; 32] {
                 return Err(RuntimeProviderExecutionError::ApplicationConflict);
             }
@@ -93,7 +134,9 @@ where
 impl<'a, K, S, P> RuntimeProviderExecution<'a, K, S, P>
 where
     K: ProviderJournalKeyring + ?Sized,
-    S: ProviderExecutionStore + ProviderTerminalPersistence,
+    S: ProviderExecutionStore
+        + ProviderTerminalPersistence
+        + runne_application::provider::ProviderRemoteRecoveryStore,
     P: ProviderTerminalPricing,
 {
     /// Applies only the exact foreground attempt outbox and acknowledges it.
@@ -102,26 +145,66 @@ where
         attempt_id: DispatchAttemptId,
         application: &A,
     ) -> Result<bool, RuntimeProviderExecutionError> {
-        let mut matching = self
-            .recover_pending_terminal_outputs()?
-            .into_iter()
-            .filter(|recovered| recovered.record().attempt_id == attempt_id);
-        let Some(recovered) = matching.next() else {
-            return Ok(false);
-        };
-        if matching.next().is_some() {
+        let records = self
+            .store
+            .pending_terminal_outbox_for_attempt(attempt_id)
+            .map_err(map_execution_error)?;
+        if records.len() > 1 {
             return Err(RuntimeProviderExecutionError::ApplicationConflict);
         }
-        let receipt_digest = application
-            .complete_provider_terminal(recovered.record(), recovered.output())
-            .map_err(|error| match error {
-                ProviderTerminalApplicationError::Unavailable => {
-                    RuntimeProviderExecutionError::ApplicationUnavailable
+        let Some(record) = records.into_iter().next() else {
+            return Ok(false);
+        };
+        let recovered = self.recover_one_terminal_outbox(record)?;
+        let receipt_digest =
+            match application.complete_provider_terminal(recovered.record(), recovered.output()) {
+                Ok(digest) => digest,
+                Err(ProviderTerminalApplicationError::Deferred) => return Ok(false),
+                Err(ProviderTerminalApplicationError::Unavailable) => {
+                    return Err(RuntimeProviderExecutionError::ApplicationUnavailable);
                 }
-                ProviderTerminalApplicationError::Conflict => {
-                    RuntimeProviderExecutionError::ApplicationConflict
+                Err(ProviderTerminalApplicationError::Conflict) => {
+                    return Err(RuntimeProviderExecutionError::ApplicationConflict);
                 }
-            })?;
+            };
+        if receipt_digest == [0; 32] {
+            return Err(RuntimeProviderExecutionError::ApplicationConflict);
+        }
+        self.acknowledge_terminal_output(recovered.record().outbox_id, receipt_digest)?;
+        Ok(true)
+    }
+
+    /// Applies an exact saved terminal only from the accepted-cancellation
+    /// recovery owner. The source-aware resolver closes the same TaskRun and
+    /// never appends the recovered assistant output.
+    pub fn apply_terminal_cancellation_output_for_attempt<A: ProviderTerminalOutboxApplication>(
+        &self,
+        attempt_id: DispatchAttemptId,
+        application: &A,
+    ) -> Result<bool, RuntimeProviderExecutionError> {
+        let records = self
+            .store
+            .pending_terminal_outbox_for_attempt(attempt_id)
+            .map_err(map_execution_error)?;
+        if records.len() > 1 {
+            return Err(RuntimeProviderExecutionError::ApplicationConflict);
+        }
+        let Some(record) = records.into_iter().next() else {
+            return Ok(false);
+        };
+        let recovered = self.recover_one_terminal_outbox(record)?;
+        let receipt_digest = match application
+            .complete_provider_terminal_cancellation(recovered.record(), recovered.output())
+        {
+            Ok(digest) => digest,
+            Err(ProviderTerminalApplicationError::Deferred) => return Ok(false),
+            Err(ProviderTerminalApplicationError::Unavailable) => {
+                return Err(RuntimeProviderExecutionError::ApplicationUnavailable);
+            }
+            Err(ProviderTerminalApplicationError::Conflict) => {
+                return Err(RuntimeProviderExecutionError::ApplicationConflict);
+            }
+        };
         if receipt_digest == [0; 32] {
             return Err(RuntimeProviderExecutionError::ApplicationConflict);
         }

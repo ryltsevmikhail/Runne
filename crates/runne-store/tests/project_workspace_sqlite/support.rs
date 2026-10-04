@@ -33,9 +33,33 @@ pub struct Database {
 
 impl Database {
     pub fn new(name: &str) -> Self {
+        Self::new_with_authority(name, authority())
+    }
+
+    pub fn new_with_authority(name: &str, authority: RuntimeAuthorityId) -> Self {
         let file = ValidatedTestDatabase::new(name);
         let (store, identity) =
-            validated_reopen::initialize_store(file.path(), authority(), guard()).unwrap();
+            validated_reopen::initialize_store(file.path(), authority, guard()).unwrap();
+        Self {
+            file,
+            identity,
+            store,
+        }
+    }
+
+    pub fn new_with_database_authority(
+        name: &str,
+        authority: RuntimeAuthorityId,
+        database_authority_id: [u8; 16],
+    ) -> Self {
+        let file = ValidatedTestDatabase::new(name);
+        let (store, identity) = validated_reopen::initialize_store_with_database_authority(
+            file.path(),
+            database_authority_id,
+            authority,
+            guard(),
+        )
+        .unwrap();
         Self {
             file,
             identity,

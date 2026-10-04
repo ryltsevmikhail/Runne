@@ -56,12 +56,13 @@ fn session_recovery_explicitly_supersedes_expired_attempt_but_not_live_attempt()
                 assert!(session.take_bound_broker_handoff().is_err());
                 return;
             }
+            let exchange_now = exchange_time(&session, now);
             let offer = desktop
-                .decode_daemon_offer(&response.unwrap(), now)
+                .decode_daemon_offer(&response.unwrap(), exchange_now)
                 .unwrap();
             assert_eq!(session.recovery.pending.as_ref().unwrap().1.attempt(), 2);
-            let ack = desktop.encode_desktop_accept(&offer, now).unwrap();
-            session.accept_cleanup_recovery(&ack, now).unwrap();
+            let ack = desktop.encode_desktop_accept(&offer, exchange_now).unwrap();
+            session.accept_cleanup_recovery(&ack, exchange_now).unwrap();
             assert_eq!(
                 session.take_bound_broker_handoff().unwrap().operation_id(),
                 operation

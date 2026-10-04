@@ -3,16 +3,31 @@ use crate::provider::execution_store::online_effect_proof::{
 };
 use runne_application::provider::{ProviderAdmissionError, ProviderJournalKeyBinding};
 use runne_provider::ProviderDispatchClaim;
-use rusqlite::{OptionalExtension, Transaction, params};
+use rusqlite::{Connection, OptionalExtension, Transaction, params};
 
-pub(super) struct VerifiedIssuanceProof {
-    pub(super) binding: ProviderJournalKeyBinding,
-    pub(super) mac: [u8; 32],
+pub(crate) struct VerifiedIssuanceProof {
+    pub(crate) fields: IssuanceProofFields,
+    pub(crate) binding: ProviderJournalKeyBinding,
+    pub(crate) mac: [u8; 32],
 }
 
 pub(super) fn verify_issuance(
     transaction: &Transaction<'_>,
     claim: &ProviderDispatchClaim,
+    proof: &OnlineEffectProofCapabilitySet,
+) -> Result<VerifiedIssuanceProof, ProviderAdmissionError> {
+    verify_historical_issuance(
+        transaction,
+        *claim.attempt_id.as_bytes(),
+        claim.provider_id.as_str(),
+        proof,
+    )
+}
+
+pub(crate) fn verify_historical_issuance(
+    transaction: &Connection,
+    attempt_id: [u8; 16],
+    provider_id: &str,
     proof: &OnlineEffectProofCapabilitySet,
 ) -> Result<VerifiedIssuanceProof, ProviderAdmissionError> {
     let row = transaction
@@ -35,10 +50,7 @@ pub(super) fn verify_issuance(
                 AND admission.authority_revision=evidence.authority_revision
                 AND admission.issued_at=evidence.issued_at
               WHERE evidence.dispatch_attempt_id=?1 AND evidence.provider_id=?2",
-            params![
-                claim.attempt_id.as_bytes().as_slice(),
-                claim.provider_id.as_str()
-            ],
+            params![attempt_id.as_slice(), provider_id],
             |row| {
                 let binding = ProviderJournalKeyBinding::new(
                     proof_array(row, 1)?,
@@ -85,7 +97,11 @@ pub(super) fn verify_issuance(
     if !proof.verify_issue(&fields, &mac) {
         return Err(ProviderAdmissionError::AuthorityDenied);
     }
-    Ok(VerifiedIssuanceProof { binding, mac })
+    Ok(VerifiedIssuanceProof {
+        fields,
+        binding,
+        mac,
+    })
 }
 
 fn proof_array<const N: usize>(row: &rusqlite::Row<'_>, index: usize) -> rusqlite::Result<[u8; N]> {

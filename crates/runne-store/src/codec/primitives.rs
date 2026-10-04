@@ -192,6 +192,7 @@ pub(super) const TAG_POLICY_DENIED: u8 = 0x10;
 pub(super) const TAG_RECONCILIATION_STARTED: u8 = 0x11;
 pub(super) const TAG_RECONCILED: u8 = 0x12;
 pub(super) const TAG_UNRECOVERABLE: u8 = 0x13;
+pub(super) const TAG_USER_SUPERSEDE_UNKNOWN: u8 = 0x30;
 pub(super) const TAG_TASK_RUN_CANCELLED: u8 = 0x14;
 pub(super) const TAG_LOOP_CYCLE_STARTED: u8 = 0x15;
 pub(super) const TAG_CONTEXT_COMMITTED: u8 = 0x16;

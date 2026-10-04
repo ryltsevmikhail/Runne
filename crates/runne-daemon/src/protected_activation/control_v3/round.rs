@@ -94,11 +94,18 @@ impl V3EnrollmentRuntime {
             .session
             .take()
             .ok_or(LaunchAuthorityError::OwnershipMismatch)?;
+        let http_controls = previous_session.http_controls();
         previous_session.clear_http_facts();
         drop(previous_session);
         let mut session = context
             .control
-            .start_protected_session(keys, owned, rendezvous, installed)
+            .start_protected_session_with_controls(
+                keys,
+                owned,
+                rendezvous,
+                http_controls,
+                installed,
+            )
             .map_err(runtime::map_enrollment_error)?;
         let request = channel.read_control_frame()?;
         initial_exchange::run(channel, &mut session, &live, sessions, request)?;

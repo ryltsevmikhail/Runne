@@ -45,7 +45,10 @@ fn launches_signed_writer_from_exact_private_path_bound_by_daemon_policy() {
     )
     .unwrap();
     assert_eq!(artifact.executable(), policy_writer);
-    assert_ne!(artifact.executable(), std::fs::canonicalize(packaged_writer).unwrap());
+    assert_ne!(
+        artifact.executable(),
+        std::fs::canonicalize(packaged_writer).unwrap()
+    );
     assert_eq!(artifact.image_digest(), digest);
 }
 
@@ -55,16 +58,22 @@ fn rejects_wrong_digest_missing_alias_and_alias_to_outside_file() {
     let bytes = b"signed installed writer";
     let (runtime, digest) = write_staged(root.path(), bytes);
     let stage = runtime.join(".desktop-protected-activation/executables-v1");
-    assert!(verified_staged_writer_artifact(&runtime, [8; 32], bytes.len() as u64, [7; 32]).is_err());
+    assert!(
+        verified_staged_writer_artifact(&runtime, [8; 32], bytes.len() as u64, [7; 32]).is_err()
+    );
 
     std::fs::remove_file(stage.join("runne")).unwrap();
-    assert!(verified_staged_writer_artifact(&runtime, digest, bytes.len() as u64, [7; 32]).is_err());
+    assert!(
+        verified_staged_writer_artifact(&runtime, digest, bytes.len() as u64, [7; 32]).is_err()
+    );
 
     let outside = root.path().join("outside.runned");
     std::fs::write(&outside, bytes).unwrap();
     std::fs::set_permissions(&outside, std::fs::Permissions::from_mode(0o500)).unwrap();
     symlink(&outside, stage.join("runne")).unwrap();
-    assert!(verified_staged_writer_artifact(&runtime, digest, bytes.len() as u64, [7; 32]).is_err());
+    assert!(
+        verified_staged_writer_artifact(&runtime, digest, bytes.len() as u64, [7; 32]).is_err()
+    );
 }
 
 #[test]
@@ -76,10 +85,14 @@ fn rejects_staged_writer_with_mutated_mode_or_contents() {
     let target = std::fs::canonicalize(stage.join("runne")).unwrap();
 
     std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o700)).unwrap();
-    assert!(verified_staged_writer_artifact(&runtime, digest, bytes.len() as u64, [7; 32]).is_err());
+    assert!(
+        verified_staged_writer_artifact(&runtime, digest, bytes.len() as u64, [7; 32]).is_err()
+    );
     let mut changed = bytes.to_vec();
     changed[0] ^= 1;
     std::fs::write(&target, changed).unwrap();
     std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o500)).unwrap();
-    assert!(verified_staged_writer_artifact(&runtime, digest, bytes.len() as u64, [7; 32]).is_err());
+    assert!(
+        verified_staged_writer_artifact(&runtime, digest, bytes.len() as u64, [7; 32]).is_err()
+    );
 }

@@ -4,6 +4,10 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.95"
 
+[features]
+default = []
+test-support = []
+
 [dependencies]
 runne-api = { path = "../runne-api" }
 runne-domain = { path = "../runne-domain" }

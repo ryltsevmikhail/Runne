@@ -63,7 +63,7 @@ describe('TaskRun page runtime session gate', () => {
     const Harness = defineComponent({ setup: () => { provideRuntimeSession(context); return () => h(TaskRunPage, { loadTaskRun: async () => timeline, subscribeTaskRun: async (_id, _initial, onTimeline) => { onTimeline({ ...timeline, state: 'succeeded', recovery: 'live' }); return { unsubscribe: async () => {}, resync: async () => timeline } } }) } })
     const wrapper = mount(Harness, { global: { plugins: [router] } })
     await flushPromises()
-    expect(wrapper.get('h1').text()).toBe('succeeded')
+    expect(wrapper.get('h1').text()).toBe('completed')
   })
 
   it('renders a synchronous fail-closed callback as read-only after session installation', async () => {
@@ -270,7 +270,7 @@ describe('TaskRun page runtime session gate', () => {
     first.resolve(timeline)
     await flushPromises()
     expect(subscriptions).toEqual([otherId])
-    expect(wrapper.get('h1').text()).toBe('succeeded')
+    expect(wrapper.get('h1').text()).toBe('completed')
   })
 
   it('does not subscribe a stale resync completion after navigation', async () => {
@@ -293,6 +293,6 @@ describe('TaskRun page runtime session gate', () => {
     oldUnsubscribe.resolve()
     await flushPromises()
     expect(subscriptions).toEqual([otherId])
-    expect(wrapper.get('h1').text()).toBe('succeeded')
+    expect(wrapper.get('h1').text()).toBe('completed')
   })
 })

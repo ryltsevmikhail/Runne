@@ -14,13 +14,19 @@ use runne_application::provider::{
     ProviderExecutionStore, ProviderJournalAppendOutcome, ProviderJournalAppendRequest,
     ProviderJournalKeyBinding, ProviderPollRequest, ProviderTerminalCommitOutcome,
     ProviderTerminalOutboxRecord, ProviderTerminalPricingBinding,
+    ProviderUnknownCommittedEffectFields, ProviderUnknownCommittedEffectProof,
 };
 use runne_domain::id::{AttemptId, ConversationId, TaskRunId};
 use runne_provider::{
     DispatchAttemptId, ProviderCallDigestVersion, ProviderDispatchClaim, ProviderRepositoryState,
 };
 use runne_runtime::provider_execution::{
-    ProviderTerminalCommitRequest, ProviderTerminalPersistence,
+    ProviderEventJournalContext, ProviderTerminalCommitRequest, ProviderTerminalPersistence,
+    ProviderTerminalUnknownSelector, ProviderUnknownAccountingReason,
+    ProviderUnknownReservationSnapshot, ProviderUnknownSourceState,
+    ProviderUnknownTerminalAuthenticator, ProviderUnknownTerminalAuthorization,
+    ProviderUnknownTerminalCurrentFacts, ProviderUnknownTerminalOriginalBinding,
+    ProviderUnknownTerminalSnapshot,
 };
 use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior, params};
 use sha2::{Digest, Sha256};
@@ -28,10 +34,10 @@ use sha2::{Digest, Sha256};
 use super::OnlineEffectStartBinding;
 use super::authority_config::ProviderRuntimeAuthorityConfig;
 use super::authority_state::{RuntimeAuthorityState, binding_kind, load_utilization};
-use super::runtime_launch_capability::ProviderRuntimeLaunchCapability;
 use super::effect_start::{
     ProviderEffectStartReceipt, ProviderOnlineEffectStartReceipt, start_effect, start_online_effect,
 };
+use super::runtime_launch_capability::ProviderRuntimeLaunchCapability;
 use crate::schema::{
     ConnectionMode, ManagedConnection, apply_migrations, open_managed_connection,
     publication_from_managed, readiness_from_managed,
@@ -41,9 +47,11 @@ const PROVIDER_EXECUTION_SEMANTIC_V1: &[u8] = b"GOCODE_PROVIDER_EXECUTION_SEMANT
 
 /// SQLite runtime-owned atomic provider authority issuer.
 pub struct SqliteProviderExecutionStore {
-    pub(super) connection: Mutex<ManagedConnection>,
+    pub(super) connection: Arc<Mutex<ManagedConnection>>,
     now: Arc<dyn Fn() -> i64 + Send + Sync>,
-    pub(super) online_effect_proof: OnlineEffectProofState,
+    pub(super) online_effect_proof: Arc<OnlineEffectProofState>,
+    #[cfg(feature = "test-support")]
+    next_dispatch_attempt_id_for_test: Mutex<Option<[u8; 16]>>,
     #[cfg(test)]
     fail_effect_readback: AtomicBool,
     #[cfg(test)]

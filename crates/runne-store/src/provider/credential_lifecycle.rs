@@ -207,6 +207,13 @@ impl SqliteProviderCredentialLifecycleStore {
     }
 }
 
+pub(crate) fn credential_safe_snapshot_in_transaction(
+    connection: &rusqlite::Connection,
+    provider: &runne_provider::ProviderId,
+) -> Result<runne_provider::CredentialSafeSnapshot, CredentialLifecycleError> {
+    safe_projection::load_in_connection(connection, provider)
+}
+
 impl ProviderCredentialVersionStore for SqliteProviderCredentialLifecycleStore {
     fn create_prepared(
         &self,

@@ -43,7 +43,8 @@ fn event_to_message(
         ConversationEvent::ConversationCreated { .. } | ConversationEvent::ConversationClosed => {
             return None;
         }
-        ConversationEvent::GenerationFailed { .. } => return None,
+        ConversationEvent::GenerationFailed { .. }
+        | ConversationEvent::GenerationSupersededUnknown { .. } => return None,
     };
     let committed_at =
         NonNegativeUnixMillis::new(event.timestamp().as_unix_micros().div_euclid(1_000))

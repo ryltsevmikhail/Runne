@@ -64,7 +64,7 @@ async fn uncertain_provider_effect_preserves_started_generation_for_reconciliati
             },
         )
         .await,
-        Err(ConversationHostError::ProviderOutputRejected)
+        Err(ConversationHostError::OutcomeUnknown)
     );
     let snapshot = host.list_messages(conversation_id).await.unwrap();
     assert_eq!(snapshot.stream_version, 2);
@@ -111,6 +111,7 @@ async fn newly_prohibited_provider_input_is_rejected_before_provider_invocation(
     ));
     let guard: Arc<dyn ProhibitedContentPort> = Arc::new(ProviderInputRejectingGuard);
     let finish_calls = Arc::new(AtomicUsize::new(0));
+    let finish_error_class = Arc::new(Mutex::new(None));
     let text_service: Arc<dyn ConversationTextCommandService> =
         Arc::new(CountingConversationTextService {
             inner: ConversationTextService::new(
@@ -120,6 +121,7 @@ async fn newly_prohibited_provider_input_is_rejected_before_provider_invocation(
                 Arc::clone(&guard),
             ),
             finish_calls: Arc::clone(&finish_calls),
+            finish_error_class: Arc::clone(&finish_error_class),
         });
     let (handle, mut controller) = Runtime::start_borrowed_with_conversations(
         runne_runtime::TokioRuntimeContext::new_for_test(),
@@ -166,6 +168,10 @@ async fn newly_prohibited_provider_input_is_rejected_before_provider_invocation(
     let snapshot_after_first = host.list_messages(conversation_id).await.unwrap();
     let duplicate = host.generate_text(generation_context, command).await;
 
+    eprintln!(
+        "sanitized_finish_error_class={}",
+        finish_error_class.lock().unwrap().unwrap_or("none")
+    );
     assert_eq!(first, Err(ConversationHostError::ProhibitedSecretMaterial));
     assert_eq!(
         duplicate,

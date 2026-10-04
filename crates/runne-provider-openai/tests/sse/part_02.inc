@@ -1,4 +1,3 @@
-
 #[test]
 fn identities_indexes_wrappers_and_remote_sequence_fail_closed() {
     let valid = String::from_utf8(successful_sse()).expect("fixture");
@@ -76,20 +75,34 @@ fn unsupported_events_output_and_annotations_fail_closed() {
 }
 
 #[test]
-fn bounds_missing_usage_and_eof_without_terminal_fail_closed() {
+fn missing_usage_preserves_completed_fact_but_truncated_stream_fails_closed() {
     let oversized = format!(
         "event: error\ndata: {{\"type\":\"error\",\"code\":\"x\",\"message\":\"{}\",\"param\":null,\"sequence_number\":0}}\n\n",
         "x".repeat(65_536)
     );
     assert!(decode(oversized.as_bytes()).is_err());
 
-    let missing_usage = String::from_utf8(successful_sse())
-        .unwrap()
-        .replace(
-            "\"usage\":{\"input_tokens\":11,\"input_tokens_details\":{\"cached_tokens\":3},\"output_tokens\":4,\"output_tokens_details\":{\"reasoning_tokens\":0},\"total_tokens\":15}",
-            "\"usage\":null",
-        );
-    assert!(decode(missing_usage.as_bytes()).is_err());
+    let original = String::from_utf8(successful_sse()).unwrap();
+    let missing_usage = original.replace(
+        "\"usage\":{\"input_tokens\":11,\"input_tokens_details\":{\"cached_tokens\":3},\"output_tokens\":4,\"output_tokens_details\":{\"reasoning_tokens\":0},\"total_tokens\":15}",
+        "\"usage\":null",
+    );
+    for body in [missing_usage, original.replace(",\"usage\":{\"input_tokens\":11,\"input_tokens_details\":{\"cached_tokens\":3},\"output_tokens\":4,\"output_tokens_details\":{\"reasoning_tokens\":0},\"total_tokens\":15}", "")] {
+        let events = decode(body.as_bytes()).expect("factual completed terminal without usage");
+        assert!(matches!(events[3].kind(), ProviderStreamEventKind::UsageUnavailable));
+        assert!(matches!(events[4].kind(), ProviderStreamEventKind::Finished {
+            disposition: ProviderTerminalDisposition::Completed,
+            reason: ProviderFinishReason::Stop,
+        }));
+    }
+    let malformed_usage = original.replace(
+        "\"usage\":{\"input_tokens\":11,\"input_tokens_details\":{\"cached_tokens\":3},\"output_tokens\":4,\"output_tokens_details\":{\"reasoning_tokens\":0},\"total_tokens\":15}",
+        "\"usage\":{\"input_tokens\":\"bad\"}",
+    );
+    assert_eq!(
+        decode(malformed_usage.as_bytes()),
+        Err(OpenAiStreamError::InvalidUsage)
+    );
 
     let truncated = String::from_utf8(successful_sse())
         .unwrap()

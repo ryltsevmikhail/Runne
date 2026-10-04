@@ -14,9 +14,16 @@ pub(super) fn load(
     provider: &ProviderId,
 ) -> Result<CredentialSafeSnapshot, CredentialLifecycleError> {
     let connection = store.connection.lock().map_err(super::map_lock)?;
-    let head = load_head(&connection, provider)?.ok_or(CredentialLifecycleError::NotFound)?;
-    let readiness = readiness(&connection, provider, &head)?;
-    let verification = verification(&connection, provider, &head)?;
+    load_in_connection(&connection, provider)
+}
+
+pub(crate) fn load_in_connection(
+    connection: &Connection,
+    provider: &ProviderId,
+) -> Result<CredentialSafeSnapshot, CredentialLifecycleError> {
+    let head = load_head(connection, provider)?.ok_or(CredentialLifecycleError::NotFound)?;
+    let readiness = readiness(connection, provider, &head)?;
+    let verification = verification(connection, provider, &head)?;
     CredentialSafeSnapshot::new(
         provider.clone(),
         head.active.is_some(),

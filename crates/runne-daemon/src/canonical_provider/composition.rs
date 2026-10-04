@@ -10,45 +10,18 @@ mod credential_reader;
 mod credential_reconciliation;
 mod dependencies;
 mod enrollment_control;
-#[cfg(all(feature = "test-support", not(test)))]
+#[cfg(any(test, feature = "test-support"))]
 mod fixture_credentials;
 mod input;
+mod journal_bootstrap;
 mod model_pin;
 mod policy;
+mod remote_context;
+mod secondary_background;
+mod service;
 pub(crate) use input::DaemonCanonicalProviderComposition;
 pub(super) use policy::*;
-pub struct DaemonCanonicalProviderService {
-    pub(super) dispatch_store: Arc<SqliteProviderDispatchStore>,
-    pub(super) execution_store: Arc<SqliteProviderExecutionStore>,
-    pub(super) credential_store: Arc<SqliteProviderCredentialLifecycleStore>,
-    pub(super) quota_store: Arc<runne_provider_quota::QuotaStateStore>,
-    #[allow(dead_code, reason = "used by protected macOS verification")]
-    pub(super) enrollment_store_authority:
-        Option<runne_provider::CredentialEnrollmentStoreAuthority>,
-    pub(super) credential_readback: Option<Arc<dyn ProviderCredentialReadback>>,
-    pub(super) credential_enrollment_control:
-        Option<Arc<crate::application::provider_credential_enrollment::DaemonProviderCredentialEnrollmentControl>>,
-    pub(super) runtime_store: Arc<runtime_store::DaemonProviderRuntimeStore>,
-    pub(super) conversation_store: StoreTransaction,
-    pub(super) conversation_service: Arc<dyn ConversationTextCommandService>,
-    pub(super) adapter: Arc<dyn CanonicalProviderEffect>,
-    pub(super) profile: Arc<SharedTextProviderProfile>,
-    pub(super) provider_id: std::borrow::Cow<'static, str>,
-    pub(super) model_id: std::borrow::Cow<'static, str>,
-    pub(super) model_revision: std::borrow::Cow<'static, str>,
-    pub(super) keyring: Arc<dyn ProviderJournalKeyring>,
-    pub(super) prohibited_content: Arc<dyn ProhibitedContentPort>,
-    pub(super) trust: Option<crate::application::trust_delivery::DeliveryTrustGate>,
-    pub(super) scanner_store: Arc<SqliteProviderRecoveryStore>,
-    pub(super) tail_store: Arc<dyn WithheldTailStore>,
-    pub(super) runtime_authority_id: [u8; 16],
-    pub(super) database_generation: u64,
-    pub(super) runtime_generation: u64,
-    pub(super) fencing_token: u64,
-    pub(super) launch_capability: ProviderRuntimeLaunchCapability,
-    pub(super) renewal_dispatch_gate: super::dispatch_gate::ProviderDispatchGate,
-    pub(super) recovery_registry: Arc<runne_observability::operational::RecoveryObservationRegistry>,
-}
+pub use service::DaemonCanonicalProviderService;
 impl DaemonCanonicalProviderService {
     pub(crate) async fn compose(
         c: DaemonCanonicalProviderComposition,
@@ -62,6 +35,7 @@ impl DaemonCanonicalProviderService {
             runtime_generation,
             activation_provenance,
             expected_profile_digest,
+            secondary_catalog,
             conversation_store,
             conversation_service,
             prohibited_content,
@@ -78,6 +52,10 @@ impl DaemonCanonicalProviderService {
         } = c;
         let selected_dependencies = dependencies::select(dependencies);
         let effect_source = selected_dependencies.effect;
+        #[cfg(test)]
+        let secondary_effect_override = selected_dependencies.secondary_effect;
+        #[cfg(not(test))]
+        let secondary_effect_override: Option<Arc<dyn CanonicalProviderEffect>> = None;
         #[cfg(all(feature = "test-support", not(test)))]
         let adapter_override = selected_dependencies.adapter_override;
         let retained_keyring = selected_dependencies.keyring;
@@ -85,6 +63,8 @@ impl DaemonCanonicalProviderService {
         let fixture_transport = selected_dependencies.fixture_transport;
         #[cfg(test)]
         let credential_versions = selected_dependencies.credential_versions;
+        #[cfg(test)]
+        let primary_missing_fixture = selected_dependencies.primary_missing_fixture;
         if profile.profile_digest() != expected_profile_digest {
             return Err(DaemonError::Bootstrap(
                 "provider profile binding mismatch".into(),
@@ -117,6 +97,17 @@ impl DaemonCanonicalProviderService {
             profile.as_ref(),
             &scope,
         )?;
+        let (secondary_grant, secondary_effects_metadata) =
+            secondary_background::install_catalog_and_metadata(
+                execution_store.as_ref(),
+                &launch_capability,
+                secondary_catalog.clone(),
+                &db_path,
+                runtime_authority_id,
+                secondary_effect_override
+                    .as_deref()
+                    .map(|adapter| adapter.recovery_capabilities()),
+            )?;
         let registry =
             Arc::new(runne_observability::operational::RecoveryObservationRegistry::new().0);
         let keyring =
@@ -132,21 +123,36 @@ impl DaemonCanonicalProviderService {
             terminal_store_decorator,
         );
         #[cfg(test)]
-        let mut credentials = match effect_source.clone() {
-            Some(effect) => credential_reader::fixture(
-                credential_connection,
-                runtime_authority_id,
-                runtime_generation,
-                credential_id,
-                credential_versions,
-                effect,
-            )?,
-            None => credential_reader::production(
+        let mut credentials = if primary_missing_fixture {
+            credential_reader::fixture_missing(
                 credential_connection,
                 credential_id,
-                adapter_factory.as_ref(),
-                activation_provenance.is_protected(),
-            )?,
+                effect_source.clone().expect("fixture adapter exists"),
+            )?
+        } else {
+            match effect_source.clone() {
+                Some(effect) if credential_id != ProviderCredentialId::OpenAi => {
+                    credential_reader::fixture_enrolled(
+                        credential_connection,
+                        credential_id,
+                        effect,
+                    )?
+                }
+                Some(effect) => credential_reader::fixture(
+                    credential_connection,
+                    runtime_authority_id,
+                    runtime_generation,
+                    credential_id,
+                    credential_versions,
+                    effect,
+                )?,
+                None => credential_reader::production(
+                    credential_connection,
+                    credential_id,
+                    adapter_factory.as_ref(),
+                    activation_provenance.is_protected(),
+                )?,
+            }
         };
         #[cfg(all(feature = "test-support", not(test)))]
         let mut credentials = match effect_source.clone() {
@@ -196,59 +202,30 @@ impl DaemonCanonicalProviderService {
             prohibited_content.as_ref(),
             &redaction,
         );
-        match execution_store
-            .active_journal_key_binding()
-            .map_err(|_| DaemonError::Bootstrap("provider journal key unavailable".into()))?
-        {
-            Some(_) => {
-                execution
-                    .preflight_existing_active_key(runtime_authority_id, 1)
-                    .map_err(|_| {
-                        DaemonError::Bootstrap("provider journal key unavailable".into())
-                    })?;
-            }
-            None => {
-                RuntimeProviderExecution::<
-                    dyn ProviderJournalKeyring,
-                    runtime_store::DaemonProviderRuntimeStore,
-                    SharedTextProviderProfile,
-                >::create_and_activate_key(&execution, runtime_authority_id, 1, 1)
-                .map_err(|_| DaemonError::Bootstrap("provider journal key unavailable".into()))?;
-            }
-        }
-        let journal_binding = execution
-            .preflight_existing_active_key(runtime_authority_id, 1)
-            .map_err(|_| DaemonError::Bootstrap("provider journal key unavailable".into()))?;
-        execution_store
-            .install_online_effect_proof_capability(keyring.as_ref(), journal_binding)
-            .map_err(|_| {
-                DaemonError::Bootstrap("provider online effect proof unavailable".into())
-            })?;
-        let journal_status = keyring
-            .provider_journal_key_status(
-                runne_secure_store::ProviderJournalKeyRef::new(
-                    journal_binding.key_id(),
-                    journal_binding.key_version(),
-                    journal_binding.runtime_authority_id(),
-                    journal_binding.database_generation(),
-                )
-                .map_err(|_| DaemonError::Bootstrap("provider journal key unavailable".into()))?,
-            )
-            .map_err(|_| DaemonError::Bootstrap("provider journal key unavailable".into()))?;
-        ProviderReadinessEvidence {
-            profile_id: profile.profile_id().to_owned(),
-            profile_digest: profile.profile_digest(),
-            activation_profile_id: profile.profile_id().to_owned(),
-            activation_profile_digest: expected_profile_digest,
-            retained_key_backend: keyring.retains_multiple_provider_journal_keys(),
-            credential_status: credentials.status,
-            journal_binding: Some(journal_binding),
-            journal_key_status: journal_status,
+        journal_bootstrap::initialize(
+            execution_store.as_ref(),
+            &execution,
+            keyring.as_ref(),
+            profile.as_ref(),
+            credentials.status,
+            expected_profile_digest,
             runtime_authority_id,
-            database_generation: 1,
-        }
-        .validate_control_plane()
-        .map_err(|error| DaemonError::Bootstrap(error.to_string()))?;
+        )?;
+        let (context, facts) = remote_context::compose(&keyring, &execution_store);
+        let (secondary_profile, saved_remote_gate, secondary_effects_metadata) =
+            secondary_background::compose_optional_secondary_background(
+                secondary_catalog.as_ref(),
+                secondary_background::SecondaryBackgroundConfig {
+                    db_path: db_path.clone(),
+                    execution: Arc::clone(&execution_store),
+                    context: Arc::clone(&context),
+                    runtime_authority: runtime_authority_id,
+                    protected_activation: activation_provenance.is_protected(),
+                    adapter_override: secondary_effect_override.clone(),
+                    grant: secondary_grant,
+                },
+                secondary_effects_metadata,
+            )?;
         let service = Arc::new(Self {
             dispatch_store,
             execution_store,
@@ -256,6 +233,7 @@ impl DaemonCanonicalProviderService {
             enrollment_store_authority,
             quota_store,
             credential_readback: credentials.readback,
+            credential_status: credentials.status,
             credential_enrollment_control,
             runtime_store,
             conversation_store,
@@ -266,6 +244,7 @@ impl DaemonCanonicalProviderService {
             model_id,
             model_revision,
             keyring,
+            remote_fact_authenticator: facts,
             prohibited_content,
             trust,
             scanner_store,
@@ -277,24 +256,19 @@ impl DaemonCanonicalProviderService {
             launch_capability,
             renewal_dispatch_gate: super::dispatch_gate::ProviderDispatchGate::default(),
             recovery_registry: registry,
+            secondary_profile,
+            secondary_effects_metadata,
+            saved_remote_gate,
         });
-        #[cfg(any(
-            all(test, unix),
-            all(
-                feature = "desktop-protected",
-                target_os = "macos",
-                target_arch = "aarch64"
-            )
-        ))]
-        service.install_remote_verification()?;
-        credential_reconciliation::reconcile_initial(
-            service.as_ref(),
+        credential_reconciliation::finish_composition(
+            &service,
             defer_initial_credential_reconciliation,
             effect_source.is_some(),
-        )?;
-        service.recover_pending().await?;
+        )
+        .await?;
         Ok(service)
     }
 }
 #[cfg(test)]
 mod tests;
+include!("composition/secondary_catalog_install.rs");

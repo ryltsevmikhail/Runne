@@ -2,7 +2,10 @@
 
 #[test]
 fn v6_to_v8_migration() {
-    let conn = fresh_v8_db();
+    // Start from the exact historical V18 schema fixture. This includes the
+    // released V6 objects needed below without inheriting newer schema rows.
+    let conn = Connection::open_in_memory().unwrap();
+    apply_migrations_through_v18_for_test(&conn).unwrap();
     conn.execute_batch(
         "DROP TRIGGER global_command_id_from_command_receipts;
          DROP TRIGGER global_command_id_from_project_workspace_receipts;
@@ -17,6 +20,7 @@ fn v6_to_v8_migration() {
     drop_v17_snapshots(&conn);
     drop_v12_fences(&conn);
     drop_v13_provider_execution(&conn);
+    drop_v16_v17_objects(&conn);
     conn.execute_batch(
         "DROP TABLE provider_effect_authorities;
          DROP TABLE provider_dispatch_attempts;
@@ -32,11 +36,11 @@ fn v6_to_v8_migration() {
          DROP TABLE security_budget_consumptions;
          DROP TABLE security_authorization_decisions;
          DROP TABLE security_dispatch_intents;
-         DROP TABLE process_output;
-         DROP INDEX idx_process_registry_owner;
-         DROP TABLE process_registry;
-         DROP INDEX idx_approvals_pending;
-         DROP TABLE approvals;
+         DROP TABLE IF EXISTS process_output;
+         DROP INDEX IF EXISTS idx_process_registry_owner;
+         DROP TABLE IF EXISTS process_registry;
+         DROP INDEX IF EXISTS idx_approvals_pending;
+         DROP TABLE IF EXISTS approvals;
          DROP TRIGGER IF EXISTS schema_v12_fence_conversation_context_scope_insert;
          DROP TRIGGER IF EXISTS schema_v12_fence_conversation_context_scope_update;
          DROP TRIGGER IF EXISTS schema_v12_fence_conversation_context_scope_delete;

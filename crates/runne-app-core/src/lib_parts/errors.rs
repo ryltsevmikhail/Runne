@@ -48,6 +48,8 @@ pub enum AppCoreError {
     InvalidMutation,
     #[error("generation provider output was rejected")]
     GenerationRejected,
+    #[error("generation outcome is unknown; inspect task history before retrying")]
+    GenerationOutcomeUnknown,
     #[error("generation input was prohibited")]
     ProhibitedInputRejected,
 }

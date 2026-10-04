@@ -28,9 +28,18 @@ impl ProviderEffectPort for PendingEffect {
     fn dispatch_effect(
         &self,
         _: Box<dyn ProviderReadyEffect>,
-        _: ProviderEffectStartReceipt,
+        mut receipt: ProviderEffectStartReceipt,
     ) -> ProviderFuture<'_, Result<ProviderStreamId, DispatchError>> {
         Box::pin(async move {
+            receipt
+                .take_final_send_authority()
+                .map_err(|_| DispatchError::MaybeDispatched)?
+                .consume()
+                .map_err(|_| {
+                    DispatchError::RejectedBeforeEffect(
+                        runne_provider::ProviderPreEffectRejection::AdapterRejected,
+                    )
+                })?;
             let _owner = WaitOwner(Arc::clone(&self.dropped));
             self.entered
                 .lock()
@@ -54,6 +63,7 @@ async fn committed_revoke_interrupts_pending_coordinator_effect_as_uncertain() {
     let path = daemon.join("inflight-revoke.sqlite");
     let lifecycle = open_test_store(&path, 100);
     complete_pair(&lifecycle, 93, "inflight-pair");
+    let request = coordinator_request(93, "inflight-revoke", &path);
     let dispatch = SqliteProviderDispatchStore::open_with_connection(
         path.to_str().unwrap(),
         configured_connection(&path),
@@ -82,16 +92,13 @@ async fn committed_revoke_interrupts_pending_coordinator_effect_as_uncertain() {
         &Guard,
     );
     let run = async {
-        tokio::join!(
-            coordinator.dispatch(coordinator_request(93, "inflight-revoke")),
-            async {
-                started.await.unwrap();
-                let fencing = reopen_test_store(&path, 100);
-                fencing
-                    .begin(revoke(94, "revoke-pending-effect", 2, 2))
-                    .unwrap();
-            },
-        )
+        tokio::join!(coordinator.dispatch(request), async {
+            started.await.unwrap();
+            let fencing = reopen_test_store(&path, 100);
+            fencing
+                .begin(revoke(94, "revoke-pending-effect", 2, 2))
+                .unwrap();
+        },)
         .0
     };
     let result = tokio::time::timeout(std::time::Duration::from_secs(2), run).await;

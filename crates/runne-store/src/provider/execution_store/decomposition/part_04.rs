@@ -18,6 +18,10 @@ impl SqliteProviderExecutionStore {
             request.runtime_generation,
             request.profile_digest,
         )?;
+        secondary_profile_grant::verify_secondary_attempt_binding(
+            &transaction, request.attempt_id, request.profile_digest,
+            attempt.pricing_revision_digest, true,
+        )?;
         verify_current_runtime_lease(&transaction, &attempt)?;
         super::dispatch_store::verify_online_publication(
             &transaction,
@@ -224,11 +228,21 @@ impl SqliteProviderExecutionStore {
             .lock()
             .map_err(|_| ProviderExecutionError::StoreUnavailable)?;
         let attempt = load_execution_attempt(&connection, attempt_id)?;
-        verify_current_runtime_lease(&connection, &attempt)?;
-        if attempt.state == 6 {
+        let saved_terminal: bool = connection
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM provider_remote_terminal_artifacts
+                 WHERE dispatch_attempt_id=?1)",
+                [attempt_id.as_bytes().as_slice()],
+                |row| row.get(0),
+            )
+            .map_err(|_| ProviderExecutionError::StoreUnavailable)?;
+        if attempt.state == 6 && !saved_terminal {
             return Err(ProviderExecutionError::AttemptUncertain);
         }
-        if !matches!(attempt.state, 3..=5) {
+        if attempt.state != 6 {
+            verify_current_runtime_lease(&connection, &attempt)?;
+        }
+        if attempt.state != 6 && !matches!(attempt.state, 3..=5) {
             return Err(ProviderExecutionError::TerminalConflict);
         }
         let effect_started_at = connection
@@ -240,6 +254,7 @@ impl SqliteProviderExecutionStore {
             )
             .map_err(|_| ProviderExecutionError::JournalCorrupt)?;
         ProviderTerminalPricingBinding::with_reservation(
+            attempt.call_digest_version,
             attempt.pricing_revision_digest,
             attempt.currency,
             attempt.requested_input_tokens,

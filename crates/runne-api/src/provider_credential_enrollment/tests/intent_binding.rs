@@ -49,6 +49,11 @@ fn verify_intent_binding_changes_for_provider_revision_and_kind() {
             ProviderCredentialVerificationKindV2::Local,
         ),
         command(
+            ProviderCredentialProviderV2::OpenAiBackground,
+            2,
+            ProviderCredentialVerificationKindV2::Local,
+        ),
+        command(
             ProviderCredentialProviderV2::OpenAi,
             3,
             ProviderCredentialVerificationKindV2::Local,

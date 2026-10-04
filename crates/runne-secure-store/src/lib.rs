@@ -58,8 +58,8 @@ pub use provider_credential::{
     PROVIDER_CREDENTIAL_SERVICE, ProviderCredentialAccessPolicy,
     ProviderCredentialDispatchMaterializer, ProviderCredentialDispatchRead, ProviderCredentialId,
     ProviderCredentialMaterial, ProviderCredentialMaterialKind, ProviderCredentialReadback,
-    ProviderCredentialSource, ProviderCredentialSourceRevision, ProviderCredentialStatus,
-    ProviderCredentialStore, ProviderCredentialVerificationMaterializer,
+    ProviderCredentialRecoveryRead, ProviderCredentialSource, ProviderCredentialSourceRevision,
+    ProviderCredentialStatus, ProviderCredentialStore, ProviderCredentialVerificationMaterializer,
     ProviderCredentialVerificationReadback, VerificationMaterializerAdapter,
     VerificationNativeMaterializer, native_verification_materializer,
 };
@@ -291,10 +291,10 @@ pub use keyring::NativeKeyringStore as NativeProviderCredentialStore;
 // ---------------------------------------------------------------------------
 
 #[cfg(not(target_os = "macos"))]
-mod stub;
+mod platform_stub;
 
 #[cfg(not(target_os = "macos"))]
-pub use stub::StubStore;
+pub use platform_stub::StubStore;
 
 #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
-pub use stub::StubStore as NativeProviderCredentialStore;
+pub use platform_stub::StubStore as NativeProviderCredentialStore;

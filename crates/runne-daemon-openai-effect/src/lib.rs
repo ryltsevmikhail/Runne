@@ -3,11 +3,13 @@
 use std::any::Any;
 use std::collections::{BTreeMap, VecDeque};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use reqwest::header::{AUTHORIZATION, CONTENT_TYPE, HeaderName, HeaderValue};
 use runne_provider::{
-    DispatchError, DispatchRequest, ProviderPort, ProviderPreEffectRejection, ProviderStreamEvent,
-    ProviderStreamId,
+    DispatchError, DispatchRequest, ProviderPort, ProviderPreEffectRejection,
+    ProviderRecoveryCapabilities, ProviderRecoveryControlAuthorizer,
+    ProviderRecoveryDispatchContextProvider, ProviderStreamEvent, ProviderStreamId,
 };
 use runne_provider_openai::{
     OpenAiCredentialMaterializer, OpenAiResponsesTextProfile, OpenAiResponsesTextRenderer,
@@ -17,11 +19,17 @@ use runne_store::provider::{ProviderEffectPort, ProviderEffectStartReceipt, Prov
 use tokio::time::timeout_at;
 use zeroize::Zeroizing;
 
+mod background;
 mod bounds;
 mod client;
 mod offline_canary;
 mod port_impl;
 mod response;
+pub use background::{
+    background_recovery_capabilities, effect_from_loopback_background_fixture,
+    effect_from_loopback_background_fixture_with_timeout, production_background_effect,
+    production_background_effect_from_materializer,
+};
 
 #[doc(hidden)]
 pub use client::FixtureRequestAuthenticator;
@@ -95,6 +103,21 @@ pub fn effect_from_loopback_fixture_with_materializer(
     ))
 }
 
+/// Creates a loopback sender with a test-owned legacy-fixture credential hook.
+#[doc(hidden)]
+pub fn effect_from_loopback_fixture_with_legacy_credential_materializer<C>(
+    client: reqwest::Client,
+    credential: C,
+) -> Result<Arc<dyn OpenAiEffect>, OpenAiEffectError>
+where
+    C: OpenAiCredentialMaterializer + 'static,
+{
+    let profile = profile().map_err(|_| OpenAiEffectError)?;
+    Ok(Arc::new(
+        Sender::new(profile, credential, client).map_err(|_| OpenAiEffectError)?,
+    ))
+}
+
 /// Builds the opaque fixture-only authorization gate before the loopback server starts.
 #[doc(hidden)]
 pub fn loopback_fixture_request_authenticator() -> FixtureRequestAuthenticator {
@@ -135,6 +158,10 @@ struct Sender<C> {
     credential: C,
     client: reqwest::Client,
     streams: Mutex<BTreeMap<ProviderStreamId, VecDeque<ProviderStreamEvent>>>,
+    recovery_contexts: Option<Arc<dyn ProviderRecoveryDispatchContextProvider>>,
+    recovery_authorizer: Option<Arc<dyn ProviderRecoveryControlAuthorizer>>,
+    recovery_capabilities: ProviderRecoveryCapabilities,
+    recovery_timeout: Duration,
 }
 
 impl<C: OpenAiCredentialMaterializer> Sender<C> {
@@ -144,6 +171,7 @@ impl<C: OpenAiCredentialMaterializer> Sender<C> {
         client: reqwest::Client,
     ) -> Result<Self, ()> {
         let policy = OpenAiTransportPolicy::for_profile(&profile).map_err(|_| ())?;
+        let recovery_timeout = policy.total_timeout();
         Ok(Self {
             renderer: OpenAiResponsesTextRenderer::new(profile.clone()),
             profile,
@@ -151,6 +179,10 @@ impl<C: OpenAiCredentialMaterializer> Sender<C> {
             credential,
             client,
             streams: Mutex::new(BTreeMap::new()),
+            recovery_contexts: None,
+            recovery_authorizer: None,
+            recovery_capabilities: ProviderRecoveryCapabilities::default(),
+            recovery_timeout,
         })
     }
 

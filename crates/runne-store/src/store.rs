@@ -14,14 +14,14 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use runne_application::fingerprint::CommandFingerprint;
 use runne_application::ports::{
-    AggregateScope, BeginTextGenerationCommit, Clock, ClockError, CommandCommit, CommitError,
-    CommitResult, ConversationCommit, ConversationCommitResult, ConversationLoadedStream,
-    ConversationReceipt, ConversationReceiptLookup, ConversationRepository,
-    ConversationTextRepository, EventStore as AppEventStore, EventStoreError,
-    FinishTextGenerationCommit, IdGenerationError, IdGenerator, IdempotencyScope, LoadedStream,
-    OperationTag, ReceiptLookup, RejectTextGenerationCommit, ReplayEvent, RuntimeAuthorityId,
-    StorageFailureKind, TextGenerationCommitResult, TextGenerationPhase, TextGenerationReceipt,
-    TextGenerationReceiptLookup, UnitOfWork,
+    AggregateScope, BeginClaimedTextGenerationCommit, BeginTextGenerationCommit, Clock, ClockError,
+    CommandCommit, CommitError, CommitResult, ConversationCommit, ConversationCommitResult,
+    ConversationLoadedStream, ConversationReceipt, ConversationReceiptLookup,
+    ConversationRepository, ConversationTextRepository, EventStore as AppEventStore,
+    EventStoreError, FinishTextGenerationCommit, IdGenerationError, IdGenerator, IdempotencyScope,
+    LoadedStream, OperationTag, ReceiptLookup, RejectTextGenerationCommit, ReplayEvent,
+    RuntimeAuthorityId, StorageFailureKind, TaskRunAssignmentIdentity, TextGenerationCommitResult,
+    TextGenerationPhase, TextGenerationReceipt, TextGenerationReceiptLookup, UnitOfWork,
 };
 use runne_application::prohibited_content::{
     CanonicalContentBoundary, ContentDisposition, ProhibitedContentPort,
@@ -36,7 +36,7 @@ use runne_domain::id::{
     AggregateId, AttemptId, CommandId, ConversationId, EventId, IntegrityDigest, MessageId,
     TaskRunId,
 };
-use runne_domain::task_run::TaskRunEvent;
+use runne_domain::task_run::{TaskRun, TaskRunEvent, TaskRunState};
 use runne_domain::timestamp::Timestamp;
 use rusqlite::{Connection, OptionalExtension, params};
 
@@ -50,6 +50,11 @@ use crate::integrity::{
 use crate::schema::{
     ConnectionMode, ManagedConnection, apply_migrations, open_managed_connection,
     publication_from_managed, readiness_from_managed,
+};
+
+pub(crate) use conversation::has_no_active_generation_before_global_position;
+pub(crate) use taskrun_local_command::effects_proof::{
+    LocalEffectsProofRequest, terminal_stop_proven,
 };
 
 /// Maximum event count per commit (safety bound).
@@ -115,6 +120,7 @@ pub(crate) mod commit_gate;
 mod component_guard;
 mod conversation;
 pub use conversation::ConversationStreamHealth;
+pub(crate) use conversation::load_conversation_from_connection;
 mod conversation_writer_lease_host;
 mod core;
 mod correlation;
@@ -126,21 +132,38 @@ mod ids;
 mod parse_helpers;
 mod position_helpers;
 pub mod process;
+pub mod provider_failure_recovery;
 mod provider_terminal;
+mod provider_terminal_resolver;
 pub(crate) mod snapshot;
 mod taskrun_assignment;
+mod taskrun_cancellation_completion;
+mod taskrun_cancellation_scan;
 pub(crate) mod taskrun_claim;
 mod taskrun_execution_input;
+mod taskrun_local_command;
+pub use taskrun_local_command::{
+    LocalCommandApprovalBinding, LocalCommandAttemptState, LocalCommandRecoveryCandidate,
+};
+mod taskrun_no_effect_proof;
+mod taskrun_no_effect_scan;
 mod taskrun_provider_binding;
+pub(crate) mod taskrun_provider_start;
 mod taskrun_queue_scan;
 mod taskrun_release;
+pub(crate) mod taskrun_started_generation;
+pub(crate) mod taskrun_submit_origin;
+pub(crate) mod terminal_cancellation_receipt;
+pub(crate) mod test_support_diagnostics;
 mod text;
 mod text_receipt_helpers;
 mod text_validation_helpers;
 mod unit_of_work;
+mod unknown_successor;
 
 use correlation::StoredCorrelationType;
 pub use enrollment_launch::EnrollmentLaunchGenerationError;
+pub use unknown_successor::SqliteUnknownSuccessorRepository;
 
 #[cfg(test)]
 mod enrollment_launch_tests;

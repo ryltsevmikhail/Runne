@@ -13,16 +13,19 @@
 use super::*;
 use runne_application::commands::{ConversationTextCompletion, FinishConversationTextInput};
 use runne_application::ports::ApplicationCommandContext;
+use runne_application::ports::RuntimeAuthorityId;
 
 pub(in crate::application) fn settle_interrupted_text_generations(
     connection: &rusqlite::Connection,
     service: &Arc<dyn ConversationTextCommandService>,
+    authority: &RuntimeAuthorityId,
 ) -> Result<usize, DaemonError> {
-    let orphans =
-        runne_store::orphan_settlement::scan_provably_effect_free_started_generations(connection)
-            .map_err(|error| {
-            DaemonError::Bootstrap(format!("scan orphaned text generations: {error:?}"))
-        })?;
+    let orphans = runne_store::orphan_settlement::scan_provably_effect_free_started_generations(
+        connection, authority,
+    )
+    .map_err(|error| {
+        DaemonError::Bootstrap(format!("scan orphaned text generations: {error:?}"))
+    })?;
     let mut settled = 0usize;
     for orphan in orphans {
         let scope =
@@ -62,3 +65,6 @@ pub(in crate::application) fn settle_interrupted_text_generations(
     }
     Ok(settled)
 }
+
+#[cfg(test)]
+mod tests;

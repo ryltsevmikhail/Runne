@@ -134,7 +134,8 @@ impl TaskRun {
             | TaskRunCommand::FailGeneration { .. }
             | TaskRunCommand::StartReconciliation
             | TaskRunCommand::CompleteReconciliation
-            | TaskRunCommand::MarkUnrecoverable => self.decide_lifecycle(command),
+            | TaskRunCommand::MarkUnrecoverable
+            | TaskRunCommand::UserSupersedeUnknown { .. } => self.decide_lifecycle(command),
             TaskRunCommand::StartLoopCycle { .. }
             | TaskRunCommand::CommitContext { .. }
             | TaskRunCommand::CommitPlan { .. }

@@ -1,5 +1,17 @@
 impl Harness {
-    pub(super) const fn generation(&self) -> u64 {
+    pub(in crate::canonical_provider::composition::tests) fn text_service(
+        &self,
+    ) -> Arc<dyn ConversationTextCommandService> {
+        Arc::clone(&self.conversation_service)
+    }
+
+    pub(in crate::canonical_provider::composition::tests) fn authority(
+        &self,
+    ) -> runne_application::ports::RuntimeAuthorityId {
+        runne_application::ports::RuntimeAuthorityId(hex::encode(self.authority))
+    }
+
+    pub(in crate::canonical_provider::composition::tests) const fn generation(&self) -> u64 {
         self.generation
     }
 
@@ -21,7 +33,9 @@ impl Harness {
         Arc::clone(&self.prohibited)
     }
 
-    pub(super) fn query_connection(&self) -> runne_store::schema::ManagedConnection {
+    pub(in crate::canonical_provider::composition::tests) fn query_connection(
+        &self,
+    ) -> runne_store::schema::ManagedConnection {
         managed_test_connection(
             &self.db_path,
             self.authority,
@@ -30,7 +44,9 @@ impl Harness {
         )
     }
 
-    pub(super) fn writer_connection(&self) -> runne_store::schema::ManagedConnection {
+    pub(in crate::canonical_provider::composition::tests) fn writer_connection(
+        &self,
+    ) -> runne_store::schema::ManagedConnection {
         managed_test_connection(
             &self.db_path,
             self.authority,
@@ -39,15 +55,27 @@ impl Harness {
         )
     }
 
-    pub(super) fn begin(
+    pub(super) fn try_writer_connection(
+        &self,
+    ) -> Result<runne_store::schema::ManagedConnection, crate::error::DaemonError> {
+        try_managed_test_connection(
+            &self.db_path,
+            self.authority,
+            self.lineage,
+            runne_store::schema::ConnectionMode::ValidatedReopen,
+        )
+        .map_err(|_| {
+            crate::error::DaemonError::Bootstrap("validated test store reopen failed".into())
+        })
+    }
+
+    pub(in crate::canonical_provider::composition::tests) fn begin(
         &self,
     ) -> (
         ApplicationCommandContext,
         runne_application::ports::TextGenerationReceipt,
     ) {
-        let conversation_id = "018f2e3a-7000-7000-8000-000000000091"
-            .parse()
-            .unwrap();
+        let conversation_id = "018f2e3a-7000-7000-8000-000000000091".parse().unwrap();
         let create = command_context("018f2e3a-7000-7000-8000-000000000092", "audit-create");
         ConversationService::new(
             self.store.clone(),

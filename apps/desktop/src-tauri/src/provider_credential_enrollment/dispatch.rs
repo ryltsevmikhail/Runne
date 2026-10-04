@@ -263,7 +263,10 @@ async fn dispatch_inner(
     intents: &CredentialIntentRegistry,
     request: CredentialIntentIpc,
 ) -> Result<CredentialIntentProjection, DispatchFailure> {
-    linux::dispatch_inner(app, window, lifecycle, updater, intents, request).await
+    Box::pin(linux::dispatch_inner(
+        app, window, lifecycle, updater, intents, request,
+    ))
+    .await
 }
 
 #[cfg(not(any(target_os = "linux", all(target_os = "macos", target_arch = "aarch64"))))]

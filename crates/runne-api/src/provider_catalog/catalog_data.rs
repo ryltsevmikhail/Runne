@@ -1,4 +1,4 @@
-//! Exact Pi provider IDs and non-secret backend qualification metadata.
+//! Exact closed provider IDs, including Runne-owned routes, and non-secret qualification metadata.
 
 use super::types::{
     ProviderAuthKindV1, ProviderCatalogEntryV1, ProviderImplementationStatusV1, ProviderProtocolV1,
@@ -103,6 +103,7 @@ pub(super) const CATALOG_ENTRIES: &[ProviderCatalogEntryV1] = &[
     provider!("moonshotai-cn", ChatCompletions, API_KEY, Payg, IMPLEMENTED),
     provider!("nvidia", ChatCompletions, API_KEY, Unqualified, IMPLEMENTED),
     provider!("openai", Responses, API_KEY, Payg, IMPLEMENTED),
+    provider!("openai-background", Responses, API_KEY, Payg, CATALOG),
     provider!(
         "openai-codex",
         Responses,

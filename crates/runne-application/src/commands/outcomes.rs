@@ -24,8 +24,24 @@ pub enum CommandOutcome {
         /// The committed stream version after `Created + Queued` (always 2).
         new_version: u64,
     },
+    /// An explicitly acknowledged successor was committed for an unresolved effect.
+    UnknownSuccessorCreated {
+        predecessor_taskrun_id: TaskRunId,
+        predecessor_version: u64,
+        conversation_id: ConversationId,
+        conversation_version: u64,
+        successor_taskrun_id: TaskRunId,
+        successor_version: u64,
+    },
     /// Cancellation was durably requested for a task run.
     TaskRunCancellationRequested {
+        /// The task run ID.
+        taskrun_id: TaskRunId,
+        /// The new stream version.
+        new_version: u64,
+    },
+    /// A queued cancellation was terminalized before any claim or dispatch.
+    TaskRunCancellationCompleted {
         /// The task run ID.
         taskrun_id: TaskRunId,
         /// The new stream version.

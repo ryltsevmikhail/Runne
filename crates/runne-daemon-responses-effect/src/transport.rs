@@ -1,5 +1,6 @@
 use reqwest::{header::HeaderMap, redirect::Policy};
 use runne_provider::{DispatchError, ProviderFuture};
+use runne_store::provider::ProviderFinalSendAuthority;
 use std::time::Duration;
 
 const MAX_BODY: usize = 8 * 1024 * 1024;
@@ -26,6 +27,7 @@ pub trait ResponsesTransport: Send + Sync {
         url: &'a str,
         headers: HeaderMap,
         body: Vec<u8>,
+        final_send: ProviderFinalSendAuthority,
     ) -> ProviderFuture<'a, Result<TransportResponse, DispatchError>>;
 }
 
@@ -56,8 +58,14 @@ impl ResponsesTransport for ReqwestTransport {
         url: &'a str,
         headers: HeaderMap,
         body: Vec<u8>,
+        final_send: ProviderFinalSendAuthority,
     ) -> ProviderFuture<'a, Result<TransportResponse, DispatchError>> {
         Box::pin(async move {
+            final_send.consume().map_err(|_| {
+                DispatchError::RejectedBeforeEffect(
+                    runne_provider::ProviderPreEffectRejection::AdapterRejected,
+                )
+            })?;
             let mut response = self
                 .client
                 .post(url)

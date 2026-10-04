@@ -5,7 +5,6 @@ use runne_application::prohibited_content::{
     CanonicalContentBoundary, ContentDisposition, ContentGuardError, ProhibitedContentPort,
 };
 use runne_application::provider::{ProviderCoordinatorRequest, ProviderLeaseBindingKind};
-use runne_domain::id::{AttemptId, ConversationId, TaskRunId};
 use runne_provider::{
     CancelDisposition, CancelRequest, DispatchError, DispatchRequest, ModelRef, PrepareError,
     PreparedRequest, ProviderCall, ProviderCallId, ProviderFuture, ProviderId, ProviderPort,
@@ -86,10 +85,21 @@ impl ProviderEffectPort for Provider {
     fn dispatch_effect(
         &self,
         _: Box<dyn ProviderReadyEffect>,
-        _: ProviderEffectStartReceipt,
+        mut receipt: ProviderEffectStartReceipt,
     ) -> ProviderFuture<'_, Result<ProviderStreamId, DispatchError>> {
-        self.sends.fetch_add(1, Ordering::SeqCst);
-        Box::pin(async { Ok(ProviderStreamId::from_bytes([1; 16])) })
+        Box::pin(async move {
+            receipt
+                .take_final_send_authority()
+                .map_err(|_| DispatchError::MaybeDispatched)?
+                .consume()
+                .map_err(|_| {
+                    DispatchError::RejectedBeforeEffect(
+                        runne_provider::ProviderPreEffectRejection::AdapterRejected,
+                    )
+                })?;
+            self.sends.fetch_add(1, Ordering::SeqCst);
+            Ok(ProviderStreamId::from_bytes([1; 16]))
+        })
     }
 }
 
@@ -119,6 +129,8 @@ fn lost_effect_readback_freezes_before_stage2_send() {
     let path_text = path.to_str().unwrap();
     let credential = open_test_store(&path, 100);
     complete_pair(&credential, 91, "coordinator-online");
+    let (conversation_id, taskrun_id, execution_attempt_id) =
+        super::canonical_started_test_support::seed(&path, 91);
     let dispatch =
         SqliteProviderDispatchStore::open_with_connection(path_text, configured_connection(&path))
             .unwrap();
@@ -128,7 +140,7 @@ fn lost_effect_readback_freezes_before_stage2_send() {
     let config = ProviderRuntimeAuthorityConfig {
         runtime_authority_id: [1; 16],
         database_generation: 1,
-        principal_id: "principal".into(),
+        principal_id: "principal-1".into(),
         owner_id: "owner".into(),
         scope: "provider.dispatch".into(),
         generation: 1,
@@ -176,10 +188,10 @@ fn lost_effect_readback_freezes_before_stage2_send() {
     );
     let outcome = block_on(coordinator.dispatch(ProviderCoordinatorRequest {
         call,
-        principal_id: "principal".into(),
-        conversation_id: ConversationId::from_bytes([6; 16]),
-        taskrun_id: TaskRunId::from_bytes([7; 16]),
-        execution_attempt_id: AttemptId::from_bytes([8; 16]),
+        principal_id: "principal-1".into(),
+        conversation_id,
+        taskrun_id,
+        execution_attempt_id,
         profile_digest: [2; 32],
         pricing_revision_digest: [3; 32],
         requested_input_tokens: 32,

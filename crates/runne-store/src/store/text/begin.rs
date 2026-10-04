@@ -31,6 +31,7 @@ impl StoreTransaction {
             &payload.idempotency_key,
             &scope,
             &payload.command_fingerprint,
+            &self.runtime_authority_id,
         )? {
             return Ok(TextGenerationCommitResult::Duplicate { stored_result });
         }

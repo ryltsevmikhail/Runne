@@ -1,8 +1,9 @@
 use runne_provider::{
     CancelDisposition, CancelRequest, DispatchError, DispatchRequest, PrepareError,
     PreparedRequest, ProviderCall, ProviderCallDigestVersion, ProviderFuture, ProviderPort,
-    ProviderPreEffectRejection, ProviderStreamId, ProviderStreamItem, ReconcileRequest,
-    ReconciliationDisposition, StreamCursor, StreamError,
+    ProviderPreEffectRejection, ProviderRecoveryCapabilities, ProviderRecoveryError,
+    ProviderRecoveryRequest, ProviderRemoteCheck, ProviderResumeRequest, ProviderStreamId,
+    ProviderStreamItem, ReconcileRequest, ReconciliationDisposition, StreamCursor, StreamError,
 };
 use runne_provider_openai::{OpenAiCredentialError, OpenAiCredentialMaterializer};
 use runne_store::provider::CredentialDispatchBinding;
@@ -10,11 +11,15 @@ use runne_store::provider::{ProviderEffectPort, ProviderEffectStartReceipt, Prov
 
 use crate::{Ready, Sender};
 
-mod authorized;
+pub(crate) mod authorized;
 
 use authorized::AuthorizedReady;
 
 impl<C: OpenAiCredentialMaterializer> ProviderPort for Sender<C> {
+    fn recovery_capabilities(&self) -> ProviderRecoveryCapabilities {
+        self.recovery_capabilities
+    }
+
     fn prepare(&self, call: &ProviderCall) -> Result<PreparedRequest, PrepareError> {
         self.renderer
             .prepare(call)
@@ -80,6 +85,28 @@ impl<C: OpenAiCredentialMaterializer> ProviderPort for Sender<C> {
         _: ReconcileRequest,
     ) -> ProviderFuture<'_, Result<ReconciliationDisposition, DispatchError>> {
         Box::pin(async { Ok(ReconciliationDisposition::Uncertain) })
+    }
+
+    fn check_remote_status(
+        &self,
+        request: ProviderRecoveryRequest,
+    ) -> ProviderFuture<'_, Result<ProviderRemoteCheck, ProviderRecoveryError>> {
+        Box::pin(crate::background::check_remote_status(self, request))
+    }
+
+    fn cancel_remote(
+        &self,
+        request: ProviderRecoveryRequest,
+    ) -> ProviderFuture<'_, Result<ProviderRemoteCheck, ProviderRecoveryError>> {
+        Box::pin(crate::background::cancel_remote(self, request))
+    }
+
+    fn resume_remote_stream(
+        &self,
+        _: ProviderResumeRequest,
+    ) -> ProviderFuture<'_, Result<Vec<runne_provider::ProviderStreamEvent>, ProviderRecoveryError>>
+    {
+        Box::pin(async { Err(ProviderRecoveryError::Unsupported) })
     }
 }
 

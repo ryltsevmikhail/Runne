@@ -23,7 +23,7 @@ fn with_session(
     let control = Arc::new(
         DaemonProviderCredentialEnrollmentControl::new(
             Arc::new(f.store),
-            Arc::new(super::super::super::protected_session_tests::NoReadback),
+            Arc::new(crate::application::provider_credential_enrollment::control_facade::test_modules::protected_session_tests::NoReadback),
             (*f.measurements).clone(),
             f.enrollment_authority,
             [9; 16],
@@ -77,6 +77,16 @@ fn unix_now_seconds() -> u64 {
         .as_secs()
 }
 
+fn exchange_time(session: &DaemonProtectedCredentialEnrollmentSession, handler_now: u64) -> u64 {
+    let issued_at = session
+        .recovery
+        .pending
+        .as_ref()
+        .map(|(_, accepted)| u64::try_from(accepted.issued_at()).unwrap())
+        .expect("successful offer retains its durable acceptance");
+    handler_now.max(unix_now_seconds()).max(issued_at)
+}
+
 #[test]
 fn session_recovery_terminal_uses_accepted_offer_binding() {
     with_session(0, |mut session, mut desktop, _, operation, now| {
@@ -84,9 +94,10 @@ fn session_recovery_terminal_uses_accepted_offer_binding() {
             .encode_desktop_request(operation.as_bytes())
             .unwrap();
         let frame = session.offer_cleanup_recovery(&request, now).unwrap();
-        let offer = desktop.decode_daemon_offer(&frame, now).unwrap();
-        let ack = desktop.encode_desktop_accept(&offer, now).unwrap();
-        session.accept_cleanup_recovery(&ack, now).unwrap();
+        let exchange_now = exchange_time(&session, now);
+        let offer = desktop.decode_daemon_offer(&frame, exchange_now).unwrap();
+        let ack = desktop.encode_desktop_accept(&offer, exchange_now).unwrap();
+        session.accept_cleanup_recovery(&ack, exchange_now).unwrap();
         // Transport projection only: this test does not execute a native effect.
         let snapshot = runne_api::ProviderCredentialOperationSnapshotV2::new(
             runne_api::ProviderCredentialOperationHandleV2::from_bytes([1; 48]).unwrap(),
@@ -125,9 +136,10 @@ fn session_recovery_retains_durable_witness_and_one_endpoint_without_begin() {
         assert!(session.begun.is_none());
         assert!(session.take_bound_broker_handoff().is_err());
         assert!(session.offer_cleanup_recovery(&request, now).is_err());
-        let offer = desktop.decode_daemon_offer(&frame, now).unwrap();
-        let ack = desktop.encode_desktop_accept(&offer, now).unwrap();
-        session.accept_cleanup_recovery(&ack, now).unwrap();
+        let exchange_now = exchange_time(&session, now);
+        let offer = desktop.decode_daemon_offer(&frame, exchange_now).unwrap();
+        let ack = desktop.encode_desktop_accept(&offer, exchange_now).unwrap();
+        session.accept_cleanup_recovery(&ack, exchange_now).unwrap();
         assert!(session.require_durable_terminal().is_err());
         assert_eq!(
             session.take_bound_broker_handoff().unwrap().operation_id(),
@@ -170,8 +182,9 @@ fn session_recovery_bad_ack_and_expiry_never_publish_endpoint() {
                 .encode_desktop_request(operation.as_bytes())
                 .unwrap();
             let frame = session.offer_cleanup_recovery(&request, now).unwrap();
-            let offer = desktop.decode_daemon_offer(&frame, now).unwrap();
-            let valid = desktop.encode_desktop_accept(&offer, now).unwrap();
+            let exchange_now = exchange_time(&session, now);
+            let offer = desktop.decode_daemon_offer(&frame, exchange_now).unwrap();
+            let valid = desktop.encode_desktop_accept(&offer, exchange_now).unwrap();
             let mut ack = valid.clone();
             if !expire {
                 *ack.last_mut().unwrap() ^= 1;
@@ -181,15 +194,19 @@ fn session_recovery_bad_ack_and_expiry_never_publish_endpoint() {
                     .accept_cleanup_recovery(
                         &ack,
                         if expire {
-                            now + super::CLEANUP_RECOVERY_TTL_SECONDS + 1
+                            exchange_now + super::CLEANUP_RECOVERY_TTL_SECONDS + 1
                         } else {
-                            now
+                            exchange_now
                         },
                     )
                     .is_err()
             );
             assert!(session.take_bound_broker_handoff().is_err());
-            assert!(session.accept_cleanup_recovery(&valid, now).is_err());
+            assert!(
+                session
+                    .accept_cleanup_recovery(&valid, exchange_now)
+                    .is_err()
+            );
             assert!(session.recovery.ready.is_none());
         });
     }

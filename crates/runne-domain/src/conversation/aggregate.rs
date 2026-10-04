@@ -78,6 +78,12 @@ impl Conversation {
                         event: ConversationEventKind::GenerationFailed,
                     })
                 }
+                ConversationCommand::SupersedeGenerationUnknown { .. } => {
+                    Err(ConversationError::InvalidTransition {
+                        from: self.state,
+                        event: ConversationEventKind::GenerationSupersededUnknown,
+                    })
+                }
             };
         }
         let aggregate_id = AggregateId::Conversation(self.id);
@@ -145,6 +151,25 @@ impl Conversation {
                     taskrun_id,
                     attempt_id,
                     reason,
+                })])
+            }
+            ConversationCommand::SupersedeGenerationUnknown {
+                taskrun_id,
+                attempt_id,
+                successor_taskrun_id,
+                acknowledgement_digest,
+            } => {
+                let active = self
+                    .active_generation
+                    .ok_or(ConversationError::NoActiveGeneration)?;
+                if active.taskrun_id != taskrun_id || active.attempt_id != attempt_id {
+                    return Err(ConversationError::GenerationMismatch);
+                }
+                Ok(vec![draft(ConversationEvent::GenerationSupersededUnknown {
+                    taskrun_id,
+                    attempt_id,
+                    successor_taskrun_id,
+                    acknowledgement_digest,
                 })])
             }
             ConversationCommand::Close => Ok(vec![draft(ConversationEvent::ConversationClosed)]),
@@ -223,6 +248,7 @@ impl Conversation {
             ConversationEvent::UserMessageAppended { .. }
             | ConversationEvent::AssistantMessageAppended { .. }
             | ConversationEvent::GenerationFailed { .. }
+            | ConversationEvent::GenerationSupersededUnknown { .. }
             | ConversationEvent::ConversationClosed => {
                 return Err(ConversationError::MissingCreationEvent);
             }

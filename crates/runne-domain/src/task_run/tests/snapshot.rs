@@ -21,7 +21,9 @@ fn closed_snapshot_decodes_legacy_v1_and_rejects_invalid_input_marker() {
         input: TaskRunInput::new("prompt".to_owned()).unwrap(),
     }).unwrap();
     let mut invalid_marker = submitted.snapshot_v1().encode().unwrap();
+    assert_eq!(invalid_marker[0], 2, "snapshot v2 preserves the historical input encoding");
     let marker_index = invalid_marker.len() - 16 - 16 - 4 - "prompt".len() - 1;
+    assert_eq!(invalid_marker[marker_index], 1);
     invalid_marker[marker_index] = 2;
     assert_eq!(TaskRunSnapshotV1::decode(&invalid_marker), Err(TaskRunSnapshotError::InvalidEncoding));
 }

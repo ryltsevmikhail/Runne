@@ -187,10 +187,10 @@ const fn map_provider_execution_error(
         CanonicalProviderExecutionError::RejectedBeforeEffect
         | CanonicalProviderExecutionError::RemoteFailed
         | CanonicalProviderExecutionError::RemoteIncomplete
-        | CanonicalProviderExecutionError::Uncertain
         | CanonicalProviderExecutionError::PolicyDenied => {
             ConversationHostError::ProviderOutputRejected
         }
+        CanonicalProviderExecutionError::Uncertain => ConversationHostError::OutcomeUnknown,
     }
 }
 

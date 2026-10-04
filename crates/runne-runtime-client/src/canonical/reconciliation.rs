@@ -15,6 +15,8 @@ pub use reconciliation_types::{
 use reconciliation_wire::ReconciliationResponse;
 #[path = "reconciliation/request_builders.rs"]
 mod reconciliation_request_builders;
+#[path = "reconciliation/request_builders_model.rs"]
+mod reconciliation_request_builders_model;
 
 const MAXIMUM_RECONCILIATION_RESPONSE_BYTES: usize = 8 * 1024 * 1024;
 const MAXIMUM_RECONCILIATION_ERROR_BYTES: usize = 8 * 1024;
@@ -91,11 +93,18 @@ enum CommandReconciliationWitness {
         task_run_id: CanonicalId,
         expected_version: u64,
     },
+    SupersedeUnknownTaskRun { predecessor_task_run_id: CanonicalId, expected_version: u64 },
     SubmitTaskRun {
         conversation_id: CanonicalId,
         workspace_id: CanonicalId,
         #[serde(skip_serializing_if = "Option::is_none")]
         prompt: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        model: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        profile: Option<ReconciliationProfileWire>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        local_command: Option<ReconciliationLocalCommandWire>,
     },
     ApprovalDecision {
         approval_id: CanonicalId,
@@ -105,6 +114,36 @@ enum CommandReconciliationWitness {
         policy_revision: u64,
         renderer_generation: u64,
     },
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ReconciliationProfileWire {
+    profile_id: String,
+    profile_digest: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ReconciliationLocalCommandWire {
+    executable: ReconciliationExecutableWire,
+    cwd: String,
+    argv: Vec<String>,
+    env: Vec<ReconciliationEnvironmentWire>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
+enum ReconciliationExecutableWire {
+    WorkspaceRelative(String),
+    SystemProgram(String),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ReconciliationEnvironmentWire {
+    key: String,
+    value: String,
 }
 
 impl AuthenticatedRuntimeClient {

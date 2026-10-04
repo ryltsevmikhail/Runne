@@ -1,5 +1,7 @@
 use std::sync::Arc;
 
+#[cfg(test)]
+use runne_provider::{CredentialAuthorityPair, CredentialEnrollmentAuthorityPair};
 use runne_provider::{
     CredentialEnrollmentMeasurementAuthority, CredentialEnrollmentStoreAuthority,
 };
@@ -60,7 +62,98 @@ pub(super) fn production(
     })
 }
 
+/// Builds the separately enrolled background realm and wires its durable
+/// context resolver plus fresh current-head recovery authorizer.
+pub(super) fn production_background(
+    connection: ManagedConnection,
+    execution: Arc<runne_store::provider::SqliteProviderExecutionStore>,
+    context: Arc<dyn runne_provider::ProviderRecoveryDispatchContextProvider>,
+    protected_activation: bool,
+    recovery_gate: Arc<super::super::saved_remote_gate::SavedRemoteBlockingGate>,
+) -> Result<CredentialBoundary, DaemonError> {
+    let credential_id = ProviderCredentialId::OpenAiBackground;
+    let credentials = super::super::credential_reader::compose(
+        connection,
+        credential_id,
+        credential_access_policy(credential_id)?,
+        protected_activation,
+    )?;
+    let authorizer = Arc::new(
+        crate::canonical_provider::recovery_authorizer::DaemonProviderRecoveryAuthorizer::new(
+            Arc::clone(&credentials.store),
+            Arc::clone(&execution),
+            Arc::clone(&credentials.dispatch),
+            recovery_gate,
+        ),
+    );
+    let adapter = runne_daemon_openai_effect::production_background_effect_from_materializer(
+        Arc::clone(&credentials.dispatch),
+        context,
+        authorizer,
+    )
+    .map(crate::canonical_provider::openai_effect_adapter)
+    .map_err(|_| DaemonError::Bootstrap("OpenAI background adapter unavailable".into()))?;
+    Ok(CredentialBoundary {
+        store: credentials.store,
+        readback: Some(credentials.readback),
+        adapter,
+        status: ProviderCredentialStatus::Missing,
+        enrollment_authorities: Some(CredentialEnrollmentControlAuthorities {
+            measurements: credentials.measurements,
+            store: credentials.enrollment_store_authority,
+        }),
+        #[cfg(all(target_os = "macos", feature = "desktop-protected"))]
+        credential_service: credentials.credential_service,
+        defer_initial_reconciliation: credentials.defer_initial_reconciliation,
+    })
+}
+
 // fixture-only capability begin
+#[cfg(test)]
+pub(super) fn fixture_missing(
+    connection: ManagedConnection,
+    _credential_id: ProviderCredentialId,
+    adapter: Arc<dyn CanonicalProviderEffect>,
+) -> Result<CredentialBoundary, DaemonError> {
+    let (lifecycle, _) = CredentialAuthorityPair::new().split();
+    let (enrollment, _) = CredentialEnrollmentAuthorityPair::new().split();
+    let store = Arc::new(
+        SqliteProviderCredentialLifecycleStore::open_with_connection_and_authorities(
+            connection, lifecycle, enrollment,
+        )
+        .map_err(|_| DaemonError::Bootstrap("provider credential store unavailable".into()))?,
+    );
+    Ok(CredentialBoundary {
+        store,
+        readback: None,
+        adapter,
+        status: ProviderCredentialStatus::Missing,
+        enrollment_authorities: None,
+        #[cfg(all(target_os = "macos", feature = "desktop-protected"))]
+        credential_service: None,
+        defer_initial_reconciliation: false,
+    })
+}
+
+#[cfg(test)]
+pub(super) fn fixture_enrolled(
+    connection: ManagedConnection,
+    credential_id: ProviderCredentialId,
+    adapter: Arc<dyn CanonicalProviderEffect>,
+) -> Result<CredentialBoundary, DaemonError> {
+    let store = super::fixture_credentials::compose(connection, credential_id)?;
+    Ok(CredentialBoundary {
+        store,
+        readback: None,
+        adapter,
+        status: ProviderCredentialStatus::Configured,
+        enrollment_authorities: None,
+        #[cfg(all(target_os = "macos", feature = "desktop-protected"))]
+        credential_service: None,
+        defer_initial_reconciliation: false,
+    })
+}
+
 #[cfg(test)]
 pub(super) fn fixture(
     connection: ManagedConnection,

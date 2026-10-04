@@ -23,6 +23,7 @@ fn repository_failure_after_issue_freezes_the_live_dispatch_claim() {
     secure_directory(&daemon);
     let path = daemon.join("repository-failure-online.sqlite");
     let lifecycle = open_test_store(&path, 100);
+    let request = coordinator_request(95, "repository-online", &path);
     let text = path.to_str().unwrap();
     let dispatch =
         SqliteProviderDispatchStore::open_with_connection(text, configured_connection(&path))
@@ -47,7 +48,7 @@ fn repository_failure_after_issue_freezes_the_live_dispatch_claim() {
     );
 
     assert_eq!(
-        block_on(coordinator.dispatch(coordinator_request(95, "repository-online"))).unwrap(),
+        block_on(coordinator.dispatch(request)).unwrap(),
         ProviderCoordinatorOutcome::Uncertain
     );
     assert_eq!(effect.materialized.load(Ordering::SeqCst), 0);

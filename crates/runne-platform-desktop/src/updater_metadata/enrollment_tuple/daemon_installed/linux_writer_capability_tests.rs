@@ -1,6 +1,4 @@
-use super::{
-    VerifiedInstalledLinuxEnrollmentMeasurementFacts, now, valid_profile_runtime_pair,
-};
+use super::{VerifiedInstalledLinuxEnrollmentMeasurementFacts, now, valid_profile_runtime_pair};
 #[path = "tests/fixture_signing.rs"]
 mod fixture_signing;
 use fixture_signing::{
@@ -90,36 +88,42 @@ fn linux_admission_reads_signed_journals_from_bundled_runtime_root() {
         &policy,
     )
     .expect("signed journals must admit from the bundled runtime root");
-    assert!(super::linux_admission::refresh_linux_admission(
-        &profile,
-        &runtime,
-        &paths,
-        &signing.trust,
-        &policy,
-        &admission,
-        now,
-    )
-    .is_some());
+    assert!(
+        super::linux_admission::refresh_linux_admission(
+            &profile,
+            &runtime,
+            &paths,
+            &signing.trust,
+            &policy,
+            &admission,
+            now,
+        )
+        .is_some()
+    );
 
     fs::rename(runtime.join("updates"), profile.join("updates")).unwrap();
-    assert!(super::linux_admission::verified_linux_admission(
-        &profile,
-        &runtime,
-        &paths,
-        &signing.trust,
-        &policy,
-    )
-    .is_none());
-    assert!(super::linux_admission::refresh_linux_admission(
-        &profile,
-        &runtime,
-        &paths,
-        &signing.trust,
-        &policy,
-        &admission,
-        now,
-    )
-    .is_none());
+    assert!(
+        super::linux_admission::verified_linux_admission(
+            &profile,
+            &runtime,
+            &paths,
+            &signing.trust,
+            &policy,
+        )
+        .is_none()
+    );
+    assert!(
+        super::linux_admission::refresh_linux_admission(
+            &profile,
+            &runtime,
+            &paths,
+            &signing.trust,
+            &policy,
+            &admission,
+            now,
+        )
+        .is_none()
+    );
 }
 
 fn prepare_private_profile(profile: &std::path::Path, runtime: &std::path::Path) {

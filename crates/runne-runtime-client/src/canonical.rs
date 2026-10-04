@@ -7,12 +7,14 @@ pub use runne_api::ConversationContextScope;
 include!("canonical/types.rs");
 include!("canonical/task_run.rs");
 include!("canonical/task_run_list.rs");
+include!("canonical/task_run_effects.rs");
 include!("canonical/session_authority_baseline.rs");
 include!("canonical/session_binding.rs");
 include!("canonical/transport_kind.rs");
 include!("canonical/client.rs");
 include!("canonical/task_runs_client.rs");
 include!("canonical/task_run_submit.rs");
+include!("canonical/task_run_successor.rs");
 include!("canonical/capabilities.rs");
 include!("canonical/capabilities_v2.rs");
 #[cfg(test)]

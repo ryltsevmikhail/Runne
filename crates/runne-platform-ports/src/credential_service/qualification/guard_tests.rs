@@ -1,4 +1,6 @@
 mod edges;
+mod macro_inequality_tests;
+mod nested_qualified_macro_trust_tests;
 mod source_audit;
 mod source_inventory;
 mod source_inventory_tests;
@@ -24,6 +26,30 @@ fn qualification_surface_has_no_production_callers() {
     assert!(
         offenders.is_empty(),
         "unexpected qualification callers: {offenders:?}"
+    );
+}
+
+#[test]
+fn actual_remote_identity_included_macros_are_not_qualification_callers() {
+    let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let units = compiled_source_inventory(&workspace);
+    let target =
+        Path::new("crates/runne-store/src/provider/execution_store/remote_identity_write.rs");
+    let expected = [
+        target,
+        Path::new("crates/runne-store/src/provider/execution_store/remote_identity_cancel.rs"),
+        Path::new(
+            "crates/runne-store/src/provider/execution_store/remote_identity_load_methods.rs",
+        ),
+    ];
+    let selected = units
+        .into_iter()
+        .filter(|unit| expected.iter().any(|path| unit.path.ends_with(path)))
+        .collect::<Vec<_>>();
+    assert_eq!(selected.len(), expected.len());
+    assert!(
+        find_production_callers(&selected).is_empty(),
+        "unexpected findings in actual remote identity include tree"
     );
 }
 
