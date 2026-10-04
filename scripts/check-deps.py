@@ -14,7 +14,8 @@ POLICIES = {
     "runne-domain": {"uuid", "sha2", "hex", "chrono", "serde"},
     "runne-plugin-protocol": set(),
     "runne-observability": {"runne-application"},
-    "runne-platform": {"runne-application", "runne-platform-ports", "libc", "thiserror", "uuid"},
+    # Linux openat2/cgroup-v2 and pidfd process management use pinned rustix.
+    "runne-platform": {"runne-application", "runne-platform-ports", "libc", "rustix", "thiserror", "uuid"},
     "runne-macos-process-identity": {
         "core-foundation", "libc", "nix", "runne-api", "runne-provider", "security-framework", "security-framework-sys", "sha2",
     },
