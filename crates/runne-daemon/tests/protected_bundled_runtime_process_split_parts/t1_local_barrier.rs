@@ -1,6 +1,9 @@
 use super::t1_taskrun_support::LocalTaskRunContext;
 use std::time::Duration;
 
+#[path = "t1_local_barrier/cleanup.rs"]
+mod cleanup;
+
 pub(super) async fn exercise_if_requested(context: &mut LocalTaskRunContext<'_>) -> bool {
     match std::env::var("RUNNE_TEST_LOCAL_WORKER_BARRIER")
         .ok()
@@ -36,7 +39,7 @@ async fn cancel_before_release(context: &LocalTaskRunContext<'_>) -> bool {
     )
     .await;
     assert_eq!(std::fs::read_to_string(&marker).unwrap(), "");
-    assert_local_settled(context, task_id, "cancelled", None);
+    cleanup::assert_local_settled(context, task_id, "cancelled", None);
     assert_eq!(
         terminal.state(),
         runne_runtime_client::TaskRunState::Cancelled
@@ -91,7 +94,7 @@ async fn complete_exit_race(context: &LocalTaskRunContext<'_>) -> bool {
         );
     }
     assert_eq!(std::fs::read_to_string(&marker).unwrap(), "finished");
-    assert_local_settled(context, task_id, "completed", Some(0));
+    cleanup::assert_local_settled(context, task_id, "completed", Some(0));
     assert_eq!(terminal.state(), expected);
     eprintln!("PASS: local factual exit and workflow cancellation/completion remain distinct");
     true
@@ -244,42 +247,4 @@ pub(super) fn attempt(
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .unwrap()
-}
-
-fn assert_local_settled(
-    context: &LocalTaskRunContext<'_>,
-    task_id: runne_runtime_client::CanonicalId,
-    state: &str,
-    exit: Option<i32>,
-) {
-    let bytes = uuid::Uuid::parse_str(&task_id.to_string())
-        .unwrap()
-        .into_bytes();
-    let connection = rusqlite::Connection::open(context.database).unwrap();
-    let (actual_state, actual_exit, area): (String, Option<i32>, Vec<u8>) = connection
-        .query_row(
-            "SELECT state,exit_code,managed_area_identity FROM taskrun_local_command_attempts WHERE taskrun_id=?1",
-            [bytes.as_slice()],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-        )
-        .unwrap();
-    assert_eq!(actual_state, state);
-    assert_eq!(actual_exit, exit);
-    let (occupation, release, receipt): (String, Vec<u8>, Vec<u8>) = connection
-        .query_row(
-            "SELECT o.state,o.release_event_id,r.terminal_event_id
-             FROM taskrun_assignment_occupations o
-             JOIN taskrun_terminal_settlement_receipts r USING(taskrun_id,fence)
-             WHERE o.taskrun_id=?1",
-            [bytes.as_slice()],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-        )
-        .unwrap();
-    assert_eq!(occupation, "released");
-    assert_eq!(release, receipt);
-    let identity =
-        runne_platform::process_managed_area::ManagedAreaIdentity::from_bytes(&area).unwrap();
-    let root =
-        runne_platform::process_managed_area::LinuxManagedAreaRoot::open_current_cgroup().unwrap();
-    assert!(!root.remove_area_if_present(identity).unwrap());
 }

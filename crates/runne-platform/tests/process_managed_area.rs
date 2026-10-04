@@ -10,6 +10,8 @@ use std::process::{Child, Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
+#[path = "process_managed_area/observation.rs"]
+mod observation;
 #[path = "process_managed_area/proof.rs"]
 mod proof;
 #[path = "process_managed_area/terminal_cleanup.rs"]

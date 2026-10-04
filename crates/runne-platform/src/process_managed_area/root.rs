@@ -99,6 +99,34 @@ impl LinuxManagedAreaRoot {
         ))
     }
 
+    /// Observes absence of this exact bound name without changing cgroup state.
+    /// This does not prove cancellation, execution history, or recursive emptiness.
+    pub fn area_is_absent(&self, identity: &ManagedAreaIdentity) -> Result<bool, ManagedAreaError> {
+        if identity.boot_id != self.boot_id
+            || identity.root_device != self.device
+            || identity.root_inode != self.inode
+        {
+            return Err(ManagedAreaError::Unverified);
+        }
+        let name = area_name(identity.binding);
+        let area_fd = match openat(
+            self.directory.as_ref(),
+            name.as_str(),
+            OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC | OFlags::NOFOLLOW,
+            Mode::empty(),
+        ) {
+            Ok(fd) => fd,
+            Err(error) if error == rustix::io::Errno::NOENT => return Ok(true),
+            Err(_) => return Err(ManagedAreaError::Unverified),
+        };
+        check_cgroup2(&area_fd).map_err(|_| ManagedAreaError::Unverified)?;
+        let metadata = fstat(&area_fd).map_err(|_| ManagedAreaError::Unverified)?;
+        if metadata.st_dev != identity.area_device || metadata.st_ino != identity.area_inode {
+            return Err(ManagedAreaError::Unverified);
+        }
+        Ok(false)
+    }
+
     /// Removes an exact empty area if it remains after a durable terminal receipt.
     /// Returns `false` only when its deterministic name is already absent.
     /// As with `remove_empty`, this requires one exclusive root-area writer because cgroupfs
