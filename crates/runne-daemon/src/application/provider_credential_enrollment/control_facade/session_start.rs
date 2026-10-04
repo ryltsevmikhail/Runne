@@ -1,7 +1,10 @@
+#[cfg(all(
+    feature = "desktop-protected",
+    any(target_os = "linux", all(target_os = "macos", target_arch = "aarch64"))
+))]
 use super::*;
 
 #[cfg(any(
-    all(test, unix),
     all(feature = "desktop-protected", target_os = "linux"),
     all(
         target_os = "macos",

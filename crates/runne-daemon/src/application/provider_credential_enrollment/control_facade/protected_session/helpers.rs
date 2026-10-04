@@ -57,9 +57,8 @@ impl DaemonProtectedCredentialEnrollmentSession {
 
 impl Drop for DaemonProtectedCredentialEnrollmentSession {
     fn drop(&mut self) {
-        crate::protected_activation::enrollment_control_fanout::clear(
-            &self.http_controls,
-            self.http_session,
-        );
+        for control in &self.http_controls {
+            control.clear_http_facts(self.http_session);
+        }
     }
 }

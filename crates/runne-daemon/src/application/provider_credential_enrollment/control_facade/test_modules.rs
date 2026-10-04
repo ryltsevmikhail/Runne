@@ -36,7 +36,7 @@ pub(super) mod verify_tests;
 
 #[cfg(all(test, unix, feature = "desktop-protected"))]
 pub(crate) use http_admission_tests::test_http_status_facts_available;
-#[cfg(all(test, unix))]
+#[cfg(all(test, unix, feature = "desktop-protected"))]
 pub(crate) use protected_session_tests::control as test_control;
 
 #[cfg(all(test, target_os = "linux", feature = "desktop-protected"))]

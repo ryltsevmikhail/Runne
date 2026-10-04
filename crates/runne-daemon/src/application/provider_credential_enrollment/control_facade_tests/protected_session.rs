@@ -145,7 +145,7 @@ fn protected_request_admission_begin_and_exact_replay_return_one_safe_projection
     let (kind, admission) = session.accept_initial_request(&request, now).unwrap();
     assert_eq!(
         kind,
-        crate::application::provider_credential_enrollment::InitialCredentialExchange::Intent
+        super::super::protected_session::InitialCredentialExchange::Intent
     );
     assert!(!admission.is_empty());
     assert_eq!(

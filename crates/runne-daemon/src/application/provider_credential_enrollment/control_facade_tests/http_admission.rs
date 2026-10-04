@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-#[cfg(all(target_os = "linux", feature = "desktop-protected"))]
 use runne_api::{ProviderCredentialEnrollmentHostError, ProviderCredentialProviderV2};
 use runne_http::ProviderCredentialEnrollmentHttpAdmissionResolver;
 

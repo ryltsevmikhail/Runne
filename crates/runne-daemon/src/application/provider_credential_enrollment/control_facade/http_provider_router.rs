@@ -1,5 +1,13 @@
+#[cfg(all(
+    feature = "desktop-protected",
+    any(target_os = "linux", all(target_os = "macos", target_arch = "aarch64"))
+))]
 use std::sync::Arc;
 
+#[cfg(all(
+    feature = "desktop-protected",
+    any(target_os = "linux", all(target_os = "macos", target_arch = "aarch64"))
+))]
 use super::DaemonProviderCredentialEnrollmentControl;
 
 #[cfg(all(

@@ -252,10 +252,9 @@ impl DaemonProtectedCredentialEnrollmentSession {
         )
     ))]
     pub(crate) fn clear_http_facts(&self) {
-        crate::protected_activation::enrollment_control_fanout::clear(
-            &self.http_controls,
-            self.http_session,
-        );
+        for control in &self.http_controls {
+            control.clear_http_facts(self.http_session);
+        }
     }
 
     #[cfg(all(test, unix))]
@@ -263,11 +262,33 @@ impl DaemonProtectedCredentialEnrollmentSession {
         &mut self,
         facts: ProtectedEnrollmentSessionFacts,
     ) -> Result<(), ProviderCredentialEnrollmentHostError> {
-        crate::protected_activation::enrollment_control_fanout::publish(
-            &self.http_controls,
-            &facts,
-        )?;
+        publish_test_http_facts(&self.http_controls, &facts)?;
         self.http_session = facts.session;
         Ok(())
     }
+}
+
+#[cfg(all(test, unix))]
+#[cfg(feature = "desktop-protected")]
+fn publish_test_http_facts(
+    controls: &[std::sync::Arc<DaemonProviderCredentialEnrollmentControl>],
+    facts: &ProtectedEnrollmentSessionFacts,
+) -> Result<(), ProviderCredentialEnrollmentHostError> {
+    crate::protected_activation::enrollment_control_fanout::publish(controls, facts)
+}
+
+#[cfg(all(test, unix, not(feature = "desktop-protected")))]
+fn publish_test_http_facts(
+    controls: &[std::sync::Arc<DaemonProviderCredentialEnrollmentControl>],
+    facts: &ProtectedEnrollmentSessionFacts,
+) -> Result<(), ProviderCredentialEnrollmentHostError> {
+    for (index, control) in controls.iter().enumerate() {
+        if let Err(error) = control.publish_http_facts(facts.clone()) {
+            for published in &controls[..=index] {
+                published.clear_http_facts(facts.session);
+            }
+            return Err(error);
+        }
+    }
+    Ok(())
 }

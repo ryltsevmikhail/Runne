@@ -143,6 +143,7 @@ impl DaemonProviderCredentialEnrollmentControl {
         Ok(())
     }
 
+    #[cfg(any(test, feature = "desktop-protected"))]
     pub(crate) fn clear_http_facts(&self, session: [u8; 16]) {
         if let Ok(mut current) = self.http_facts.lock()
             && current

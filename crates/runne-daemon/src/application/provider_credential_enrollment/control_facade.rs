@@ -57,17 +57,12 @@ use runne_secure_store::ProviderCredentialReadback;
 use runne_store::provider::SqliteProviderCredentialLifecycleStore;
 
 mod http;
-mod http_provider_router;
-#[cfg(any(
-    all(test, unix),
-    all(feature = "desktop-protected", target_os = "linux"),
-    all(
-        feature = "desktop-protected",
-        target_os = "macos",
-        target_arch = "aarch64"
-    )
+#[cfg(all(
+    feature = "desktop-protected",
+    any(target_os = "linux", all(target_os = "macos", target_arch = "aarch64"))
 ))]
-#[cfg(target_os = "linux")]
+mod http_provider_router;
+#[cfg(all(target_os = "linux", any(test, feature = "desktop-protected")))]
 mod linux_activation;
 
 #[cfg(any(
@@ -93,15 +88,6 @@ use super::{ProviderCredentialAdmission, begin::ProviderCredentialEnrollmentBegi
 mod protected_session;
 #[cfg(any(
     all(test, unix),
-    all(feature = "desktop-protected", target_os = "linux"),
-    all(
-        feature = "desktop-protected",
-        target_os = "macos",
-        target_arch = "aarch64"
-    )
-))]
-#[cfg(any(
-    all(test, unix),
     target_os = "linux",
     all(
         feature = "desktop-protected",
@@ -111,12 +97,6 @@ mod protected_session;
 ))]
 mod session_facts;
 mod session_start;
-#[cfg(all(
-    feature = "desktop-protected",
-    target_os = "macos",
-    target_arch = "aarch64"
-))]
-pub(crate) use protected_session::PostcommitAdmissionPermit;
 #[cfg(any(
     all(test, unix),
     all(feature = "desktop-protected", target_os = "linux"),
@@ -126,9 +106,18 @@ pub(crate) use protected_session::PostcommitAdmissionPermit;
         target_arch = "aarch64"
     )
 ))]
-pub(crate) use protected_session::{
-    DaemonProtectedCredentialEnrollmentSession, InitialCredentialExchange,
-};
+pub(crate) use protected_session::DaemonProtectedCredentialEnrollmentSession;
+#[cfg(all(
+    feature = "desktop-protected",
+    any(target_os = "linux", all(target_os = "macos", target_arch = "aarch64"))
+))]
+pub(crate) use protected_session::InitialCredentialExchange;
+#[cfg(all(
+    feature = "desktop-protected",
+    target_os = "macos",
+    target_arch = "aarch64"
+))]
+pub(crate) use protected_session::PostcommitAdmissionPermit;
 #[cfg(any(
     all(test, unix),
     target_os = "linux",
@@ -249,7 +238,7 @@ pub(crate) struct DaemonProviderCredentialEnrollmentControl {
         )
     ))]
     runtime_authority: [u8; 16],
-    #[cfg(target_os = "linux")]
+    #[cfg(all(target_os = "linux", any(test, feature = "desktop-protected")))]
     linux_preadmission: std::sync::Mutex<Option<linux_activation::SessionGate>>,
     #[cfg(any(
         all(feature = "desktop-protected", target_os = "linux"),

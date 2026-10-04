@@ -99,7 +99,7 @@ impl DaemonProviderCredentialEnrollmentControl {
                 )
             ))]
             runtime_authority,
-            #[cfg(target_os = "linux")]
+            #[cfg(all(target_os = "linux", any(test, feature = "desktop-protected")))]
             linux_preadmission: std::sync::Mutex::new(None),
             #[cfg(any(
                 all(feature = "desktop-protected", target_os = "linux"),
