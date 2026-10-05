@@ -2,8 +2,8 @@ use super::LinuxCommandError;
 use std::os::fd::{AsRawFd, OwnedFd};
 
 pub(super) fn enter(
-    keep: [OwnedFd; 6],
-    retained: [i32; 6],
+    keep: [OwnedFd; 8],
+    retained: [i32; 8],
     parent_pid: i32,
     argv: *const *const u8,
     env: *const *const u8,
@@ -14,7 +14,7 @@ pub(super) fn enter(
         if close_except(retained).is_err() {
             libc::_exit(120);
         }
-        if libc::dup2(fds[5], 0) < 0 || libc::dup2(fds[5], 1) < 0 || libc::dup2(fds[5], 2) < 0 {
+        if libc::dup2(fds[5], 0) < 0 || libc::dup2(fds[6], 1) < 0 || libc::dup2(fds[7], 2) < 0 {
             libc::_exit(121);
         }
         if libc::fchdir(fds[2]) != 0 {
@@ -33,7 +33,7 @@ pub(super) fn enter(
         if libc::syscall(libc::SYS_landlock_restrict_self, fds[4], 0u32) != 0 {
             libc::_exit(125);
         }
-        for fd in [fds[2], fds[3], fds[4], fds[5]] {
+        for fd in [fds[2], fds[3], fds[4], fds[5], fds[6], fds[7]] {
             libc::close(fd);
         }
         let empty_mask = 0u64;
@@ -70,7 +70,7 @@ pub(super) fn enter(
         libc::_exit(127);
     }
 }
-unsafe fn close_except(keep: [i32; 6]) -> Result<(), ()> {
+unsafe fn close_except(keep: [i32; 8]) -> Result<(), ()> {
     let mut start = 3u32;
     for fd in keep {
         let fd = fd as u32;

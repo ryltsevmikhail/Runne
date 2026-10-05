@@ -1,3 +1,4 @@
+use crate::event::Sensitivity;
 use crate::id::{ConversationId, WorkspaceId};
 
 /// All events emitted by the [`TaskRun`] aggregate.
@@ -167,6 +168,31 @@ pub enum TaskRunEvent {
 }
 
 impl TaskRunEvent {
+    /// Returns whether the persisted sensitivity is valid for this event.
+    ///
+    /// TaskRunFailed is emitted by both the public lifecycle failure command
+    /// and the sensitive loop failure command, so both declared values are
+    /// accepted for that event only.
+    pub fn accepts_sensitivity(&self, sensitivity: Sensitivity) -> bool {
+        match self {
+            Self::TaskRunSubmitted { .. }
+            | Self::ContextCommitted { .. }
+            | Self::PlanCommitted { .. }
+            | Self::StepOutcomeRecorded { .. }
+            | Self::LoopCycleCompleted { .. }
+            | Self::RetryScheduled { .. }
+            | Self::RecoveryResumeStarted { .. }
+            | Self::LoopCheckpointStarted { .. }
+            | Self::LoopCheckpointRecorded { .. }
+            | Self::LoopCheckpointCommitted { .. }
+            | Self::LoopWakeAccepted { .. } => sensitivity == Sensitivity::Sensitive,
+            Self::TaskRunFailed { .. } => {
+                matches!(sensitivity, Sensitivity::Public | Sensitivity::Sensitive)
+            }
+            _ => sensitivity == Sensitivity::Public,
+        }
+    }
+
     /// Return the discriminant kind for this event.
     pub fn kind(&self) -> TaskRunEventKind {
         match self {

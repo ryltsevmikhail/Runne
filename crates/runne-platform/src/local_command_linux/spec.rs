@@ -1,11 +1,16 @@
+use super::child::stdio::CommandStdio;
 use super::snapshot::SealedExecutableSnapshot;
-use super::{child, gate, policy};
+use super::{child, gate, io::LinuxCommandOutputLimitsV1, policy};
+#[path = "spec/argv.rs"]
+mod argv;
+#[path = "spec/executable.rs"]
+mod executable;
 use crate::process_managed_area::{LinuxManagedArea, ManagedAreaError};
+use argv::encode_vectors;
 use rustix::process::{Signal, pidfd_send_signal};
-use std::ffi::{CString, OsString};
+use std::ffi::OsString;
 use std::fs::File;
 use std::os::fd::{AsRawFd, OwnedFd};
-use std::os::unix::ffi::OsStrExt;
 use std::time::{Duration, Instant};
 
 /// Closed launch failures. Native path and OS error details are not retained.
@@ -58,24 +63,6 @@ pub enum LinuxCommandExecutable<'a> {
     SealedSnapshot(&'a SealedExecutableSnapshot),
 }
 
-impl LinuxCommandExecutable<'_> {
-    pub(super) fn file(&self) -> &File {
-        match self {
-            Self::HeldFile(file) => file,
-            Self::SealedSnapshot(snapshot) => snapshot.file(),
-        }
-    }
-    pub(super) fn is_sealed_snapshot(&self) -> bool {
-        matches!(self, Self::SealedSnapshot(_))
-    }
-    fn validate_provenance(&self) -> Result<(), LinuxCommandError> {
-        if let Self::SealedSnapshot(snapshot) = self {
-            snapshot.validate_seals()?;
-        }
-        Ok(())
-    }
-}
-
 impl LinuxCommandSpec<'_> {
     /// Checks all local kernel gate and descriptor requirements without forking.
     /// Call before claiming a TaskRun or creating an approval.
@@ -100,57 +87,42 @@ impl LinuxCommandSpec<'_> {
         self.executable.validate_provenance()?;
         policy::validate_descriptors(self.executable.file(), self.workspace, self.cwd)?;
         let ruleset = policy::build_ruleset(self.workspace, &self.executable)?;
-        child::spawn(
-            self.executable.file(),
-            self.workspace,
-            self.cwd,
-            &ruleset,
-            &argv,
-            &env,
+        child::spawn(child::SpawnSpec {
+            exe: self.executable.file(),
+            workspace: self.workspace,
+            cwd: self.cwd,
+            ruleset: &ruleset,
+            argv: &argv,
+            env: &env,
             area,
-        )
+            stdio: CommandStdio::discard()?,
+        })
     }
-}
 
-fn encode_vectors(
-    argv: &[OsString],
-    env: &[(OsString, OsString)],
-) -> Result<(Vec<CString>, Vec<CString>), LinuxCommandError> {
-    if argv.is_empty() || argv.len() > 256 || env.len() > 256 {
-        return Err(LinuxCommandError::Invalid);
+    /// Spawns through the same held-executable, Landlock, gate, and cgroup path
+    /// with sealed preloaded stdin and bounded, explicitly polled output pipes.
+    pub fn spawn_gated_with_io<'a>(
+        &self,
+        area: &'a LinuxManagedArea,
+        input: &[u8],
+        limits: LinuxCommandOutputLimitsV1,
+    ) -> Result<GatedLinuxChild<'a>, LinuxCommandError> {
+        let (argv, env) = encode_vectors(&self.argv, &self.env)?;
+        self.executable.validate_provenance()?;
+        policy::validate_descriptors(self.executable.file(), self.workspace, self.cwd)?;
+        let stdio = CommandStdio::bounded(input, limits)?;
+        let ruleset = policy::build_ruleset(self.workspace, &self.executable)?;
+        child::spawn(child::SpawnSpec {
+            exe: self.executable.file(),
+            workspace: self.workspace,
+            cwd: self.cwd,
+            ruleset: &ruleset,
+            argv: &argv,
+            env: &env,
+            area,
+            stdio,
+        })
     }
-    let mut args = Vec::with_capacity(argv.len());
-    for item in argv {
-        let value = CString::new(item.as_bytes()).map_err(|_| LinuxCommandError::Invalid)?;
-        if value.as_bytes().len() > 16 * 1024 {
-            return Err(LinuxCommandError::Invalid);
-        }
-        args.push(value);
-    }
-    let mut vars = Vec::with_capacity(env.len());
-    for (key, value) in env {
-        if key.is_empty() || key.as_bytes().contains(&b'=') {
-            return Err(LinuxCommandError::Invalid);
-        }
-        let mut bytes = key.as_bytes().to_vec();
-        bytes.push(b'=');
-        bytes.extend_from_slice(value.as_bytes());
-        let value = CString::new(bytes).map_err(|_| LinuxCommandError::Invalid)?;
-        if value.as_bytes().len() > 16 * 1024 {
-            return Err(LinuxCommandError::Invalid);
-        }
-        vars.push(value);
-    }
-    if args
-        .iter()
-        .chain(vars.iter())
-        .map(|x| x.as_bytes().len())
-        .sum::<usize>()
-        > 128 * 1024
-    {
-        return Err(LinuxCommandError::Invalid);
-    }
-    Ok((args, vars))
 }
 
 /// Caller-owned unreaped gated child in the exact managed area.
@@ -160,7 +132,10 @@ pub struct GatedLinuxChild<'a> {
     pub(super) go: OwnedFd,
     pub(super) area: &'a LinuxManagedArea,
     pub(super) released: bool,
+    pub(super) go_written: bool,
     pub(super) reaped: bool,
+    pub(super) exit_code: Option<i32>,
+    pub(super) output: Option<child::output::OutputCapture>,
 }
 impl GatedLinuxChild<'_> {
     /// PID is diagnostic only; signaling and ownership use the held pidfd.
@@ -169,13 +144,20 @@ impl GatedLinuxChild<'_> {
         self.pid as u32
     }
 
+    /// Reports whether the GO byte was written to this child's held gate.
+    #[must_use]
+    pub const fn was_released(&self) -> bool {
+        self.go_written
+    }
+
     /// Releases trusted gate only after the caller has durably admitted execution.
     /// Durable cancellation fencing is the caller’s responsibility.
     pub fn release(&mut self) -> Result<(), LinuxCommandError> {
-        if self.released || self.reaped {
+        if self.go_written || self.released || self.reaped {
             return Err(LinuxCommandError::Unverified);
         }
         gate::write_byte(self.go.as_raw_fd(), b'G')?;
+        self.go_written = true;
         pidfd_send_signal(&self.pidfd, Signal::CONT).map_err(|_| LinuxCommandError::Unverified)?;
         self.released = true;
         Ok(())
@@ -195,6 +177,7 @@ impl GatedLinuxChild<'_> {
         }
         let deadline = Instant::now() + timeout;
         loop {
+            self.poll_output()?;
             if let Some(status) = self.try_wait()? {
                 return Ok(status);
             }
@@ -209,14 +192,19 @@ impl GatedLinuxChild<'_> {
     /// The caller must still prove that the complete managed area is empty.
     pub fn try_wait(&mut self) -> Result<Option<i32>, LinuxCommandError> {
         if self.reaped {
-            return Err(LinuxCommandError::Unverified);
+            return self
+                .exit_code
+                .map(Some)
+                .ok_or(LinuxCommandError::Unverified);
         }
         let mut status = 0;
         // SAFETY: status points to writable storage and pid is our unreaped child.
         let got = unsafe { libc::waitpid(self.pid, &mut status, libc::WNOHANG) };
         if got == self.pid {
             self.reaped = true;
-            return Ok(Some(decode_status(status)?));
+            let exit_code = decode_status(status)?;
+            self.exit_code = Some(exit_code);
+            return Ok(Some(exit_code));
         }
         if got == 0 {
             return Ok(None);
@@ -225,6 +213,28 @@ impl GatedLinuxChild<'_> {
             return Ok(None);
         }
         Err(LinuxCommandError::Unverified)
+    }
+
+    /// Nonblocking bounded drain of configured stdout/stderr, at most 8 KiB.
+    /// Call alongside cancellation and deadline checks; pipe EOF is separate
+    /// from leader exit and cgroup emptiness.
+    pub fn poll_output(&mut self) -> Result<(), LinuxCommandError> {
+        if let Some(output) = &mut self.output {
+            output.poll()?;
+        }
+        Ok(())
+    }
+
+    /// Transfers bytes collected since the previous call. Truncation flags are
+    /// sticky for the invocation; EOF and leader exit are independent proofs.
+    pub fn take_output(&mut self) -> super::io::LinuxCommandOutputChunkV1 {
+        self.output.as_mut().map_or_else(
+            || super::io::LinuxCommandOutputChunkV1 {
+                leader_exit_code: self.exit_code,
+                ..Default::default()
+            },
+            |output| output.take(self.exit_code),
+        )
     }
 
     /// Sends TERM to the exact area and escalates through cgroup.kill on timeout.
@@ -278,7 +288,7 @@ impl Drop for GatedLinuxChild<'_> {
         } else {
             let _ = pidfd_send_signal(&self.pidfd, Signal::KILL);
         }
-        child::reap_bounded_or_defer(self.pid);
+        child::supervision::reap_bounded_or_defer(self.pid);
         self.reaped = true;
     }
 }

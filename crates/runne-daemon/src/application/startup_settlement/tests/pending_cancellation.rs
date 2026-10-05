@@ -215,7 +215,7 @@ fn restart_keeps_a_valid_post_begin_cancellation_pending_and_occupied() {
     // Composition calls this after provider startup settlement and before
     // HTTP startup constructs the automatic TaskRun service.
     assert_eq!(
-        settle_interrupted_text_generations(&bootstrap.db_conn, &reopened_text, &authority)
+        settle_interrupted_text_generations(&bootstrap.db_conn, &reopened_text, &authority,)
             .unwrap(),
         0
     );

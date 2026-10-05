@@ -74,11 +74,12 @@ pub(super) fn retire_terminal_occupation(
 pub(super) fn verify_claimed_terminal_before_append(
     tx: &rusqlite::Transaction<'_>,
     receipt: &TextGenerationReceipt,
+    expected_started_taskrun_version: u64,
     terminal_event: &UncommittedEvent<TaskRunEvent>,
 ) -> Result<(), CommitError> {
     let row: Option<(Vec<u8>, i64, i64)> = tx.query_row(
         "SELECT node_id,node_epoch,fence FROM taskrun_claim_receipts WHERE taskrun_id=?1 AND attempt_id=?2 AND new_version=?3",
-        params![receipt.taskrun_id.as_bytes(), receipt.attempt_id.as_bytes(), receipt.taskrun_version.saturating_sub(1) as i64],
+        params![receipt.taskrun_id.as_bytes(), receipt.attempt_id.as_bytes(), expected_started_taskrun_version as i64],
         |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?)),
     ).optional().map_err(|_| storage_failure(StorageFailureKind::CorruptData))?;
     let Some((node, epoch, fence)) = row else {

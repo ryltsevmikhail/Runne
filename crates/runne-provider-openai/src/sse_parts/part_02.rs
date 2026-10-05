@@ -28,6 +28,9 @@ impl Lifecycle {
             return Err(OpenAiStreamError::IllegalTransition);
         }
         let item = required_object(event, "item")?;
+        if self.tools_enabled && required_string(item, "type")? == "function_call" {
+            return self.accept_tool_added(item);
+        }
         validate_added_item(item)?;
         let item_id = required_string(item, "id")?;
         validate_identifier(item_id)?;
@@ -160,6 +163,9 @@ impl Lifecycle {
 }
 impl Lifecycle {
     fn accept_item_done(&mut self, event: &Map<String, Value>) -> Result<(), OpenAiStreamError> {
+        if self.stage == LifecycleStage::ToolArgumentsDone {
+            return self.accept_tool_item_done(event);
+        }
         require_keys(event, &["item", "output_index", "sequence_number", "type"])?;
         if self.stage != LifecycleStage::PartDone || required_u64(event, "output_index")? != 0 {
             return Err(OpenAiStreamError::IllegalTransition);

@@ -17,7 +17,23 @@ impl AppCore {
 
     fn prepare_mutation_under_operation(
         &self,
+        request: MutationRequest,
+    ) -> Result<PreparedMutationLease, AppCoreError> {
+        self.prepare_mutation_under_operation_with_intent(request, false)
+    }
+
+    async fn prepare_taskrun_submit_intent(
+        &self,
+        request: MutationRequest,
+    ) -> Result<PreparedMutationLease, AppCoreError> {
+        let _operation = self.runtime_operation.lock().await;
+        self.prepare_mutation_under_operation_with_intent(request, true)
+    }
+
+    fn prepare_mutation_under_operation_with_intent(
+        &self,
         mut request: MutationRequest,
+        explicit_submit_intent: bool,
     ) -> Result<PreparedMutationLease, AppCoreError> {
         request.validate_invariants()?;
         let client = self.live_runtime_client()?;
@@ -29,13 +45,26 @@ impl AppCore {
             .ok_or(AppCoreError::MutationUnavailable)?;
         let ledger_identity = ledger_identity(binding, &request)?;
         let command = request.ledger_command()?;
-        let mut store = self.store.lock().map_err(|_| AppCoreError::StateUnavailable)?;
-        let permit = store
-            .prepare_anchored_mutation_v7(security.secure.as_ref(), ledger_identity, command)
-            .map_err(|_| AppCoreError::MutationUnavailable)?;
+        let mut store = self
+            .store
+            .lock()
+            .map_err(|_| AppCoreError::StateUnavailable)?;
+        let permit = if explicit_submit_intent
+            && request.operation == runne_local_store::MutationOperation::TaskRunSubmit
+        {
+            store.prepare_anchored_taskrun_submit_intent_v7(
+                security.secure.as_ref(),
+                ledger_identity,
+                command,
+            )
+        } else {
+            store.prepare_anchored_mutation_v7(security.secure.as_ref(), ledger_identity, command)
+        }
+        .map_err(|_| AppCoreError::MutationUnavailable)?;
         let key = permit.record().idempotency_key().to_owned();
         if key != request.idempotency_key {
-            let command_id = CanonicalId::parse(&key).map_err(|_| AppCoreError::MutationUnavailable)?;
+            let command_id =
+                CanonicalId::parse(&key).map_err(|_| AppCoreError::MutationUnavailable)?;
             request.command_identity = CommandIdentity::new(command_id, key.clone())
                 .map_err(|_| AppCoreError::MutationUnavailable)?;
             request.idempotency_key = key;
@@ -65,7 +94,10 @@ impl AppCore {
             .as_ref()
             .ok_or(AppCoreError::MutationUnavailable)?;
         let identity = ledger_identity(lease_ledger_binding(lease), &lease.request)?;
-        let mut store = self.store.lock().map_err(|_| AppCoreError::StateUnavailable)?;
+        let mut store = self
+            .store
+            .lock()
+            .map_err(|_| AppCoreError::StateUnavailable)?;
         lease.anchored_record = store
             .transition_anchored_mutation_v7(security.secure.as_ref(), identity, transition)
             .map_err(|_| AppCoreError::MutationUnavailable)?
@@ -90,7 +122,10 @@ impl AppCore {
             .as_ref()
             .ok_or(AppCoreError::MutationUnavailable)?;
         let identity = ledger_identity(lease_ledger_binding(lease), &lease.request)?;
-        let mut store = self.store.lock().map_err(|_| AppCoreError::StateUnavailable)?;
+        let mut store = self
+            .store
+            .lock()
+            .map_err(|_| AppCoreError::StateUnavailable)?;
         lease.anchored_record = store
             .resend_anchored_mutation_v7(security.secure.as_ref(), identity, timestamp)
             .map_err(|_| AppCoreError::MutationUnavailable)?

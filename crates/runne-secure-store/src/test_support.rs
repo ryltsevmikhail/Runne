@@ -16,6 +16,11 @@ use test_support_lock::TestLock;
 mod provider_credential;
 pub use provider_credential::prove_current_reader_can_load_exact;
 
+#[cfg(target_os = "linux")]
+mod persistent_test_secure_store;
+#[cfg(target_os = "linux")]
+pub use persistent_test_secure_store::PersistentDeterministicSecureStore;
+
 /// Returns true only for the exact disposable real-writer released-edge case.
 #[must_use]
 pub fn local_writer_death_after_release_enabled() -> bool {

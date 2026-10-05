@@ -1,4 +1,4 @@
-use runne_domain::event::{Actor, EventEnvelope, Sensitivity};
+use runne_domain::event::{Actor, EventEnvelope};
 use runne_domain::id::{AggregateId, IdempotencyKey, IntegrityDigest};
 use runne_domain::timestamp::Timestamp;
 
@@ -106,10 +106,7 @@ pub(super) fn decode_taskrun(
         .decode(&payload_bytes)
         .map_err(|_| invalid())?;
     let sensitivity = stored_sensitivity(sensitivity).map_err(|_| invalid())?;
-    let submitted = matches!(&payload, TaskRunEvent::TaskRunSubmitted { .. });
-    if (submitted && sensitivity != Sensitivity::Sensitive)
-        || (!submitted && sensitivity != Sensitivity::Public)
-    {
+    if !payload.accepts_sensitivity(sensitivity) {
         return Err(invalid());
     }
     let envelope = EventEnvelope::from_parts(

@@ -21,9 +21,17 @@ impl<C: OpenAiCredentialMaterializer> ProviderPort for Sender<C> {
     }
 
     fn prepare(&self, call: &ProviderCall) -> Result<PreparedRequest, PrepareError> {
-        self.renderer
-            .prepare(call)
-            .map_err(|error| PrepareError::Render(error.to_string()))
+        if call.tool_declarations().is_empty() {
+            self.renderer
+                .prepare(call)
+                .map_err(|error| PrepareError::Render(error.to_string()))
+        } else {
+            self.tool_renderer
+                .as_ref()
+                .ok_or_else(|| PrepareError::Render("tool profile is disabled".to_owned()))?
+                .prepare(call)
+                .map_err(|error| PrepareError::Render(error.to_string()))
+        }
     }
 
     fn prepare_for_digest_version(

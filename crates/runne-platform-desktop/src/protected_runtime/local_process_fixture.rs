@@ -39,56 +39,7 @@ fn preserve_local_process_environment(
     runtime_root: &Path,
 ) -> Result<(), ProtectedBundledRuntimeError> {
     #[cfg(target_os = "linux")]
-    if std::env::var_os("RUNNE_TEST_T1_TRUST_COMPOSITION").as_deref()
-        == Some(std::ffi::OsStr::new("1"))
-    {
-        command.env("RUNNE_TEST_T1_TRUST_COMPOSITION", "1");
-        command.env("RUNNE_TEST_PROTECTED_RUNTIME_ROOT", runtime_root);
-        if let Some(barrier) = std::env::var_os("RUNNE_TEST_T1_TRUST_BARRIER_DIR") {
-            command.env("RUNNE_TEST_T1_TRUST_BARRIER_DIR", barrier);
-        }
-        if let Some(mode) = std::env::var_os("RUNNE_TEST_LOCAL_WORKER_BARRIER") {
-            let mode = mode
-                .to_str()
-                .ok_or(ProtectedBundledRuntimeError::InvalidState)?;
-            if !matches!(mode, "pre-release" | "after-exit" | "after-terminal") {
-                return Err(ProtectedBundledRuntimeError::InvalidState);
-            }
-            let directory = std::env::var_os("RUNNE_TEST_LOCAL_WORKER_BARRIER_DIR")
-                .ok_or(ProtectedBundledRuntimeError::InvalidState)?;
-            command
-                .env("RUNNE_TEST_LOCAL_WORKER_BARRIER", mode)
-                .env("RUNNE_TEST_LOCAL_WORKER_BARRIER_DIR", directory);
-            if let Some(race) = std::env::var_os("RUNNE_TEST_T1_LOCAL_BARRIER_RACE") {
-                let race = race
-                    .to_str()
-                    .ok_or(ProtectedBundledRuntimeError::InvalidState)?;
-                if !matches!(race, "cancel-before-terminal" | "complete-before-cancel") {
-                    return Err(ProtectedBundledRuntimeError::InvalidState);
-                }
-                command.env("RUNNE_TEST_T1_LOCAL_BARRIER_RACE", race);
-            }
-        }
-        if std::env::var_os("RUNNE_TEST_T1_TRUST_TRANSPORT_LOSS").as_deref()
-            == Some(std::ffi::OsStr::new("1"))
-        {
-            command.env("RUNNE_TEST_T1_TRUST_TRANSPORT_LOSS", "1");
-        }
-        // D1.6 kill-matrix handshake: the boundary name and its three file
-        // paths pass through only under the same T1 fixture selector gate.
-        if let Some(boundary) = std::env::var_os("RUNNE_TEST_KILL_BOUNDARY") {
-            command.env("RUNNE_TEST_KILL_BOUNDARY", boundary);
-        }
-        if let Some(arm) = std::env::var_os("RUNNE_TEST_KILL_BOUNDARY_ARM") {
-            command.env("RUNNE_TEST_KILL_BOUNDARY_ARM", arm);
-        }
-        if let Some(marker) = std::env::var_os("RUNNE_TEST_KILL_BOUNDARY_MARKER") {
-            command.env("RUNNE_TEST_KILL_BOUNDARY_MARKER", marker);
-        }
-        if let Some(release) = std::env::var_os("RUNNE_TEST_KILL_BOUNDARY_RELEASE") {
-            command.env("RUNNE_TEST_KILL_BOUNDARY_RELEASE", release);
-        }
-    }
+    preserve_linux_fixture_environment(command, runtime_root)?;
     if runne_api::test_support::local_native_enrollment_enabled() {
         let home = std::env::var_os("HOME")
             .map(PathBuf::from)
@@ -113,6 +64,176 @@ fn preserve_local_process_environment(
         command.env("RUNNE_SLICE_E_SCENARIO", scenario);
     }
     Ok(())
+}
+
+#[cfg(all(feature = "test-support", target_os = "linux"))]
+fn preserve_linux_fixture_environment(
+    command: &mut Command,
+    runtime_root: &Path,
+) -> Result<(), ProtectedBundledRuntimeError> {
+    if std::env::var_os("RUNNE_TEST_T1_TRUST_COMPOSITION").as_deref()
+        != Some(std::ffi::OsStr::new("1"))
+    {
+        return Ok(());
+    }
+    command
+        .env("RUNNE_TEST_T1_TRUST_COMPOSITION", "1")
+        .env("RUNNE_TEST_PROTECTED_RUNTIME_ROOT", runtime_root);
+    preserve_d2_fixture_environment(command)?;
+    if let Some(barrier) = std::env::var_os("RUNNE_TEST_T1_TRUST_BARRIER_DIR") {
+        command.env("RUNNE_TEST_T1_TRUST_BARRIER_DIR", barrier);
+    }
+    preserve_worker_barrier_environment(command)?;
+    if std::env::var_os("RUNNE_TEST_T1_TRUST_TRANSPORT_LOSS").as_deref()
+        == Some(std::ffi::OsStr::new("1"))
+    {
+        command.env("RUNNE_TEST_T1_TRUST_TRANSPORT_LOSS", "1");
+    }
+    preserve_kill_boundary_environment(command);
+    Ok(())
+}
+
+#[cfg(all(feature = "test-support", target_os = "linux"))]
+fn preserve_d2_fixture_environment(
+    command: &mut Command,
+) -> Result<(), ProtectedBundledRuntimeError> {
+    if std::env::var_os("RUNNE_TEST_D2_TOOL_PROPOSAL").as_deref() != Some(std::ffi::OsStr::new("1"))
+    {
+        return Ok(());
+    }
+    let config_home = std::env::var_os("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .filter(|path| path.is_absolute())
+        .ok_or(ProtectedBundledRuntimeError::RuntimeRootUnavailable)?;
+    let metadata = std::fs::metadata(&config_home)
+        .map_err(|_| ProtectedBundledRuntimeError::RuntimeRootUnavailable)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt as _;
+        if !metadata.is_dir() || metadata.mode() & 0o077 != 0 {
+            return Err(ProtectedBundledRuntimeError::RuntimeRootUnavailable);
+        }
+    }
+    command
+        .env("XDG_CONFIG_HOME", config_home)
+        .env("RUNNE_TEST_D2_TOOL_PROPOSAL", "1");
+    preserve_d2_scenario(command)
+}
+
+#[cfg(all(feature = "test-support", target_os = "linux"))]
+fn preserve_d2_scenario(command: &mut Command) -> Result<(), ProtectedBundledRuntimeError> {
+    let Some(scenario) = std::env::var_os("RUNNE_TEST_D2_TOOL_SCENARIO") else {
+        return Ok(());
+    };
+    let scenario = scenario
+        .to_str()
+        .ok_or(ProtectedBundledRuntimeError::InvalidState)?;
+    if !matches!(
+        scenario,
+        "read-create-stop"
+            | "finish-before-cancel"
+            | "result-commit-crash"
+            | "crash-before-go"
+            | "crash-pending-approval"
+            | "crash-approved-before-lease"
+            | "crash-claimed-before-area"
+            | "crash-after-create-effect"
+            | "stale-after-read"
+            | "outside-target"
+            | "excluded-target"
+            | "cancel-final-response"
+            | "stale-final-target"
+            | "budget-exhausted"
+            | "deny-create"
+            | "deny-read"
+            | "stale-approval"
+            | "approval-expiry"
+            | "revoke-before-lease"
+            | "incomplete-provider-response"
+            | "unknown-tool-proposal"
+            | "malformed-tool-arguments"
+            | "early-final-stop"
+            | "target-changed-before-go"
+            | "cancel-before-go"
+            | "cancel-after-create-effect"
+            | "cancel-restart-after-create-effect"
+            | "stale-after-result"
+            | "truncated-read-result"
+            | "restart-started-before-cycle"
+            | "restart-cycle-before-budget"
+            | "restart-context-committed"
+            | "restart-cancelled-before-budget"
+            | "restart-plan-committed"
+            | "restart-proposal-before-invocation"
+            | "restart-dispatched-remote-unknown"
+    ) {
+        return Err(ProtectedBundledRuntimeError::InvalidState);
+    }
+    command.env("RUNNE_TEST_D2_TOOL_SCENARIO", scenario);
+    if let Some(stage) = std::env::var_os("RUNNE_TEST_D2_KILL_AT_STAGE") {
+        let stage = stage
+            .to_str()
+            .ok_or(ProtectedBundledRuntimeError::InvalidState)?;
+        if !matches!(stage, "start_cycle" | "cycle_started" | "context_committed" | "plan_committed" | "proposal_received" | "provider_uncertain") {
+            return Err(ProtectedBundledRuntimeError::InvalidState);
+        }
+        command.env("RUNNE_TEST_D2_KILL_AT_STAGE", stage);
+    }
+    if matches!(scenario, "cancel-final-response" | "stale-final-target") {
+        let barrier = std::env::var_os("RUNNE_TEST_D2_PROVIDER_BARRIER_DIR")
+            .map(PathBuf::from)
+            .filter(|path| path.is_absolute() && path.is_dir())
+            .ok_or(ProtectedBundledRuntimeError::InvalidState)?;
+        command.env("RUNNE_TEST_D2_PROVIDER_BARRIER_DIR", barrier);
+    }
+    Ok(())
+}
+
+#[cfg(all(feature = "test-support", target_os = "linux"))]
+fn preserve_worker_barrier_environment(
+    command: &mut Command,
+) -> Result<(), ProtectedBundledRuntimeError> {
+    let Some(mode) = std::env::var_os("RUNNE_TEST_LOCAL_WORKER_BARRIER") else {
+        return Ok(());
+    };
+    let mode = mode
+        .to_str()
+        .ok_or(ProtectedBundledRuntimeError::InvalidState)?;
+    if !matches!(
+        mode,
+        "pre-release" | "after-exit" | "after-terminal" | "approved-before-lease" | "claimed-before-area"
+    ) {
+        return Err(ProtectedBundledRuntimeError::InvalidState);
+    }
+    let directory = std::env::var_os("RUNNE_TEST_LOCAL_WORKER_BARRIER_DIR")
+        .ok_or(ProtectedBundledRuntimeError::InvalidState)?;
+    command
+        .env("RUNNE_TEST_LOCAL_WORKER_BARRIER", mode)
+        .env("RUNNE_TEST_LOCAL_WORKER_BARRIER_DIR", directory);
+    if let Some(race) = std::env::var_os("RUNNE_TEST_T1_LOCAL_BARRIER_RACE") {
+        let race = race
+            .to_str()
+            .ok_or(ProtectedBundledRuntimeError::InvalidState)?;
+        if !matches!(race, "cancel-before-terminal" | "complete-before-cancel") {
+            return Err(ProtectedBundledRuntimeError::InvalidState);
+        }
+        command.env("RUNNE_TEST_T1_LOCAL_BARRIER_RACE", race);
+    }
+    Ok(())
+}
+
+#[cfg(all(feature = "test-support", target_os = "linux"))]
+fn preserve_kill_boundary_environment(command: &mut Command) {
+    for name in [
+        "RUNNE_TEST_KILL_BOUNDARY",
+        "RUNNE_TEST_KILL_BOUNDARY_ARM",
+        "RUNNE_TEST_KILL_BOUNDARY_MARKER",
+        "RUNNE_TEST_KILL_BOUNDARY_RELEASE",
+    ] {
+        if let Some(value) = std::env::var_os(name) {
+            command.env(name, value);
+        }
+    }
 }
 
 #[cfg(feature = "test-support")]

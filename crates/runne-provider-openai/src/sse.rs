@@ -1,4 +1,5 @@
 include!("sse_parts/part_01.rs");
+include!("sse_parts/tool_stream.rs");
 include!("sse_parts/part_02.rs");
 include!("sse_parts/part_06_completed.rs");
 include!("sse_parts/part_03.rs");

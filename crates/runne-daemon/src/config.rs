@@ -1,5 +1,6 @@
 include!("config/provider_settings.rs");
 include!("config/secondary_profile_catalog.rs");
+include!("config/d2_safe_tool_loop_budget.rs");
 include!("config/merge.rs");
 include!("config/helpers.rs");
 include!("config/load.rs");
@@ -11,3 +12,7 @@ mod tests;
 #[cfg(test)]
 #[path = "config/secondary_profile_catalog_tests.rs"]
 mod secondary_profile_catalog_tests;
+
+#[cfg(test)]
+#[path = "config/d2_safe_tool_loop_budget_tests.rs"]
+mod d2_safe_tool_loop_budget_tests;

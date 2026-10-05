@@ -37,7 +37,7 @@ class NativeQualificationDeliveryAliasTest(unittest.TestCase):
             [],
             self.violations(
                 'let qualification_admission = std::env::var("ADMISSION");',
-                Path("apps/desktop/src-tauri/src/lib_parts/run.rs"),
+                Path("apps/desktop/src-tauri/src/lib_parts/setup_app.rs"),
             ),
         )
 
@@ -85,6 +85,31 @@ const RAW: &str = r#"extern crate std as platform;"#;
 
 
 class QualifiedCarrierImportTest(unittest.TestCase):
+    def test_native_admission_stays_in_the_exact_tauri_setup_host(self):
+        for relative, expected in (
+            ("apps/desktop/src-tauri/src/lib_parts/setup_app.rs", []),
+            (
+                "apps/desktop/src-tauri/src/lib_parts/managed_task_run_commands.rs",
+                ["forbidden"],
+            ),
+        ):
+            with self.subTest(relative=relative), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                source = root / relative
+                source.parent.mkdir(parents=True, exist_ok=True)
+                source.write_text("qualification_admission", encoding="utf-8")
+                violations = architecture.find_native_qualification_admission_surface_violations(root)
+                if relative.endswith("setup_app.rs"):
+                    self.assertFalse(
+                        architecture.native_qualification_delivery_forbidden(
+                            Path(relative), 'std::env::var("APP_ARGS");'
+                        )
+                    )
+                if expected:
+                    self.assertNotEqual([], violations)
+                else:
+                    self.assertEqual([], violations)
+
     def test_only_exact_broker_carrier_import_is_admitted(self):
         path = Path("crates/runne-daemon/src/application/provider_credential_enrollment/broker/qualified_exchange.rs")
         carrier = "use crate::protected_activation::control_v3::qualification_admission::WriterAdmissionBundle;"

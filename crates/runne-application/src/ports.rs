@@ -31,6 +31,7 @@ include!("ports/provider_terminal_cancellation.rs");
 include!("ports/provider_remote_artifact_cancellation.rs");
 include!("ports/provider_pre_effect_cancellation.rs");
 include!("ports/taskrun_provider_binding.rs");
+include!("ports/d2_tool_loop_completion.rs");
 include!("ports/event_store.rs");
 include!("ports/event_store_text_generation.rs");
 include!("ports/unit_of_work.rs");

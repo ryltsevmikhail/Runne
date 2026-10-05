@@ -253,6 +253,13 @@ impl ProviderExecutionStore for DaemonProviderRuntimeStore {
     ) -> Result<Vec<ProviderTerminalOutboxRecord>, ProviderExecutionError> {
         self.execution.pending_terminal_outbox()
     }
+    fn pending_tool_proposal_outbox_for_attempt(
+        &self,
+        attempt_id: DispatchAttemptId,
+    ) -> Result<Vec<ProviderTerminalOutboxRecord>, ProviderExecutionError> {
+        self.execution
+            .pending_tool_proposal_outbox_for_attempt(attempt_id)
+    }
     fn acknowledge_terminal_outbox(
         &self,
         outbox_id: [u8; 16],
@@ -271,29 +278,8 @@ impl ProviderExecutionStore for DaemonProviderRuntimeStore {
     }
 }
 
-impl ProviderTerminalPersistence for DaemonProviderRuntimeStore {
-    fn commit_terminal(
-        &self,
-        request: &ProviderTerminalCommitRequest,
-    ) -> Result<ProviderTerminalCommitOutcome, ProviderExecutionError> {
-        self.terminal.commit_terminal(request)
-    }
+#[cfg(test)]
+#[path = "runtime_store/tests.rs"]
+mod tests;
 
-    fn commit_unknown_terminal(
-        &self,
-        selector: &ProviderTerminalUnknownSelector,
-        authenticate: &dyn ProviderUnknownTerminalAuthenticator,
-    ) -> Result<ProviderTerminalCommitOutcome, ProviderExecutionError> {
-        self.terminal
-            .commit_unknown_terminal(selector, authenticate)
-    }
-
-    fn replay_unknown_terminal(
-        &self,
-        selector: &ProviderTerminalUnknownSelector,
-        authenticate: &dyn ProviderUnknownTerminalAuthenticator,
-    ) -> Result<Option<ProviderTerminalCommitOutcome>, ProviderExecutionError> {
-        self.terminal
-            .replay_unknown_terminal(selector, authenticate)
-    }
-}
+mod terminal;

@@ -53,6 +53,9 @@ enum LifecycleStage {
     TextDone,
     PartDone,
     ItemDone,
+    ToolItemAdded,
+    ToolArgumentsDone,
+    ToolItemDone,
     Terminal,
 }
 
@@ -66,6 +69,8 @@ struct Lifecycle {
     normalized: Vec<ProviderStreamEvent>,
     next_normalized_sequence: u64,
     next_remote_sequence: u64,
+    tools_enabled: bool,
+    tool: Option<ToolStream>,
 }
 
 impl Default for Lifecycle {
@@ -79,6 +84,8 @@ impl Default for Lifecycle {
             normalized: Vec::new(),
             next_normalized_sequence: 0,
             next_remote_sequence: 0,
+            tools_enabled: false,
+            tool: None,
         }
     }
 }
@@ -240,6 +247,8 @@ impl Lifecycle {
             "response.queued" => self.accept_queued(object),
             "response.in_progress" => self.accept_in_progress(object),
             "response.output_item.added" => self.accept_item_added(object),
+            "response.function_call_arguments.delta" => self.accept_tool_delta(object),
+            "response.function_call_arguments.done" => self.accept_tool_arguments_done(object),
             "response.content_part.added" => self.accept_part_added(object),
             "response.output_text.delta" => self.accept_text_delta(object),
             "response.output_text.done" => self.accept_text_done(object),

@@ -50,6 +50,15 @@ pub trait ConversationTextRepository {
         Ok(false)
     }
 
+    /// Confirms an exact terminal receipt produced by the shared D2 cancellation writer.
+    fn validate_d2_tool_loop_cancellation_receipt(
+        &self,
+        _receipt: &TextGenerationReceipt,
+        _evidence: D2ToolLoopCancellationEvidence,
+    ) -> Result<bool, CommitError> {
+        Ok(false)
+    }
+
     /// Looks up a claimed receipt while validating its immutable claim tuple.
     fn lookup_claimed_text_generation_receipt(
         &self,
@@ -140,6 +149,24 @@ pub trait ConversationTextRepository {
     fn reject_text_generation_after_no_admission_cancellation(
         &self,
         _payload: RejectTextGenerationAfterNoAdmissionCancellationCommit,
+    ) -> Result<TextGenerationCommitResult, CommitError> {
+        Err(CommitError::StorageFailure(StorageFailureKind::Unavailable))
+    }
+
+    /// D2 cancellation through the shared atomic terminal writer after the
+    /// store verifies all exact invocation stop/no-start evidence.
+    fn reject_text_generation_after_d2_tool_loop_cancellation(
+        &self,
+        _payload: RejectTextGenerationAfterD2ToolLoopCancellationCommit,
+    ) -> Result<TextGenerationCommitResult, CommitError> {
+        Err(CommitError::StorageFailure(StorageFailureKind::Unavailable))
+    }
+
+    /// Atomically rejects a pre-cycle D2 restart only after proving the exact
+    /// assignment and absence of native tool invocation evidence.
+    fn reject_text_generation_after_d2_tool_loop_restart(
+        &self,
+        _payload: RejectTextGenerationAfterD2ToolLoopRestartCommit,
     ) -> Result<TextGenerationCommitResult, CommitError> {
         Err(CommitError::StorageFailure(StorageFailureKind::Unavailable))
     }

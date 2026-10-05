@@ -138,6 +138,9 @@ impl AppCore {
             runtime_client: RwLock::new(None),
             runtime_connect: tokio::sync::Mutex::new(()),
             runtime_operation: tokio::sync::Mutex::new(()),
+            managed_intent_operation: tokio::sync::Mutex::new(()),
+            managed_intent: Mutex::new(VecDeque::new()),
+            accepted_managed_tokens: Mutex::new(VecDeque::new()),
             mutation_gate_epoch: AtomicU64::new(1),
             #[cfg(any(test, feature = "test-support"))]
             mutation_test_hold_before_canonical: AtomicBool::new(false),

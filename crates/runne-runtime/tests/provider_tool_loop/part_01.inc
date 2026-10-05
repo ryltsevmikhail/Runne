@@ -26,6 +26,7 @@ struct Journal {
     usage_unavailable: bool,
     events: Arc<Mutex<Vec<(ProviderStreamId, ProviderStreamEvent)>>>,
     transitions: Arc<Mutex<Vec<ProviderToolTransition>>>,
+    status: Arc<Mutex<Option<ProviderToolRecoveryStatus>>>,
 }
 
 impl ProviderToolJournal for Journal {
@@ -38,7 +39,11 @@ impl ProviderToolJournal for Journal {
             self.text.clone(),
             self.usage,
             self.usage_unavailable,
-            ProviderToolRecoveryStatus::Active,
+            self.status
+                .lock()
+                .unwrap()
+                .clone()
+                .unwrap_or(ProviderToolRecoveryStatus::Active),
         ))
     }
 
@@ -52,6 +57,11 @@ impl ProviderToolJournal for Journal {
     }
 
     fn append(&self, transition: ProviderToolTransition) -> Result<(), ProviderToolLoopError> {
+        if let ProviderToolTransition::ToolProposalReady { call, .. } = &transition {
+            *self.status.lock().unwrap() = Some(ProviderToolRecoveryStatus::ToolProposalReady {
+                call: call.clone(),
+            });
+        }
         self.transitions.lock().unwrap().push(transition);
         Ok(())
     }
@@ -255,27 +265,16 @@ impl ProviderToolJournal for CrashRecoveryJournal {
                 },
                 CrashPoint::ToolResult,
             ),
+            ProviderToolTransition::ToolProposalReady { call, .. } => (
+                ProviderToolRecoveryStatus::ToolProposalReady { call },
+                CrashPoint::ToolResult,
+            ),
             ProviderToolTransition::Frozen { .. } => {
                 (ProviderToolRecoveryStatus::Frozen, CrashPoint::Frozen)
             }
         };
         self.state.lock().unwrap().status = status;
         self.fail_once(crash_point)
-    }
-}
-
-struct ToolHandoff {
-    disposition: ToolHandoffDisposition,
-    calls: Mutex<Vec<RuntimeToolCall>>,
-}
-
-impl ToolCallHandoffPort for ToolHandoff {
-    fn dispatch(
-        &self,
-        call: &RuntimeToolCall,
-    ) -> Result<ToolHandoffDisposition, ProviderToolLoopError> {
-        self.calls.lock().unwrap().push(call.clone());
-        Ok(self.disposition.clone())
     }
 }
 

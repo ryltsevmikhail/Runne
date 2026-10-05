@@ -19,6 +19,27 @@ pub struct BindPreparedTaskRunProviderEffect {
     pub prepared: PreparedTaskRunProviderRequest,
 }
 
+/// Exact preceding D2 effect whose stored result permits the next provider round.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TaskRunProviderToolResultRef {
+    pub attempt_id: AttemptId,
+    pub cycle_id: CycleId,
+    pub proposal_index: u32,
+    pub semantic_digest: IntegrityDigest,
+    pub result_digest: IntegrityDigest,
+}
+
+/// Internal D2 admission binds each bounded continuation to its current TaskRun head.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BindPreparedTaskRunProviderRoundEffect {
+    pub identity: TaskRunAssignmentIdentity,
+    pub original_claim_version: u64,
+    pub current_taskrun_head: u64,
+    pub round_index: u32,
+    pub previous_tool_result: Option<TaskRunProviderToolResultRef>,
+    pub prepared: PreparedTaskRunProviderRequest,
+}
+
 /// Binding records establish identity only; they do not authorize effects.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TaskRunProviderBindingResult {
@@ -45,4 +66,14 @@ pub trait TaskRunProviderBindingPort {
         &self,
         request: BindPreparedTaskRunProviderEffect,
     ) -> Result<TaskRunProviderBindingResult, TaskRunProviderBindingError>;
+
+    fn bind_prepared_taskrun_provider_round_effect(
+        &self,
+        request: BindPreparedTaskRunProviderRoundEffect,
+    ) -> Result<TaskRunProviderBindingResult, TaskRunProviderBindingError>;
+
+    fn verify_prepared_taskrun_provider_round_effect(
+        &self,
+        request: BindPreparedTaskRunProviderRoundEffect,
+    ) -> Result<(), TaskRunProviderBindingError>;
 }

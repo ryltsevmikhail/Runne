@@ -20,6 +20,11 @@ rust-version = "1.95"
 [profile.test]
 debug = 0
 
+# The Linux helper seals and executes the exact test-profile daemon image;
+# stripping its symbol table keeps that image within the existing 64 MiB cap.
+[profile.test.package.runne-daemon]
+strip = "symbols"
+
 # Protected process fixtures repeatedly measure staged daemon and writer
 # identities. Keep the production-equivalent SHA-256 checks exact while
 # preventing unoptimized test hashing from consuming the client deadline.

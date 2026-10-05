@@ -112,13 +112,14 @@ pub(crate) fn verify_stream(
             return Err(ClaimError::CorruptData);
         }
         let payload = codec.decode(&bytes).map_err(|_| ClaimError::CorruptData)?;
-        let event_sensitivity = match (sensitivity, &payload) {
-            (0, value) if !matches!(value, TaskRunEvent::TaskRunSubmitted { .. }) => {
-                Sensitivity::Public
-            }
-            (2, TaskRunEvent::TaskRunSubmitted { .. }) => Sensitivity::Sensitive,
+        let event_sensitivity = match sensitivity {
+            0 => Sensitivity::Public,
+            2 => Sensitivity::Sensitive,
             _ => return Err(ClaimError::CorruptData),
         };
+        if !payload.accepts_sensitivity(event_sensitivity) {
+            return Err(ClaimError::CorruptData);
+        }
         let event = EventEnvelope::from_parts(
             EventId::from_bytes(uuid_bytes(eid)?),
             AggregateId::TaskRun(id),

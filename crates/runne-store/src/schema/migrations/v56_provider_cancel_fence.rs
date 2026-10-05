@@ -50,8 +50,26 @@ pub(super) fn v56_matches(connection: &Connection, version: i64) -> SqliteResult
         }
     }
     let a = v56_cancel_fences_match(connection)?;
-    let b = v56_cancel_fences_cover_cancellations(connection)?;
+    let allow_v64_d2 = v64_d2_extensions_present(connection)?;
+    let b = v56_cancel_fences_cover_cancellations(connection, allow_v64_d2)?;
     Ok(a && b)
+}
+
+fn v64_d2_extensions_present(connection: &Connection) -> SqliteResult<bool> {
+    let current: Option<i64> = connection
+        .query_row("SELECT MAX(version) FROM schema_version", [], |row| {
+            row.get(0)
+        })
+        .optional()?;
+    let installed: bool = connection.query_row(
+        "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table'
+         AND name='taskrun_provider_round_bindings')
+         AND EXISTS(SELECT 1 FROM sqlite_master WHERE type='table'
+         AND name='provider_terminal_application_kinds')",
+        [],
+        |row| row.get(0),
+    )?;
+    Ok(current == Some(64) && installed)
 }
 
 fn v56_cancel_fences_match(connection: &Connection) -> SqliteResult<bool> {

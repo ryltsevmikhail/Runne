@@ -52,7 +52,8 @@ fn terminal_drafts(
         | ConversationTextCompletion::TerminalSettledCancellation { .. }
         | ConversationTextCompletion::UnknownJournalSettledCancellation { .. }
         | ConversationTextCompletion::RemoteArtifactSettledCancellation { .. }
-        | ConversationTextCompletion::NoProviderAdmissionCancellation { .. } => {
+        | ConversationTextCompletion::NoProviderAdmissionCancellation { .. }
+        | ConversationTextCompletion::D2ToolLoopCancellation { .. } => {
             let conversation_drafts = conversation
                 .decide(runne_domain::command::ConversationCommand::FailGeneration {
                     taskrun_id: receipt.taskrun_id,
@@ -75,5 +76,9 @@ fn terminal_drafts(
         ConversationTextCompletion::Rejected { reason } => {
             failed(TextGenerationPhase::Rejected, reason)
         }
+        ConversationTextCompletion::D2ToolLoopRestart { .. } => failed(
+            TextGenerationPhase::Rejected,
+            runne_domain::conversation::GenerationFailureReason::InterruptedByRestart,
+        ),
     }
 }

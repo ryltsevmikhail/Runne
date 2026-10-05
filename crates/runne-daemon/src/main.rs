@@ -77,6 +77,10 @@ fn parse_invocation(arguments: &[OsString]) -> Invocation {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let arguments: Vec<OsString> = std::env::args_os().skip(1).collect();
+    #[cfg(target_os = "linux")]
+    if arguments.len() == 1 && arguments[0].to_str() == Some("--safe-tool-helper-v1") {
+        return runne_daemon::safe_tool_helper::run().map_err(|_| "safe tool helper failed".into());
+    }
     #[cfg(all(target_os = "macos", feature = "persistent-reference-probe"))]
     if persistent_reference_probe::selected(&arguments) {
         return persistent_reference_probe::run().map_err(|_| "persistent-reference-probe".into());

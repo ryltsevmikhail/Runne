@@ -32,6 +32,7 @@ pub(super) struct ExecutionRoute<'a> {
     pub(super) model_id: &'a str,
     pub(super) model_revision: &'a str,
     pub(super) admission: RouteAdmission<'a>,
+    pub(super) tool_mode: bool,
 }
 
 pub(super) fn request_ceiling(
@@ -76,6 +77,29 @@ impl DaemonCanonicalProviderService {
         &self,
         selected: Option<&SelectedProviderProfile>,
     ) -> Option<ExecutionRoute<'_>> {
+        #[cfg(all(target_os = "linux", feature = "desktop-protected"))]
+        if selected.is_some_and(|selected| {
+            self.tool_profile.as_ref().is_some_and(|profile| {
+                SelectedProviderProfile::new(
+                    profile.profile_id().to_owned(),
+                    profile.profile_digest(),
+                )
+                .is_ok_and(|identity| identity == *selected)
+            })
+        }) {
+            let profile = self.tool_profile.as_ref()?;
+            let grant = self.tool_profile_grant.as_ref()?;
+            return Some(ExecutionRoute {
+                profile,
+                adapter: self.adapter.as_ref(),
+                credential_store: &self.credential_store,
+                provider_id: self.provider_id.as_ref(),
+                model_id: self.model_id.as_ref(),
+                model_revision: self.model_revision.as_ref(),
+                admission: RouteAdmission::Secondary(grant),
+                tool_mode: true,
+            });
+        }
         let primary = SelectedProviderProfile::new(
             self.profile.profile_id().to_owned(),
             self.profile.profile_digest(),
@@ -101,6 +125,7 @@ impl DaemonCanonicalProviderService {
                 model_id: self.model_id.as_ref(),
                 model_revision: self.model_revision.as_ref(),
                 admission: RouteAdmission::Primary,
+                tool_mode: false,
             }),
             SelectedRoute::Secondary => {
                 let route = self.secondary_profile.as_ref()?;
@@ -113,6 +138,7 @@ impl DaemonCanonicalProviderService {
                     model_id: route.model_id.as_ref(),
                     model_revision: route.model_revision.as_ref(),
                     admission: RouteAdmission::Secondary(grant),
+                    tool_mode: false,
                 })
             }
         }
@@ -125,6 +151,29 @@ impl DaemonCanonicalProviderService {
         self.execution_route(selected).is_some()
     }
 
+    pub(crate) fn accepts_tool_profile_selection(
+        &self,
+        selected: Option<&SelectedProviderProfile>,
+    ) -> bool {
+        #[cfg(all(target_os = "linux", feature = "desktop-protected"))]
+        {
+            selected.is_some_and(|selected| {
+                self.tool_profile.as_ref().is_some_and(|profile| {
+                    SelectedProviderProfile::new(
+                        profile.profile_id().to_owned(),
+                        profile.profile_digest(),
+                    )
+                    .is_ok_and(|identity| identity == *selected)
+                })
+            })
+        }
+        #[cfg(not(all(target_os = "linux", feature = "desktop-protected")))]
+        {
+            let _ = selected;
+            false
+        }
+    }
+
     pub(crate) fn execute_claimed_selected_profile(
         &self,
         job: CanonicalProviderExecutionJob,
@@ -134,7 +183,40 @@ impl DaemonCanonicalProviderService {
         '_,
         Result<runne_application::ports::TextGenerationReceipt, CanonicalProviderExecutionError>,
     > {
-        self.execute_internal(job, Some(assignment), selected)
+        Box::pin(async move {
+            match self
+                .execute_internal(job, Some(assignment), selected, false, None)
+                .await?
+            {
+                super::InternalProviderResult::Text(receipt) => Ok(receipt),
+                #[cfg(all(feature = "desktop-protected", target_os = "linux"))]
+                super::InternalProviderResult::ToolRound(_) => {
+                    Err(CanonicalProviderExecutionError::Uncertain)
+                }
+            }
+        })
+    }
+
+    #[cfg(all(feature = "desktop-protected", target_os = "linux"))]
+    pub(crate) fn execute_claimed_tool_round(
+        &self,
+        job: CanonicalProviderExecutionJob,
+        assignment: runne_application::ports::TaskRunAssignmentIdentity,
+        selected: SelectedProviderProfile,
+        round: super::D2ProviderRound,
+    ) -> runne_provider::ProviderFuture<
+        '_,
+        Result<super::D2ProviderRoundOutcome, CanonicalProviderExecutionError>,
+    > {
+        Box::pin(async move {
+            match self
+                .execute_internal(job, Some(assignment), Some(selected), true, Some(round))
+                .await?
+            {
+                super::InternalProviderResult::ToolRound(outcome) => Ok(outcome),
+                _ => Err(CanonicalProviderExecutionError::Uncertain),
+            }
+        })
     }
 
     pub(crate) fn accepts_model_for_profile(
@@ -148,109 +230,5 @@ impl DaemonCanonicalProviderService {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::super::super::SharedTextProviderProfile;
-    use super::{SelectedRoute, select_route};
-    use runne_api::ProviderSelectionPolicyV1;
-    use runne_domain::task_run::SelectedProviderProfile;
-    use runne_provider::{
-        ProviderPricedUsage, ProviderTerminalPricing, ProviderTerminalPricingError, ProviderUsage,
-        TextProviderProfile,
-    };
-    use std::sync::Arc;
-
-    struct FixedPrice(u64);
-    impl ProviderTerminalPricing for FixedPrice {
-        fn price_terminal_usage(
-            &self,
-            _: &[u8; 32],
-            _: &[u8; 32],
-            _: i64,
-            _: ProviderUsage,
-        ) -> Result<ProviderPricedUsage, ProviderTerminalPricingError> {
-            ProviderPricedUsage::new(self.0, "USD".into())
-        }
-    }
-    impl TextProviderProfile for FixedPrice {
-        fn profile_id(&self) -> &str {
-            "test"
-        }
-        fn profile_digest(&self) -> [u8; 32] {
-            [1; 32]
-        }
-        fn pricing_revision_digest(&self) -> [u8; 32] {
-            [2; 32]
-        }
-        fn currency(&self) -> &str {
-            "USD"
-        }
-        fn max_input_bytes(&self) -> usize {
-            1024
-        }
-        fn max_input_entries(&self) -> usize {
-            1
-        }
-        fn max_input_entry_bytes(&self) -> usize {
-            1024
-        }
-        fn max_output_tokens(&self) -> u32 {
-            10
-        }
-        fn max_request_bytes(&self) -> usize {
-            2048
-        }
-        fn price_usage_micros(
-            &self,
-            _: ProviderUsage,
-        ) -> Result<u64, ProviderTerminalPricingError> {
-            Ok(self.0)
-        }
-    }
-
-    #[test]
-    fn none_stays_primary_and_secondary_requires_exact_explicit_identity() {
-        let primary = SelectedProviderProfile::new("primary".into(), [1; 32]).unwrap();
-        let secondary = SelectedProviderProfile::new("secondary".into(), [2; 32]).unwrap();
-        let wrong_digest = SelectedProviderProfile::new("secondary".into(), [3; 32]).unwrap();
-        let unknown = SelectedProviderProfile::new("unknown".into(), [2; 32]).unwrap();
-        let explicit = Some(ProviderSelectionPolicyV1::ExplicitOnly);
-
-        assert_eq!(
-            select_route(None, &primary, Some(&secondary), explicit),
-            Some(SelectedRoute::Primary)
-        );
-        assert_eq!(
-            select_route(Some(&primary), &primary, Some(&secondary), explicit),
-            Some(SelectedRoute::Primary)
-        );
-        assert_eq!(
-            select_route(Some(&secondary), &primary, Some(&secondary), explicit),
-            Some(SelectedRoute::Secondary)
-        );
-        assert_eq!(
-            select_route(
-                Some(&secondary),
-                &primary,
-                Some(&secondary),
-                Some(ProviderSelectionPolicyV1::DefaultEligible)
-            ),
-            None
-        );
-        assert_eq!(
-            select_route(Some(&wrong_digest), &primary, Some(&secondary), explicit),
-            None
-        );
-        assert_eq!(
-            select_route(Some(&unknown), &primary, Some(&secondary), explicit),
-            None
-        );
-    }
-
-    #[test]
-    fn admission_ceiling_uses_the_selected_profile_pricing() {
-        let primary = SharedTextProviderProfile::new(Arc::new(FixedPrice(11)));
-        let secondary = SharedTextProviderProfile::new(Arc::new(FixedPrice(29)));
-        assert_eq!(super::request_ceiling(&primary).unwrap().2, 11);
-        assert_eq!(super::request_ceiling(&secondary).unwrap().2, 29);
-    }
-}
+#[path = "route_tests.rs"]
+mod tests;

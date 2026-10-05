@@ -253,4 +253,7 @@ fn bind(
         })
 }
 
+#[path = "provider_binding/d2_round.rs"]
+mod d2_round;
 mod tests;
+pub(super) use d2_round::bind_d2_round_zero_for_test;

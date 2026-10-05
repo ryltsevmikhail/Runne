@@ -63,6 +63,65 @@ async fn validated_reopen_after_outbox_ack_does_not_reapply_terminal_output() {
 }
 
 #[tokio::test(flavor = "current_thread")]
+async fn tool_proposal_outbox_is_never_applied_by_text_recovery() {
+    let fixture = fixture();
+    let keyring = fixture.keyring();
+    let writer = runtime(&keyring, fixture.execution.as_ref());
+    writer.preflight_existing_active_key([1; 16], 7).unwrap();
+    poll_events(
+        &writer,
+        &fixture,
+        vec![
+            ProviderStreamEvent::new(0, ProviderStreamEventKind::Started).unwrap(),
+            ProviderStreamEvent::new(
+                1,
+                ProviderStreamEventKind::ToolCallRequested {
+                    call_id: "call-test".into(),
+                    tool_name: "workspace.file.read".into(),
+                    arguments_json: r#"{"path":"note.txt"}"#.into(),
+                },
+            )
+            .unwrap(),
+            ProviderStreamEvent::new(
+                2,
+                ProviderStreamEventKind::Usage {
+                    usage: ProviderUsage::new(500, 900, 0, 0).unwrap(),
+                },
+            )
+            .unwrap(),
+            ProviderStreamEvent::new(
+                3,
+                ProviderStreamEventKind::Finished {
+                    disposition: ProviderTerminalDisposition::Completed,
+                    reason: ProviderFinishReason::ToolCalls,
+                },
+            )
+            .unwrap(),
+        ],
+    )
+    .await;
+    writer.finalize_tool_terminal_output(&context(&fixture)).unwrap();
+    let application = IdempotentTerminalApplication::for_fixture(&fixture);
+    assert_eq!(
+        writer.apply_terminal_output_for_attempt(fixture.attempt_id, &application),
+        Ok(false)
+    );
+    assert_eq!(
+        writer.apply_terminal_cancellation_output_for_attempt(fixture.attempt_id, &application),
+        Ok(false)
+    );
+    assert!(writer.recover_pending_terminal_outputs().unwrap().is_empty());
+    assert_eq!(application.calls.load(Ordering::SeqCst), 0);
+    assert_eq!(
+        validated_connection(&fixture)
+            .query_row("SELECT state FROM provider_terminal_outbox", [], |row| row
+                .get::<_, i64>(0))
+            .unwrap(),
+        1
+    );
+}
+
+#[tokio::test(flavor = "current_thread")]
 async fn stale_generation_finalize_is_recovery_frozen() {
     let fixture = fixture();
     let keyring = fixture.keyring();

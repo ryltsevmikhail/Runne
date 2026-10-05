@@ -10,6 +10,8 @@ mod profile;
 mod render;
 mod response_decode;
 mod sse;
+mod tool_profile;
+mod tool_render;
 mod transport;
 
 pub use background_response::{
@@ -25,8 +27,10 @@ pub use profile::{
     OpenAiProfileError, OpenAiResponsesTextProfile,
 };
 pub use render::{OpenAiRenderError, OpenAiResponsesTextRenderer};
-pub use response_decode::decode_transport_response;
+pub use response_decode::{decode_tool_transport_response, decode_transport_response};
 pub use sse::{OpenAiSseDecoder, OpenAiStreamError};
+pub use tool_profile::{OPENAI_RESPONSES_TOOL_PROFILE_ID, OpenAiResponsesToolProfile};
+pub use tool_render::{OpenAiResponsesToolRenderer, OpenAiToolRenderError};
 pub use transport::{
     OPENAI_MAX_DECODED_STREAM_BYTES, OPENAI_MAX_NORMALIZED_TEXT_BYTES, OPENAI_MAX_SSE_EVENTS,
     OPENAI_MAX_SSE_FRAME_BYTES, OPENAI_MAX_SSE_LINES, OPENAI_MAX_TRANSPORT_CHUNKS,

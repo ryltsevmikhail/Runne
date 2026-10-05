@@ -16,6 +16,7 @@ use crate::ports::{
     AggregateScope, ApplicationCommandContext, BeginTextGenerationCommit, CommitError,
     ConversationRepository, ConversationTextRepository, EventStore, EventStoreError,
     FinishTextGenerationCommit, IdGenerationError, IdGenerator, IdempotencyScope, OperationTag,
+    RejectTextGenerationAfterD2ToolLoopCancellationCommit,
     RejectTextGenerationAfterNoAdmissionCancellationCommit,
     RejectTextGenerationAfterPreEffectCancellationCommit,
     RejectTextGenerationAfterTerminalCancellationCommit, RejectTextGenerationCommit,
@@ -93,6 +94,7 @@ include!("conversation_text_service/factory.rs");
 include!("conversation_text_service/begin.rs");
 include!("conversation_text_service/begin_claimed.rs");
 include!("conversation_text_service/finish.rs");
+include!("conversation_text_service/finish/lookup.rs");
 include!("conversation_text_service/finish/remote_cancel_replay.rs");
 include!("conversation_text_service/finish/terminal_drafts.rs");
 include!("conversation_text_service/finish/cancellation_receipt.rs");

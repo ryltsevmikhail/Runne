@@ -204,6 +204,7 @@ async fn composed_service_keeps_recovery_state_when_telemetry_generation_is_mism
         activation_provenance: provenance,
         expected_profile_digest: profile_digest,
         secondary_catalog: None,
+        d2_tool_loop_budget: None,
         conversation_store: store,
         conversation_service,
         prohibited_content: prohibited,

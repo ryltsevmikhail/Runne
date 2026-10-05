@@ -155,6 +155,11 @@ where
         let Some(record) = records.into_iter().next() else {
             return Ok(false);
         };
+        if record.application_kind
+            != runne_application::provider::ProviderTerminalApplicationKind::TextGeneration
+        {
+            return Err(RuntimeProviderExecutionError::ApplicationConflict);
+        }
         let recovered = self.recover_one_terminal_outbox(record)?;
         let receipt_digest =
             match application.complete_provider_terminal(recovered.record(), recovered.output()) {
@@ -192,6 +197,11 @@ where
         let Some(record) = records.into_iter().next() else {
             return Ok(false);
         };
+        if record.application_kind
+            != runne_application::provider::ProviderTerminalApplicationKind::TextGeneration
+        {
+            return Err(RuntimeProviderExecutionError::ApplicationConflict);
+        }
         let recovered = self.recover_one_terminal_outbox(record)?;
         let receipt_digest = match application
             .complete_provider_terminal_cancellation(recovered.record(), recovered.output())

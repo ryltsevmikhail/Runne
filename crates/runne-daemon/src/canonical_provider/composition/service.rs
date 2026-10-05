@@ -21,6 +21,10 @@ pub struct DaemonCanonicalProviderService {
     pub(in crate::canonical_provider) conversation_service: Arc<dyn ConversationTextCommandService>,
     pub(in crate::canonical_provider) adapter: Arc<dyn CanonicalProviderEffect>,
     pub(in crate::canonical_provider) profile: Arc<SharedTextProviderProfile>,
+    pub(in crate::canonical_provider) tool_profile: Option<Arc<SharedTextProviderProfile>>,
+    #[cfg(all(feature = "desktop-protected", target_os = "linux"))]
+    pub(in crate::canonical_provider) tool_profile_grant:
+        Option<runne_store::provider::ProviderSecondaryProfileGrant>,
     pub(in crate::canonical_provider) provider_id: std::borrow::Cow<'static, str>,
     pub(in crate::canonical_provider) model_id: std::borrow::Cow<'static, str>,
     pub(in crate::canonical_provider) model_revision: std::borrow::Cow<'static, str>,

@@ -163,13 +163,14 @@ fn verify_claim_stream_inner(
         let actor = Actor::new(String::from_utf8(actor).map_err(|_| ClaimError::CorruptData)?)
             .map_err(|_| ClaimError::CorruptData)?;
         let payload = codec.decode(&bytes).map_err(|_| ClaimError::CorruptData)?;
-        let sensitivity = match (sensitivity, &payload) {
-            (0, value) if !matches!(value, TaskRunEvent::TaskRunSubmitted { .. }) => {
-                Sensitivity::Public
-            }
-            (2, TaskRunEvent::TaskRunSubmitted { .. }) => Sensitivity::Sensitive,
+        let sensitivity = match sensitivity {
+            0 => Sensitivity::Public,
+            2 => Sensitivity::Sensitive,
             _ => return Err(ClaimError::CorruptData),
         };
+        if !payload.accepts_sensitivity(sensitivity) {
+            return Err(ClaimError::CorruptData);
+        }
         let event = EventEnvelope::from_parts(
             event_id,
             AggregateId::TaskRun(id),

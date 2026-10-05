@@ -1,5 +1,7 @@
 use super::*;
 use rusqlite::Connection;
+mod d2;
+type RoundDispatchRow = (Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>, String, Vec<u8>);
 
 /// Rechecks the canonical started-text TaskRun before a fresh provider effect.
 /// The caller holds the same Immediate transaction used to create the effect.
@@ -11,14 +13,65 @@ pub(crate) fn verify_fresh_running_attempt(
     attempt_id: AttemptId,
     principal_id: &str,
 ) -> Result<(), ()> {
+    verify_running_attempt(
+        connection,
+        runtime_authority,
+        taskrun_id,
+        conversation_id,
+        attempt_id,
+        principal_id,
+        None,
+    )
+}
+
+pub(crate) fn verify_fresh_d2_running_attempt(
+    connection: &Connection,
+    runtime_authority: [u8; 16],
+    taskrun_id: TaskRunId,
+    conversation_id: ConversationId,
+    attempt_id: AttemptId,
+    principal_id: &str,
+    profile_digest: [u8; 32],
+) -> Result<(), ()> {
+    verify_running_attempt(
+        connection,
+        runtime_authority,
+        taskrun_id,
+        conversation_id,
+        attempt_id,
+        principal_id,
+        Some(profile_digest),
+    )
+}
+
+fn verify_running_attempt(
+    connection: &Connection,
+    runtime_authority: [u8; 16],
+    taskrun_id: TaskRunId,
+    conversation_id: ConversationId,
+    attempt_id: AttemptId,
+    principal_id: &str,
+    d2_profile_digest: Option<[u8; 32]>,
+) -> Result<(), ()> {
     let verified = taskrun_claim::stream_validate::verify_stream(connection, taskrun_id, None)
         .map_err(|_| ())?;
     if verified.state != TaskRunState::Running || verified.active_attempt != Some(attempt_id) {
         return Err(());
     }
-    let start = verified.events.last().ok_or(())?;
+    let start = if d2_profile_digest.is_some() {
+        verified
+            .events
+            .iter()
+            .find(|event| event.payload() == &TaskRunEvent::AttemptStarted { attempt_id })
+    } else {
+        verified.events.last()
+    }
+    .ok_or(())?;
     if start.payload() != &(TaskRunEvent::AttemptStarted { attempt_id }) {
         return Err(());
+    }
+    if let Some(profile_digest) = d2_profile_digest {
+        d2::verify_plan_and_budget(connection, taskrun_id, attempt_id, profile_digest)?;
     }
     let conversation = conversation::load_conversation_from_connection(connection, conversation_id)
         .map_err(|_| ())?;
@@ -76,7 +129,8 @@ pub(crate) fn verify_fresh_running_attempt(
         || receipt.attempt_id != attempt_id
         || receipt.user_message_id != *message_id
         || receipt.conversation_version != sequence
-        || receipt.taskrun_version != verified.version
+        || receipt.taskrun_version != start.sequence()
+        || (d2_profile_digest.is_none() && receipt.taskrun_version != verified.version)
     {
         return Err(());
     }
@@ -85,19 +139,25 @@ pub(crate) fn verify_fresh_running_attempt(
         expected_version: previous_version,
         text: text.clone(),
     };
-    match taskrun_started_generation::classify_started_generation_taskrun(
-        connection,
-        &receipt,
-        &input,
-        command_id,
-        &key,
-        &scope,
-        &RuntimeAuthorityId(compact_hex(&runtime_authority)),
-    )
-    .map_err(|_| ())?
-    {
-        taskrun_started_generation::StartedGenerationTaskRunState::Running => Ok(()),
-        taskrun_started_generation::StartedGenerationTaskRunState::PendingCancellation => Err(()),
+    if d2_profile_digest.is_some() {
+        Ok(())
+    } else {
+        match taskrun_started_generation::classify_started_generation_taskrun(
+            connection,
+            &receipt,
+            &input,
+            command_id,
+            &key,
+            &scope,
+            &RuntimeAuthorityId(compact_hex(&runtime_authority)),
+        )
+        .map_err(|_| ())?
+        {
+            taskrun_started_generation::StartedGenerationTaskRunState::Running => Ok(()),
+            taskrun_started_generation::StartedGenerationTaskRunState::PendingCancellation => {
+                Err(())
+            }
+        }
     }
 }
 
@@ -106,22 +166,42 @@ pub(crate) fn verify_admitted_running_attempt(
     connection: &Connection,
     dispatch_attempt_id: &[u8; 16],
 ) -> Result<(), ()> {
-    let (taskrun, conversation, attempt, authority, principal):
-        (Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>, String) =
+    let (taskrun, conversation, attempt, authority, principal, profile_digest): RoundDispatchRow =
         connection
             .query_row(
-                "SELECT taskrun_id,conversation_id,execution_attempt_id,runtime_authority_id,principal_id
+                "SELECT taskrun_id,conversation_id,execution_attempt_id,runtime_authority_id,principal_id,profile_digest
                  FROM provider_execution_admissions WHERE dispatch_attempt_id=?1",
                 [dispatch_attempt_id.as_slice()],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?)),
             )
             .map_err(|_| ())?;
+    let taskrun_id = TaskRunId::from_bytes(taskrun.as_slice().try_into().map_err(|_| ())?);
+    let attempt_id = AttemptId::from_bytes(attempt.as_slice().try_into().map_err(|_| ())?);
+    let d2_profile = connection
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM provider_secondary_profile_attempts a JOIN provider_secondary_profile_grants g USING(grant_id) WHERE a.dispatch_attempt_id=?1 AND g.profile_id='runne-linux-agent-tools-v1' AND a.profile_digest=?2)",
+            rusqlite::params![dispatch_attempt_id.as_slice(), profile_digest.as_slice()],
+            |row| row.get::<_, bool>(0),
+        )
+        .map_err(|_| ())?;
+    if d2_profile {
+        return d2::verify_admitted_round(
+            connection,
+            dispatch_attempt_id,
+            taskrun_id,
+            attempt_id,
+            authority.as_slice().try_into().map_err(|_| ())?,
+            ConversationId::from_bytes(conversation.as_slice().try_into().map_err(|_| ())?),
+            &principal,
+            profile_digest.as_slice().try_into().map_err(|_| ())?,
+        );
+    }
     verify_fresh_running_attempt(
         connection,
         authority.as_slice().try_into().map_err(|_| ())?,
-        TaskRunId::from_bytes(taskrun.as_slice().try_into().map_err(|_| ())?),
+        taskrun_id,
         ConversationId::from_bytes(conversation.as_slice().try_into().map_err(|_| ())?),
-        AttemptId::from_bytes(attempt.as_slice().try_into().map_err(|_| ())?),
+        attempt_id,
         &principal,
     )
 }

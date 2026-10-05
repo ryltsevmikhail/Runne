@@ -38,7 +38,40 @@ pub(super) fn upgraded_v25_for_provider(
     let connection = Connection::open(&path).unwrap();
     connection
         .execute_batch(
-            "DROP TRIGGER provider_credential_ticket_insert_issued;
+            "DROP TRIGGER taskrun_provider_round_bindings_immutable;
+             DROP TRIGGER taskrun_provider_round_bindings_no_delete;
+             DROP TRIGGER schema_v12_fence_taskrun_provider_round_bindings_insert;
+             DROP TRIGGER schema_v12_fence_taskrun_provider_round_bindings_update;
+             DROP TRIGGER schema_v12_fence_taskrun_provider_round_bindings_delete;
+             DROP TABLE taskrun_provider_round_bindings;
+             DROP TRIGGER taskrun_tool_intents_monotonic;
+             DROP TRIGGER taskrun_tool_result_immutable;
+             DROP TRIGGER taskrun_tool_budget_monotonic;
+             DROP TRIGGER taskrun_tool_invocation_binding_immutable;
+             DROP TRIGGER taskrun_tool_budgets_no_delete;
+             DROP TRIGGER taskrun_tool_invocations_no_delete;
+             DROP TRIGGER provider_terminal_application_kinds_immutable;
+             DROP TRIGGER provider_terminal_application_kinds_no_delete;
+             DROP TRIGGER d2_tool_loop_completions_immutable;
+             DROP TRIGGER d2_tool_loop_completions_no_delete;
+             DROP TRIGGER schema_v12_fence_d2_tool_loop_completions_insert;
+             DROP TRIGGER schema_v12_fence_d2_tool_loop_completions_update;
+             DROP TRIGGER schema_v12_fence_d2_tool_loop_completions_delete;
+             DROP TABLE d2_tool_loop_completions;
+             DROP TRIGGER schema_v12_fence_taskrun_tool_invocations_insert;
+             DROP TRIGGER schema_v12_fence_taskrun_tool_invocations_update;
+             DROP TRIGGER schema_v12_fence_taskrun_tool_invocations_delete;
+             DROP TRIGGER schema_v12_fence_taskrun_tool_budgets_insert;
+             DROP TRIGGER schema_v12_fence_taskrun_tool_budgets_update;
+             DROP TRIGGER schema_v12_fence_taskrun_tool_budgets_delete;
+             DROP TRIGGER schema_v12_fence_provider_terminal_application_kinds_insert;
+             DROP TRIGGER schema_v12_fence_provider_terminal_application_kinds_update;
+             DROP TRIGGER schema_v12_fence_provider_terminal_application_kinds_delete;
+             DROP INDEX idx_taskrun_tool_invocations_state;
+             DROP TABLE taskrun_tool_invocations;
+             DROP TABLE taskrun_tool_budgets;
+             DROP TABLE provider_terminal_application_kinds;
+             DROP TRIGGER provider_credential_ticket_insert_issued;
              DROP TRIGGER provider_credential_revoke_irreversible;
              DROP INDEX provider_credential_one_pending_retired_version_cleanup;
              DROP TABLE provider_qualification_admission_fences;
@@ -204,7 +237,7 @@ pub(super) fn upgraded_v25_for_provider(
     );
     let released_schema_objects: i64 = connection
         .query_row(
-            "SELECT COUNT(*) FROM sqlite_master WHERE name IN ('taskrun_provider_bindings', 'taskrun_provider_bindings_immutable', 'taskrun_provider_bindings_no_delete', 'text_only_taskrun_lineage', 'text_only_taskrun_lineage_immutable', 'text_only_taskrun_lineage_no_delete', 'text_only_taskrun_lineage_no_workspace_collision', 'taskrun_terminal_settlement_receipts', 'taskrun_terminal_settlement_immutable', 'taskrun_terminal_settlement_no_delete', 'schema_v12_fence_taskrun_terminal_settlement_receipts_insert', 'schema_v12_fence_taskrun_terminal_settlement_receipts_update', 'schema_v12_fence_taskrun_terminal_settlement_receipts_delete', 'provider_terminal_dispositions', 'provider_terminal_dispositions_immutable', 'provider_terminal_dispositions_no_delete', 'schema_v12_fence_provider_terminal_dispositions_insert', 'schema_v12_fence_provider_terminal_dispositions_update', 'schema_v12_fence_provider_terminal_dispositions_delete', 'provider_secondary_profile_grants', 'provider_secondary_profile_grants_identity_immutable', 'provider_secondary_profile_grants_no_delete', 'provider_secondary_profile_bindings', 'provider_secondary_profile_bindings_immutable', 'provider_secondary_profile_bindings_no_delete', 'provider_secondary_profile_bindings_one_active', 'provider_secondary_profile_attempts', 'provider_secondary_profile_attempts_immutable', 'provider_secondary_profile_attempts_no_delete', 'taskrun_local_command_attempts', 'taskrun_local_command_writer_active', 'taskrun_local_command_identity_immutable', 'taskrun_local_command_state_transition', 'taskrun_local_command_no_delete', 'schema_v12_fence_taskrun_local_command_attempts_insert', 'schema_v12_fence_taskrun_local_command_attempts_update', 'schema_v12_fence_taskrun_local_command_attempts_delete', 'taskrun_local_command_stop_receipts', 'taskrun_local_command_stop_receipts_immutable', 'taskrun_local_command_stop_receipts_no_delete', 'schema_v12_fence_taskrun_local_command_stop_receipts_insert', 'schema_v12_fence_taskrun_local_command_stop_receipts_update', 'schema_v12_fence_taskrun_local_command_stop_receipts_delete', 'taskrun_unknown_successor_receipts', 'provider_remote_terminal_audit_receipts', 'provider_remote_terminal_audit_receipts_immutable', 'provider_remote_terminal_audit_receipts_no_delete', 'schema_v12_fence_provider_remote_terminal_audit_receipts_insert', 'schema_v12_fence_provider_remote_terminal_audit_receipts_update', 'schema_v12_fence_provider_remote_terminal_audit_receipts_delete', 'provider_remote_terminal_applications', 'provider_remote_artifact_cancel_closures', 'provider_remote_terminal_settlements', 'provider_remote_terminal_artifacts', 'provider_remote_operation_proofs', 'provider_remote_response_bindings', 'provider_remote_request_intents', 'provider_unknown_terminal_receipts')",
+            "SELECT COUNT(*) FROM sqlite_master WHERE name IN ('d2_tool_loop_completions','d2_tool_loop_completions_immutable','d2_tool_loop_completions_no_delete','schema_v12_fence_d2_tool_loop_completions_insert','schema_v12_fence_d2_tool_loop_completions_update','schema_v12_fence_d2_tool_loop_completions_delete','taskrun_provider_round_bindings','taskrun_provider_round_bindings_immutable','taskrun_provider_round_bindings_no_delete','schema_v12_fence_taskrun_provider_round_bindings_insert','schema_v12_fence_taskrun_provider_round_bindings_update','schema_v12_fence_taskrun_provider_round_bindings_delete','taskrun_tool_invocations','taskrun_tool_budgets','provider_terminal_application_kinds','taskrun_tool_intents_monotonic','taskrun_tool_result_immutable','taskrun_tool_budget_monotonic','taskrun_tool_invocation_binding_immutable','taskrun_tool_budgets_no_delete','taskrun_tool_invocations_no_delete','provider_terminal_application_kinds_immutable','provider_terminal_application_kinds_no_delete','idx_taskrun_tool_invocations_state','taskrun_provider_bindings', 'taskrun_provider_bindings_immutable', 'taskrun_provider_bindings_no_delete', 'text_only_taskrun_lineage', 'text_only_taskrun_lineage_immutable', 'text_only_taskrun_lineage_no_delete', 'text_only_taskrun_lineage_no_workspace_collision', 'taskrun_terminal_settlement_receipts', 'taskrun_terminal_settlement_immutable', 'taskrun_terminal_settlement_no_delete', 'schema_v12_fence_taskrun_terminal_settlement_receipts_insert', 'schema_v12_fence_taskrun_terminal_settlement_receipts_update', 'schema_v12_fence_taskrun_terminal_settlement_receipts_delete', 'provider_terminal_dispositions', 'provider_terminal_dispositions_immutable', 'provider_terminal_dispositions_no_delete', 'schema_v12_fence_provider_terminal_dispositions_insert', 'schema_v12_fence_provider_terminal_dispositions_update', 'schema_v12_fence_provider_terminal_dispositions_delete', 'provider_secondary_profile_grants', 'provider_secondary_profile_grants_identity_immutable', 'provider_secondary_profile_grants_no_delete', 'provider_secondary_profile_bindings', 'provider_secondary_profile_bindings_immutable', 'provider_secondary_profile_bindings_no_delete', 'provider_secondary_profile_bindings_one_active', 'provider_secondary_profile_attempts', 'provider_secondary_profile_attempts_immutable', 'provider_secondary_profile_attempts_no_delete', 'taskrun_local_command_attempts', 'taskrun_local_command_writer_active', 'taskrun_local_command_identity_immutable', 'taskrun_local_command_state_transition', 'taskrun_local_command_no_delete', 'schema_v12_fence_taskrun_local_command_attempts_insert', 'schema_v12_fence_taskrun_local_command_attempts_update', 'schema_v12_fence_taskrun_local_command_attempts_delete', 'taskrun_local_command_stop_receipts', 'taskrun_local_command_stop_receipts_immutable', 'taskrun_local_command_stop_receipts_no_delete', 'schema_v12_fence_taskrun_local_command_stop_receipts_insert', 'schema_v12_fence_taskrun_local_command_stop_receipts_update', 'schema_v12_fence_taskrun_local_command_stop_receipts_delete', 'taskrun_unknown_successor_receipts', 'provider_remote_terminal_audit_receipts', 'provider_remote_terminal_audit_receipts_immutable', 'provider_remote_terminal_audit_receipts_no_delete', 'schema_v12_fence_provider_remote_terminal_audit_receipts_insert', 'schema_v12_fence_provider_remote_terminal_audit_receipts_update', 'schema_v12_fence_provider_remote_terminal_audit_receipts_delete', 'provider_remote_terminal_applications', 'provider_remote_artifact_cancel_closures', 'provider_remote_terminal_settlements', 'provider_remote_terminal_artifacts', 'provider_remote_operation_proofs', 'provider_remote_response_bindings', 'provider_remote_request_intents', 'provider_unknown_terminal_receipts')",
             [],
             |row| row.get(0),
         )
@@ -226,69 +259,4 @@ pub(super) fn upgraded_v25_for_provider(
     (directory, path, request)
 }
 
-fn restore_v36_accounting_for_fixture(connection: &Connection) -> rusqlite::Result<()> {
-    connection.execute_batch("PRAGMA foreign_keys=OFF; PRAGMA legacy_alter_table=ON;")?;
-    for (table, current, old) in [
-        (
-            "provider_execution_admissions",
-            "max_cost_micros INTEGER NOT NULL CHECK(max_cost_micros >= 0), currency TEXT NOT NULL CHECK(length(currency) = 3 AND (max_cost_micros > 0 OR currency = 'XXX'))",
-            "max_cost_micros INTEGER NOT NULL CHECK(max_cost_micros > 0), currency TEXT NOT NULL CHECK(length(currency) = 3)",
-        ),
-        (
-            "provider_budget_reservations",
-            "amount INTEGER NOT NULL CHECK(amount > 0 OR (dimension = 2 AND amount = 0))",
-            "amount INTEGER NOT NULL CHECK(amount > 0)",
-        ),
-    ] {
-        let source: String = connection.query_row(
-            "SELECT sql FROM sqlite_master WHERE type='table' AND name=?1",
-            [table],
-            |row| row.get(0),
-        )?;
-        let objects: Vec<String> = connection
-            .prepare("SELECT sql FROM sqlite_master WHERE tbl_name=?1 AND type IN ('index','trigger') AND sql IS NOT NULL ORDER BY type,name")?
-            .query_map([table], |row| row.get(0))?
-            .collect::<rusqlite::Result<_>>()?;
-        let old_table = format!("{table}_v37");
-        connection.execute(&format!("ALTER TABLE {table} RENAME TO {old_table}"), [])?;
-        if source.matches(current).count() != 1 {
-            return Err(rusqlite::Error::InvalidQuery);
-        }
-        let rewritten = source.replace(current, old);
-        connection.execute_batch(&rewritten)?;
-        connection.execute(
-            &format!("INSERT INTO {table} SELECT * FROM {old_table}"),
-            [],
-        )?;
-        connection.execute(&format!("DROP TABLE {old_table}"), [])?;
-        for sql in objects {
-            connection.execute_batch(&sql)?;
-        }
-    }
-    connection.execute_batch("PRAGMA legacy_alter_table=OFF; PRAGMA foreign_keys=ON;")?;
-    Ok(())
-}
-
-fn admission_fields(path: &std::path::Path) -> (Vec<u8>, Vec<u8>, i64, i64) {
-    Connection::open(path)
-        .unwrap()
-        .query_row(
-            "SELECT dispatch_attempt_id, authority_id, authority_revision, issued_at
-             FROM provider_execution_admissions",
-            [],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
-        )
-        .unwrap()
-}
-
-fn admission_counts(path: &std::path::Path) -> (i64, i64) {
-    Connection::open(path)
-        .unwrap()
-        .query_row(
-            "SELECT (SELECT COUNT(*) FROM provider_execution_admissions),
-                    (SELECT COUNT(*) FROM provider_online_dispatch_claim_providers)",
-            [],
-            |row| Ok((row.get(0)?, row.get(1)?)),
-        )
-        .unwrap()
-}
+include!("authority_replay_provider_test_support/restore_v36.rs");

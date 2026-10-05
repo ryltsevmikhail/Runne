@@ -117,13 +117,7 @@ fn validate_replay_event_integrity(event: &ReplayEvent) -> rusqlite::Result<(Str
             let payload = TaskRunEventCodec
                 .decode(&event.payload)
                 .map_err(|_| invalid_column(12, rusqlite::types::Type::Blob))?;
-            let expected_sensitivity = match &payload {
-                runne_domain::task_run::TaskRunEvent::TaskRunSubmitted { .. } => {
-                    Sensitivity::Sensitive
-                }
-                _ => Sensitivity::Public,
-            };
-            if sensitivity != expected_sensitivity {
+            if !payload.accepts_sensitivity(sensitivity) {
                 return Err(invalid_column(6, rusqlite::types::Type::Integer));
             }
             let event_type = taskrun_event_type(&payload).to_owned();

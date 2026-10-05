@@ -80,7 +80,17 @@ pub(super) fn validate_finish_text_payload(
 pub(super) fn validate_reject_text_payload(
     payload: &RejectTextGenerationCommit,
     authority: &RuntimeAuthorityId,
+    d2_restart: Option<&runne_application::ports::D2ToolLoopRestartEvidence>,
 ) -> Result<(), CommitError> {
+    let terminal_taskrun_head = d2_restart
+        .map_or(payload.expected_taskrun_version, |evidence| {
+            evidence.expected_taskrun_head
+        })
+        .checked_add(1)
+        .ok_or(CommitError::VersionExhausted {
+            current: payload.expected_taskrun_version,
+            event_count: 1,
+        })?;
     if payload.conversation_events.len() != 1
         || payload.taskrun_events.len() != 1
         || !matches!(
@@ -94,13 +104,7 @@ pub(super) fn validate_reject_text_payload(
                     event_count: 1,
                 },
             )?
-        || payload.receipt.taskrun_version
-            != payload.expected_taskrun_version.checked_add(1).ok_or(
-                CommitError::VersionExhausted {
-                    current: payload.expected_taskrun_version,
-                    event_count: 1,
-                },
-            )?
+        || payload.receipt.taskrun_version != terminal_taskrun_head
     {
         return Err(storage_failure(StorageFailureKind::IntegrityViolation));
     }

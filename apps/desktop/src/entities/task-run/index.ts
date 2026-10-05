@@ -3,3 +3,5 @@ export type { TaskRunCancellation, TaskRunSession, TaskRunState, TaskRunSubmissi
 export type { TaskRunRecovery, TaskRunTerminal } from './api/task-run'
 export { getTaskRunEffects } from './api/task-run-effects'
 export type { TaskRunEffects, LocalCommandOutcome, LocalCommandStop, RemoteEffectOutcome, RemotePublication, RemoteAccounting, RemoteCancellation, RemoteAvailability, SuccessorEligibility } from './api/task-run-effects'
+export { getManagedAttentionSnapshot, listManagedTaskRuns, prepareManagedTaskRun, recoverManagedTaskRun, startManagedTaskRun } from './api/managed-task-run'
+export type { EffectiveTaskAuthority, ManagedAttentionItem, ManagedAttentionSnapshot, ManagedTaskRunAck, ManagedTaskRunPreflight, ManagedTaskRunRecovery, ManagedTaskRunSummary, ManagedTaskRunTerminal, ManagedTaskRunsSnapshot } from './api/managed-task-run'

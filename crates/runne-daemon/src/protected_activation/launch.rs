@@ -92,6 +92,12 @@ impl ProtectedDaemonLaunch {
         let mut defaults = BuiltInDefaults::new(&canonical_root);
         defaults.http_bind = "127.0.0.1:0".to_owned();
         let config = ConfigurationSnapshot::from_defaults(&defaults);
+        #[cfg(all(target_os = "linux", feature = "desktop-protected"))]
+        let config = {
+            let external = crate::config::load_verified_fixed_external_config()
+                .map_err(|_| LaunchAuthorityError::InvalidContract)?;
+            config.with_d2_tool_budget_from(external.snapshot())
+        };
         let keys = request.derive_keys_and_forget();
         let compatibility = request
             .compatibility()

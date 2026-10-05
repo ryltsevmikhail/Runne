@@ -19,6 +19,10 @@ impl IdGenerator for StoreTransaction {
         Ok(MessageId::from_bytes(self.generate_uuid()))
     }
 
+    fn next_cycle_id(&self) -> Result<runne_domain::id::CycleId, IdGenerationError> {
+        Ok(runne_domain::id::CycleId::from_bytes(self.generate_uuid()))
+    }
+
     fn next_event_ids(&self, count: usize) -> Result<Vec<EventId>, IdGenerationError> {
         if count == 0 {
             return Err(IdGenerationError::Exhausted);

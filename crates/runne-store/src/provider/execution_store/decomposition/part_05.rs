@@ -9,11 +9,36 @@ impl SqliteProviderExecutionStore {
         &self,
         attempt_id: impl Into<Option<DispatchAttemptId>>,
     ) -> Result<Vec<ProviderTerminalOutboxRecord>, ProviderExecutionError> {
+        self.pending_outbox_for_attempt_kind_impl(attempt_id, 1)
+    }
+
+    fn pending_tool_proposal_outbox_for_attempt_impl(
+        &self,
+        attempt_id: DispatchAttemptId,
+    ) -> Result<Vec<ProviderTerminalOutboxRecord>, ProviderExecutionError> {
+        self.pending_outbox_for_attempt_kind_impl(Some(attempt_id), 2)
+    }
+
+    fn pending_outbox_for_attempt_kind_impl(
+        &self,
+        attempt_id: impl Into<Option<DispatchAttemptId>>,
+        application_kind: i64,
+    ) -> Result<Vec<ProviderTerminalOutboxRecord>, ProviderExecutionError> {
         let attempt_id = attempt_id.into().map(|id| id.as_bytes().to_vec());
         let connection = self
             .connection
             .lock()
             .map_err(|_| ProviderExecutionError::StoreUnavailable)?;
+        let orphaned: bool = connection
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM provider_terminal_outbox outbox LEFT JOIN provider_terminal_application_kinds app ON app.dispatch_attempt_id=outbox.dispatch_attempt_id AND app.outbox_id=outbox.outbox_id WHERE outbox.state=1 AND (?1 IS NULL OR outbox.dispatch_attempt_id=?1) AND app.dispatch_attempt_id IS NULL)",
+                rusqlite::params![attempt_id],
+                |row| row.get(0),
+            )
+            .map_err(|_| ProviderExecutionError::StoreUnavailable)?;
+        if orphaned {
+            return Err(ProviderExecutionError::JournalCorrupt);
+        }
         let mut statement = connection
             .prepare(
                 "SELECT outbox.outbox_id, outbox.dispatch_attempt_id,
@@ -25,12 +50,16 @@ impl SqliteProviderExecutionStore {
                         outbox.application_idempotency_key, admission.principal_id,
                         admission.conversation_id, admission.taskrun_id,
                         admission.execution_attempt_id, admission.fencing_token,
-                        remote.artifact_digest, unknown.unknown_commitment
+                        remote.artifact_digest, unknown.unknown_commitment,
+                        app.application_kind
                  FROM provider_terminal_outbox outbox
                  JOIN provider_journal_key_refs keys
                    ON keys.key_id = outbox.key_id AND keys.key_version = outbox.key_version
                  JOIN provider_execution_admissions admission
                    ON admission.dispatch_attempt_id = outbox.dispatch_attempt_id
+                 JOIN provider_terminal_application_kinds app
+                   ON app.dispatch_attempt_id=outbox.dispatch_attempt_id
+                  AND app.outbox_id=outbox.outbox_id
                  LEFT JOIN provider_remote_terminal_settlements remote
                    ON remote.dispatch_attempt_id=outbox.dispatch_attempt_id
                   AND remote.source_kind=2 AND remote.terminal_status=1
@@ -41,11 +70,12 @@ impl SqliteProviderExecutionStore {
                    ON unknown.dispatch_attempt_id=outbox.dispatch_attempt_id
                   AND unknown.outbox_id=outbox.outbox_id
                  WHERE outbox.state = 1 AND (?1 IS NULL OR outbox.dispatch_attempt_id=?1)
+                   AND app.application_kind=?2
                  ORDER BY outbox.created_at, outbox.outbox_id",
             )
             .map_err(|_| ProviderExecutionError::StoreUnavailable)?;
         statement
-            .query_map([attempt_id], |row| {
+            .query_map(rusqlite::params![attempt_id, application_kind], |row| {
                 let key = ProviderJournalKeyBinding::new(
                     fixed_bytes(row.get(4)?)?,
                     positive_u64(row.get(5)?)?,
@@ -89,6 +119,11 @@ impl SqliteProviderExecutionStore {
                     }
                 };
                 Ok(ProviderTerminalOutboxRecord {
+                    application_kind: match row.get::<_, i64>(23)? {
+                        1 => runne_application::provider::ProviderTerminalApplicationKind::TextGeneration,
+                        2 => runne_application::provider::ProviderTerminalApplicationKind::ToolProposal,
+                        _ => return Err(rusqlite::Error::InvalidQuery),
+                    },
                     outbox_id: fixed_bytes(row.get(0)?)?,
                     attempt_id: DispatchAttemptId::from_bytes(fixed_bytes(row.get(1)?)?),
                     source,

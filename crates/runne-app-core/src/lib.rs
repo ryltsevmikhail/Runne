@@ -133,6 +133,7 @@ mod tests {
     include!("lib_parts/device_tests.rs");
     include!("lib_parts/providers_tests.rs");
     include!("lib_parts/provider_credential_enrollment_tests.rs");
+    include!("lib_parts/managed_task_run_api_tests.rs");
     mod task_run_terminal_projection_tests {
         use crate::{
             AppCoreError, CanonicalId, TaskRunProjectionState, TaskRunRecoveryDisposition,

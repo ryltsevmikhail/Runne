@@ -135,6 +135,9 @@ pub enum ProviderCallError {
         /// Actual aggregate UTF-8 byte length.
         actual: usize,
     },
+    /// Tool declarations/results exceeded the bounded normalized context.
+    #[error("provider tool context is malformed or exceeds its bound")]
+    InvalidToolContext,
 }
 
 const MAX_EXTENSION_BYTES: usize = 16 * 1024;
@@ -238,6 +241,10 @@ pub struct ProviderCall {
     inputs: Vec<ProviderTextInput>,
     extension: Value,
     required_capabilities: Vec<ProviderCapability>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    tool_declarations: Vec<ProviderToolDeclarationV1>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    tool_results: Vec<ProviderToolResultV1>,
 }
 
 #[derive(Deserialize)]
@@ -251,4 +258,8 @@ struct RawProviderCall {
     inputs: Vec<ProviderTextInput>,
     extension: Value,
     required_capabilities: Vec<ProviderCapability>,
+    #[serde(default)]
+    tool_declarations: Vec<ProviderToolDeclarationV1>,
+    #[serde(default)]
+    tool_results: Vec<ProviderToolResultV1>,
 }

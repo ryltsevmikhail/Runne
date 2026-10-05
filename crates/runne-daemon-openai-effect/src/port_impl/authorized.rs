@@ -57,9 +57,20 @@ impl<C: OpenAiCredentialMaterializer> Sender<C> {
         if self.profile.is_background() {
             return self.send_background_authorized(ready, receipt).await;
         }
+        let tool_mode = !ready
+            .request
+            .prepared()
+            .call()
+            .tool_declarations()
+            .is_empty();
+        let expected_profile_digest =
+            self.expected_profile_digest(tool_mode)
+                .ok_or(DispatchError::RejectedBeforeEffect(
+                    runne_provider::ProviderPreEffectRejection::AdapterRejected,
+                ))?;
         if !receipt.matches_claim(ready.request.claim())
             || !receipt.matches_credential(&ready.credential)
-            || ready.request.claim().profile_digest != self.profile.profile_digest()
+            || ready.request.claim().profile_digest != expected_profile_digest
         {
             return Err(DispatchError::MaybeDispatched);
         }
@@ -147,7 +158,7 @@ impl<C: OpenAiCredentialMaterializer> Sender<C> {
                 }
             }
             .map_err(|_| DispatchError::MaybeDispatched)?;
-            self.store_response(ready.request.attempt_id(), response)
+            self.store_response(ready.request.attempt_id(), response, tool_mode)
         };
         timeout_at(receipt.deadline().into(), effect)
             .await

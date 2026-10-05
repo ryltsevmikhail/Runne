@@ -1,5 +1,13 @@
 /// Durable encrypted terminal outbox projection.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProviderTerminalApplicationKind {
+    /// Assistant text is delivered to the canonical conversation.
+    TextGeneration,
+    /// A committed tool proposal is consumed by the task tool workflow.
+    ToolProposal,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProviderTerminalOutboxSource {
     /// Terminal data came from the authoritative provider stream journal.
     StreamJournal,
@@ -13,6 +21,8 @@ pub enum ProviderTerminalOutboxSource {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProviderTerminalOutboxRecord {
+    /// Semantic consumer for the encrypted terminal payload.
+    pub application_kind: ProviderTerminalApplicationKind,
     /// Stable outbox identity.
     pub outbox_id: [u8; 16],
     /// Owning provider attempt.
@@ -178,6 +188,18 @@ pub trait ProviderExecutionStore: Send + Sync {
             .pending_terminal_outbox()?
             .into_iter()
             .filter(|record| record.attempt_id == attempt_id)
+            .collect())
+    }
+
+    /// Loads only typed ToolProposal outbox rows for exact D2 recovery.
+    fn pending_tool_proposal_outbox_for_attempt(
+        &self,
+        attempt_id: DispatchAttemptId,
+    ) -> Result<Vec<ProviderTerminalOutboxRecord>, ProviderExecutionError> {
+        Ok(self
+            .pending_terminal_outbox_for_attempt(attempt_id)?
+            .into_iter()
+            .filter(|record| record.application_kind == ProviderTerminalApplicationKind::ToolProposal)
             .collect())
     }
 

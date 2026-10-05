@@ -15,6 +15,18 @@ impl fmt::Debug for ProviderToolLoopOutcome {
                 .field("call_id", call_id)
                 .field("result_digest", result_digest)
                 .finish(),
+            Self::ToolProposalReady {
+                call,
+                text,
+                usage,
+                usage_unavailable,
+            } => formatter
+                .debug_struct("ToolProposalReady")
+                .field("call", call)
+                .field("text_len", &text.len())
+                .field("usage", usage)
+                .field("usage_unavailable", usage_unavailable)
+                .finish(),
             Self::Uncertain => formatter.write_str("Uncertain"),
             Self::RemoteTerminal {
                 disposition,

@@ -54,6 +54,13 @@ pub enum ProviderToolTransition {
         /// Content-addressed result digest.
         result_digest: [u8; 32],
     },
+    /// A complete provider response durably proposed one exact tool call.
+    ToolProposalReady {
+        /// Exact provider stream containing the complete response.
+        stream_id: ProviderStreamId,
+        /// Exact call approved for subsequent policy evaluation.
+        call: RuntimeToolCall,
+    },
     /// Ambiguous state freezes further effects.
     Frozen {
         /// Exact provider stream being fenced.
@@ -86,6 +93,12 @@ pub enum ProviderToolRecoveryStatus {
         call_id: String,
         /// Content-addressed result digest.
         result_digest: [u8; 32],
+    },
+    /// A complete response and exact tool proposal are durable; policy must
+    /// still authorize it before any handoff.
+    ToolProposalReady {
+        /// Exact provider-requested tool call.
+        call: RuntimeToolCall,
     },
     /// Cancellation intent is durable but adapter acknowledgement is unknown.
     CancellationPending,
@@ -231,6 +244,17 @@ pub enum ProviderToolLoopOutcome {
         call_id: String,
         /// Exact result digest.
         result_digest: [u8; 32],
+    },
+    /// A complete provider response produced one exact pending proposal.
+    ToolProposalReady {
+        /// Exact provider-requested tool call; not yet authorized to execute.
+        call: RuntimeToolCall,
+        /// Bounded text accompanying the complete response.
+        text: String,
+        /// Optional provider-reported usage.
+        usage: Option<ProviderUsage>,
+        /// Whether the completed response lacked exact usage.
+        usage_unavailable: bool,
     },
     /// Further effects are frozen pending reconciliation.
     Uncertain,

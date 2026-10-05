@@ -60,3 +60,56 @@ fn historical_unselected_primary_and_exact_selected_primary_remain_supported() {
         verify_selected_profile(&origin(Some(profile)), "openai", "primary/1", &[8; 32]).is_ok()
     );
 }
+
+#[test]
+fn runtime_claim_actor_requires_exact_authority_principal_operation_aggregate_and_actor() {
+    let taskrun_id = runne_domain::id::TaskRunId::from_bytes([9; 16]);
+    let authority = RuntimeAuthorityId("authority-a".into());
+    let runtime_actor = Actor::new("runne-runtime").unwrap();
+    let scope = IdempotencyScope {
+        runtime_authority_id: authority.clone(),
+        principal_id: PrincipalId("runne-runtime".into()),
+        operation: OperationTag::TaskRunClaim,
+        aggregate_scope: AggregateScope::ExistingTaskRun { taskrun_id },
+    };
+    assert!(runtime_claim_scope_matches(
+        &scope,
+        &authority,
+        taskrun_id,
+        &runtime_actor
+    ));
+    assert!(!runtime_claim_scope_matches(
+        &scope,
+        &RuntimeAuthorityId("authority-b".into()),
+        taskrun_id,
+        &runtime_actor,
+    ));
+    assert!(!runtime_claim_scope_matches(
+        &scope,
+        &authority,
+        runne_domain::id::TaskRunId::from_bytes([8; 16]),
+        &runtime_actor,
+    ));
+    assert!(!runtime_claim_scope_matches(
+        &scope,
+        &authority,
+        taskrun_id,
+        &Actor::new("forged-runtime").unwrap(),
+    ));
+    let mut forged = scope.clone();
+    forged.principal_id = PrincipalId("user-a".into());
+    assert!(!runtime_claim_scope_matches(
+        &forged,
+        &authority,
+        taskrun_id,
+        &runtime_actor
+    ));
+    let mut forged = scope.clone();
+    forged.operation = OperationTag::Admit;
+    assert!(!runtime_claim_scope_matches(
+        &forged,
+        &authority,
+        taskrun_id,
+        &runtime_actor
+    ));
+}

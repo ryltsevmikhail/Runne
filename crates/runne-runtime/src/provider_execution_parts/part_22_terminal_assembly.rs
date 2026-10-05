@@ -22,10 +22,24 @@ impl TerminalUsageEvidence {
 fn assemble_terminal_stream(
     events: &[ProviderStreamEvent],
 ) -> Result<AssembledTerminal, RuntimeProviderExecutionError> {
+    assemble_terminal_stream_mode(events, false)
+}
+
+fn assemble_tool_terminal_stream(
+    events: &[ProviderStreamEvent],
+) -> Result<AssembledTerminal, RuntimeProviderExecutionError> {
+    assemble_terminal_stream_mode(events, true)
+}
+
+fn assemble_terminal_stream_mode(
+    events: &[ProviderStreamEvent],
+    allow_tool_call: bool,
+) -> Result<AssembledTerminal, RuntimeProviderExecutionError> {
     let mut validator = ProviderStreamValidator::default();
     let mut output = Zeroizing::new(Vec::new());
     let mut usage = None;
     let mut terminal = None;
+    let mut tool_call_seen = false;
     for event in events {
         validator
             .accept(event)
@@ -48,8 +62,25 @@ fn assemble_terminal_stream(
             ProviderStreamEventKind::UsageUnavailable => {
                 usage = Some(TerminalUsageEvidence::Unavailable);
             }
-            ProviderStreamEventKind::ToolCallRequested { .. } => {
-                return Err(RuntimeProviderExecutionError::TerminalRejected);
+            ProviderStreamEventKind::ToolCallRequested {
+                call_id,
+                tool_name,
+                arguments_json,
+            } => {
+                if !allow_tool_call
+                    || tool_call_seen
+                    || !output.is_empty()
+                    || call_id.len() > 128
+                    || tool_name.len() > 128
+                    || arguments_json.len() > 8 * 1024
+                {
+                    return Err(RuntimeProviderExecutionError::TerminalRejected);
+                }
+                output.extend_from_slice(
+                    &serde_json::to_vec(&(call_id, tool_name, arguments_json))
+                        .map_err(|_| RuntimeProviderExecutionError::TerminalRejected)?,
+                );
+                tool_call_seen = true;
             }
             ProviderStreamEventKind::Finished {
                 disposition,
@@ -82,7 +113,12 @@ fn assemble_terminal_stream(
             ProviderTerminalDisposition::Completed,
             ProviderFinishReason::Stop,
             TerminalUsageEvidence::Exact(_) | TerminalUsageEvidence::Unavailable,
-        ) => !output.is_empty(),
+        ) => !tool_call_seen && !output.is_empty(),
+        (
+            ProviderTerminalDisposition::Completed,
+            ProviderFinishReason::ToolCalls,
+            TerminalUsageEvidence::Exact(_) | TerminalUsageEvidence::Unavailable,
+        ) => allow_tool_call && tool_call_seen && !output.is_empty(),
         (
             ProviderTerminalDisposition::RemoteFailed,
             ProviderFinishReason::Error,
@@ -171,4 +207,18 @@ const fn terminal_disposition_code(disposition: ProviderTerminalDisposition) -> 
         ProviderTerminalDisposition::RemoteIncomplete => 3,
         ProviderTerminalDisposition::CancelledUncertain => 4,
     }
+}
+
+fn application_settlement_digest(
+    kind: ProviderTerminalApplicationKind,
+    digest: [u8; 32],
+) -> [u8; 32] {
+    if kind == ProviderTerminalApplicationKind::TextGeneration {
+        return digest;
+    }
+    Sha256::new()
+        .chain_update(b"GOCODE_PROVIDER_TOOL_PROPOSAL_SETTLEMENT_V1\0")
+        .chain_update(digest)
+        .finalize()
+        .into()
 }

@@ -3,7 +3,7 @@ use runne_domain::event::{Actor, EventEnvelope, Sensitivity};
 use runne_domain::id::{
     AggregateId, CommandId, EventId, IdempotencyKey, IntegrityDigest, TaskRunId,
 };
-use runne_domain::task_run::{TaskRun, TaskRunEvent};
+use runne_domain::task_run::TaskRun;
 use runne_domain::timestamp::Timestamp;
 use rusqlite::{OptionalExtension, Transaction, params};
 
@@ -143,9 +143,12 @@ fn decode_row(
         .map_err(|_| Error::InvariantViolation)?;
     let sensitivity = match row.14 {
         0 => Sensitivity::Public,
-        2 if matches!(&payload, TaskRunEvent::TaskRunSubmitted { .. }) => Sensitivity::Sensitive,
+        2 => Sensitivity::Sensitive,
         _ => return Err(Error::InvariantViolation),
     };
+    if !payload.accepts_sensitivity(sensitivity) {
+        return Err(Error::InvariantViolation);
+    }
     let envelope = EventEnvelope::from_parts(
         event_id,
         AggregateId::TaskRun(taskrun_id),

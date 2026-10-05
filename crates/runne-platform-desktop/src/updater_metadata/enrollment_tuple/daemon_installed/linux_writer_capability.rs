@@ -20,10 +20,14 @@ use linux_admission::{refresh_linux_admission, verified_linux_admission};
 mod staged_writer;
 
 #[inline]
+#[cfg(feature = "linux-native-enrollment-qualification")]
 fn linux_stage(stage: &'static str) {
-    #[cfg(feature = "linux-native-enrollment-qualification")]
     crate::provider_credential_broker::linux_native_enrollment_qualification::record_enrollment_stage(stage);
-    #[cfg(not(feature = "linux-native-enrollment-qualification"))]
+}
+
+#[inline]
+#[cfg(not(feature = "linux-native-enrollment-qualification"))]
+const fn linux_stage(stage: &'static str) {
     let _ = stage;
 }
 

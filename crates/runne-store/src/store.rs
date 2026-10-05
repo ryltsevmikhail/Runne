@@ -40,6 +40,26 @@ use runne_domain::task_run::{TaskRun, TaskRunEvent, TaskRunState};
 use runne_domain::timestamp::Timestamp;
 use rusqlite::{Connection, OptionalExtension, params};
 
+/// Immutable D2 identity expected when replaying a completed Conversation receipt.
+#[derive(Debug, Clone)]
+pub struct D2ToolLoopCompletionReplayBinding {
+    pub command_id: CommandId,
+    pub taskrun_id: TaskRunId,
+    pub attempt_id: AttemptId,
+    pub cycle_id: runne_domain::id::CycleId,
+    pub taskrun_head: u64,
+    pub evaluation_ref: runne_domain::verification::PlanEvaluationRef,
+    pub terminal_attempt_id: [u8; 16],
+    pub terminal_outbox_id: [u8; 16],
+    pub terminal_sequence: u64,
+    pub settlement_digest: IntegrityDigest,
+    pub terminal_sources: Vec<runne_application::ports::D2ToolTerminalSourceV1>,
+    pub assistant_message_id: MessageId,
+    pub assistant_text_digest: IntegrityDigest,
+    pub assistant_text_length: u64,
+    pub completed_receipt: TextGenerationReceipt,
+}
+
 use crate::codec::{
     CommandOutcomeCodec, ConversationEventCodec, ConversationReceiptCodec, IdempotencyScopeCodec,
     StoreCodec, TaskRunEventCodec, TextGenerationReceiptCodec,
@@ -124,6 +144,8 @@ pub(crate) use conversation::load_conversation_from_connection;
 mod conversation_writer_lease_host;
 mod core;
 mod correlation;
+mod d2_completion_recovery;
+mod d2_failure_recovery;
 mod enrollment_launch;
 mod event_context;
 mod event_guard;
@@ -137,17 +159,21 @@ mod provider_terminal;
 mod provider_terminal_resolver;
 pub(crate) mod snapshot;
 mod taskrun_assignment;
+pub use d2_completion_recovery::{D2CompletionRecoveryCandidate, D2CompletionRecoveryPage};
+pub use d2_failure_recovery::{D2FailureRecoveryCandidate, D2FailureRecoveryPage};
 mod taskrun_cancellation_completion;
 mod taskrun_cancellation_scan;
 pub(crate) mod taskrun_claim;
 mod taskrun_execution_input;
 mod taskrun_local_command;
+pub mod taskrun_tool_invocation;
 pub use taskrun_local_command::{
     LocalCommandApprovalBinding, LocalCommandAttemptState, LocalCommandRecoveryCandidate,
 };
 mod taskrun_no_effect_proof;
 mod taskrun_no_effect_scan;
 mod taskrun_provider_binding;
+mod taskrun_provider_round_binding;
 pub(crate) mod taskrun_provider_start;
 mod taskrun_queue_scan;
 mod taskrun_release;
@@ -156,7 +182,26 @@ pub(crate) mod taskrun_submit_origin;
 pub(crate) mod terminal_cancellation_receipt;
 pub(crate) mod test_support_diagnostics;
 mod text;
-mod text_receipt_helpers;
+
+pub(crate) fn verify_d2_cancelled_provider_rounds(
+    connection: &rusqlite::Connection,
+    taskrun_id: runne_domain::id::TaskRunId,
+    attempt_id: runne_domain::id::AttemptId,
+    evidence: runne_application::ports::D2ToolLoopCancellationEvidence,
+    original_claim_version: u64,
+    cancel_version: u64,
+) -> Result<(), CommitError> {
+    text::verify_d2_cancelled_provider_rounds(
+        connection,
+        taskrun_id,
+        attempt_id,
+        evidence,
+        original_claim_version,
+        cancel_version,
+    )
+}
+
+pub(crate) mod text_receipt_helpers;
 mod text_validation_helpers;
 mod unit_of_work;
 mod unknown_successor;

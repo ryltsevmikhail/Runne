@@ -5,13 +5,22 @@ use std::sync::Arc;
 use rcgen::{CertificateParams, KeyPair, SanType};
 use runne_daemon_openai_effect::FixtureRequestAuthenticator;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
-use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+use tokio::io::AsyncWriteExt as _;
 use tokio::net::TcpListener;
 use tokio_rustls::TlsAcceptor;
 
-use super::fixed_response::SSE_RESPONSE;
+use super::fixed_response::{
+    D2_TOOL_PROPOSAL_RESPONSE, SSE_RESPONSE, d2_tool_loop_response, d2_tool_scenario_response,
+};
 use super::request_validation::{FixtureRequestKind, matches_expected_request, request_length_for};
+mod io;
 use super::t1_scan_receipt::write_t1_scan_receipt;
+use io::{hold_for_kill_boundary, increment_named_count, increment_request_count, read_request};
+#[path = "tls_sse_server/d2_hold.rs"]
+mod d2_hold;
+#[cfg(all(target_os = "linux", feature = "test-support", not(test)))]
+#[path = "tls_sse_server/d2_scenario.rs"]
+mod d2_scenario;
 
 /// One-use loopback HTTPS endpoint serving the fixture's fixed SSE response.
 pub struct TlsSseServer {
@@ -26,7 +35,15 @@ impl TlsSseServer {
         authenticator: FixtureRequestAuthenticator,
         request_kind: FixtureRequestKind,
     ) -> Result<Self, ()> {
-        Self::start_with_scan(runtime_root, authenticator, request_kind, false, false).await
+        Self::start_with_scan(
+            runtime_root,
+            authenticator,
+            request_kind,
+            false,
+            false,
+            None,
+        )
+        .await
     }
 
     #[cfg(all(target_os = "linux", feature = "test-support", not(test)))]
@@ -35,12 +52,21 @@ impl TlsSseServer {
         authenticator: FixtureRequestAuthenticator,
         drop_response: bool,
     ) -> Result<Self, ()> {
+        let d2_scenario = d2_scenario::selected(runtime_root)?;
+        let request_kind = if d2_scenario.is_some() {
+            FixtureRequestKind::D2ToolLoop
+        } else if std::env::var_os("RUNNE_TEST_D2_TOOL_PROPOSAL").is_some() {
+            FixtureRequestKind::D2ToolProposal
+        } else {
+            FixtureRequestKind::ServicePointOfUse
+        };
         Self::start_with_scan(
             runtime_root,
             authenticator,
-            FixtureRequestKind::ServicePointOfUse,
+            request_kind,
             true,
             drop_response,
+            d2_scenario,
         )
         .await
     }
@@ -51,6 +77,7 @@ impl TlsSseServer {
         request_kind: FixtureRequestKind,
         scan_wire: bool,
         drop_response: bool,
+        d2_scenario: Option<String>,
     ) -> Result<Self, ()> {
         let listener = TcpListener::bind("127.0.0.1:0").await.map_err(|_| ())?;
         let address = listener.local_addr().map_err(|_| ())?;
@@ -58,7 +85,10 @@ impl TlsSseServer {
         let count_path = runtime_root.join("fixture-provider-request-count");
         let scan_receipt_path = runtime_root.join("fixture-provider-wire-scan-receipt.json");
         let task = tokio::spawn(async move {
-            for _ in 0..3 {
+            for request_index in 0..3 {
+                let Some(request_kind) = request_kind.for_request(request_index) else {
+                    return;
+                };
                 let Ok((stream, _)) = listener.accept().await else {
                     return;
                 };
@@ -86,10 +116,38 @@ impl TlsSseServer {
                 // D1.6 kill matrix: hold the request in flight (b4) after the
                 // provider has received it but before any response byte returns.
                 hold_for_kill_boundary("b4_dispatch_in_flight").await;
+                let response_body = if d2_scenario.as_deref() == Some("budget-exhausted")
+                    && matches!(request_kind, FixtureRequestKind::D2ToolLoopRound2)
+                {
+                    D2_TOOL_PROPOSAL_RESPONSE
+                        .replace("resp_d2_read", "resp_d2_budget")
+                        .replace("fc_d2_read", "fc_d2_budget")
+                        .replace("call_d2_read", "call_d2_budget")
+                } else if matches!(request_kind, FixtureRequestKind::D2ToolLoopRound0) {
+                    d2_scenario
+                        .as_deref()
+                        .and_then(d2_tool_scenario_response)
+                        .or_else(|| d2_tool_loop_response(0).map(str::to_owned))
+                        .unwrap_or_else(|| SSE_RESPONSE.to_owned())
+                } else {
+                    match request_kind {
+                        FixtureRequestKind::D2ToolProposal => D2_TOOL_PROPOSAL_RESPONSE.to_owned(),
+                        FixtureRequestKind::D2ToolLoopRound0 => d2_tool_loop_response(0)
+                            .expect("fixture round zero response")
+                            .to_owned(),
+                        FixtureRequestKind::D2ToolLoopRound1 => d2_tool_loop_response(1)
+                            .expect("fixture round one response")
+                            .to_owned(),
+                        FixtureRequestKind::D2ToolLoopRound2 => d2_tool_loop_response(2)
+                            .expect("fixture round two response")
+                            .to_owned(),
+                        _ => SSE_RESPONSE.to_owned(),
+                    }
+                };
                 let response = format!(
                     "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
-                    SSE_RESPONSE.len(),
-                    SSE_RESPONSE
+                    response_body.len(),
+                    response_body
                 );
                 if drop_response {
                     if scan_wire
@@ -100,6 +158,18 @@ impl TlsSseServer {
                     return;
                 }
                 let mut response_written = 0;
+                if matches!(
+                    d2_scenario.as_deref(),
+                    Some("cancel-final-response" | "stale-final-target")
+                ) && request_index == 2
+                {
+                    let Ok(prefix) =
+                        d2_hold::hold_final_stop(&mut stream, response.as_bytes()).await
+                    else {
+                        return;
+                    };
+                    response_written = prefix;
+                }
                 // D1.6 kill matrix: serve the stream in two chunks so the b6
                 // boundary can hold the daemon BETWEEN received stream events —
                 // a single full-write would let the client complete first.
@@ -190,108 +260,4 @@ pub fn loopback_client(address: SocketAddr, certificate_der: &[u8]) -> Result<re
         .add_root_certificate(certificate)
         .build()
         .map_err(|_| ())
-}
-
-async fn read_request<S>(stream: &mut S, request_kind: FixtureRequestKind) -> Result<Vec<u8>, ()>
-where
-    S: tokio::io::AsyncRead + Unpin,
-{
-    const MAX_REQUEST_BYTES: usize = 512 * 1024;
-    let mut request = Vec::new();
-    let mut chunk = [0_u8; 4096];
-    let headers_end = loop {
-        let read = stream.read(&mut chunk).await.map_err(|_| ())?;
-        if read == 0 || request.len().saturating_add(read) > MAX_REQUEST_BYTES {
-            return Err(());
-        }
-        request.extend_from_slice(&chunk[..read]);
-        if let Some(end) = request.windows(4).position(|window| window == b"\r\n\r\n") {
-            break end + 4;
-        }
-    };
-    let request_length = headers_end
-        .checked_add(request_length_for(&request[..headers_end], request_kind)?)
-        .ok_or(())?;
-    if request_length > MAX_REQUEST_BYTES || request.len() > request_length {
-        return Err(());
-    }
-    while request.len() < request_length {
-        let read = stream.read(&mut chunk).await.map_err(|_| ())?;
-        if read == 0 || request.len().saturating_add(read) > request_length {
-            return Err(());
-        }
-        request.extend_from_slice(&chunk[..read]);
-    }
-    Ok(request)
-}
-
-fn increment_request_count(path: &Path) -> Result<(), ()> {
-    increment_named_count(path, "fixture-provider-request-count")
-}
-
-fn increment_named_count(path: &Path, name: &str) -> Result<(), ()> {
-    let path = path.parent().ok_or(())?.join(name);
-    let count = match std::fs::read_to_string(&path) {
-        Ok(value) => value.trim().parse::<u64>().map_err(|_| ())?,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => 0,
-        Err(_) => return Err(()),
-    }
-    .checked_add(1)
-    .ok_or(())?;
-    let temporary = temporary_path(&path);
-    let result = (|| {
-        let mut file = std::fs::OpenOptions::new()
-            .create_new(true)
-            .write(true)
-            .open(&temporary)
-            .map_err(|_| ())?;
-        use std::io::Write as _;
-        file.write_all(count.to_string().as_bytes())
-            .map_err(|_| ())?;
-        file.sync_all().map_err(|_| ())?;
-        drop(file);
-        std::fs::rename(&temporary, &path).map_err(|_| ())
-    })();
-    if temporary.exists() {
-        let _ = std::fs::remove_file(&temporary);
-    }
-    result
-}
-
-fn temporary_path(path: &Path) -> PathBuf {
-    path.with_extension(format!("{}.tmp", uuid::Uuid::now_v7()))
-}
-
-/// D1.6 kill-matrix handshake inside the loopback fixture: mirrors the store
-/// boundary gate (marker write, bounded release wait) so a test can SIGKILL
-/// the daemon while the provider request is in flight or between stream
-/// events. Test-support-only module.
-async fn hold_for_kill_boundary(boundary: &str) {
-    use std::time::{Duration, Instant};
-    let Ok(target) = std::env::var("RUNNE_TEST_KILL_BOUNDARY") else {
-        return;
-    };
-    if target != boundary {
-        return;
-    }
-    let Some(arm_file) = std::env::var_os("RUNNE_TEST_KILL_BOUNDARY_ARM") else {
-        return;
-    };
-    if !std::path::Path::new(&arm_file).exists() {
-        return;
-    }
-    let Some(marker) = std::env::var_os("RUNNE_TEST_KILL_BOUNDARY_MARKER") else {
-        return;
-    };
-    let _ = tokio::fs::write(&marker, boundary.as_bytes()).await;
-    let Some(release) = std::env::var_os("RUNNE_TEST_KILL_BOUNDARY_RELEASE") else {
-        return;
-    };
-    let deadline = Instant::now() + Duration::from_secs(60);
-    while !std::path::Path::new(&release).exists() {
-        if Instant::now() >= deadline {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(5)).await;
-    }
 }

@@ -89,7 +89,7 @@ async fn populated_v62_snapshot_upgrades_and_commits_unknown_with_and_without_v1
                     row.get::<_, i64>(0)
                 })
                 .unwrap(),
-            63
+            64
         );
         assert_eq!(v62_preserved_rows(&fixture), before);
 

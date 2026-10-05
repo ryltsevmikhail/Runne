@@ -244,9 +244,12 @@ fn id() -> BoundedCanonicalId {
 }
 
 fn root(path: &std::path::Path) -> (i64, String, i64) {
-    rusqlite::Connection::open(path).unwrap().query_row(
-        "SELECT db_generation,last_transaction_digest,(SELECT COUNT(*) FROM security_transactions) FROM meta WHERE singleton=1",
-        [],
-        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-    ).unwrap()
+    rusqlite::Connection::open(path)
+        .unwrap()
+        .query_row(
+            "SELECT db_generation,last_transaction_digest,(SELECT COUNT(*) FROM security_transactions) FROM meta WHERE singleton=1",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .unwrap()
 }

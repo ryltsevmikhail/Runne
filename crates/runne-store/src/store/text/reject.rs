@@ -6,15 +6,18 @@ use super::super::test_support_diagnostics as diagnostics;
 use super::super::text_receipt_helpers::*;
 use super::super::text_validation_helpers::*;
 use super::super::*;
-
+use runne_application::ports::D2ToolLoopRestartEvidence;
+mod api;
+mod append;
 impl StoreTransaction {
-    pub(super) fn reject_text_generation_impl(
+    pub(super) fn reject_text_generation_inner(
         &self,
         payload: RejectTextGenerationCommit,
+        d2_restart: Option<D2ToolLoopRestartEvidence>,
     ) -> Result<TextGenerationCommitResult, CommitError> {
         diagnostics::on_error(
             "reject.payload_validation",
-            validate_reject_text_payload(&payload, &self.runtime_authority_id),
+            validate_reject_text_payload(&payload, &self.runtime_authority_id, d2_restart.as_ref()),
         )?;
         let mut connection = self.inner.writer.lock().map_err(|_| {
             diagnostics::record("reject.writer_lock");
@@ -59,6 +62,8 @@ impl StoreTransaction {
                 stored_result: stored,
             });
         }
+        let terminal_taskrun_head =
+            append::terminal_taskrun_head(stored.taskrun_version, d2_restart.as_ref());
         let expected_rejected = TextGenerationReceipt {
             phase: payload.receipt.phase,
             conversation_version: stored.conversation_version.checked_add(1).ok_or(
@@ -67,9 +72,9 @@ impl StoreTransaction {
                     event_count: 1,
                 },
             )?,
-            taskrun_version: stored.taskrun_version.checked_add(1).ok_or(
+            taskrun_version: terminal_taskrun_head.checked_add(1).ok_or(
                 CommitError::VersionExhausted {
-                    current: stored.taskrun_version,
+                    current: terminal_taskrun_head,
                     event_count: 1,
                 },
             )?,
@@ -107,12 +112,28 @@ impl StoreTransaction {
                 actual: conversation_head.0,
             });
         }
-        if taskrun_head.0 != payload.expected_taskrun_version {
+        let expected_taskrun_head = d2_restart
+            .as_ref()
+            .map_or(payload.expected_taskrun_version, |evidence| {
+                evidence.expected_taskrun_head
+            });
+        if taskrun_head.0 != expected_taskrun_head {
             diagnostics::record("reject.taskrun_version");
             return Err(CommitError::VersionConflict {
-                expected: payload.expected_taskrun_version,
+                expected: expected_taskrun_head,
                 actual: taskrun_head.0,
             });
+        }
+        if let Some(evidence) = d2_restart.as_ref() {
+            diagnostics::on_error(
+                "reject.d2_restart_safe_stop",
+                crate::store::text::d2_tool_loop_restart::verify(
+                    &transaction,
+                    &payload,
+                    evidence.clone(),
+                    &stored,
+                ),
+            )?;
         }
         diagnostics::on_error(
             "reject.remote_source_guard",
@@ -173,38 +194,18 @@ impl StoreTransaction {
             super::terminal_occupation::verify_claimed_terminal_before_append(
                 &transaction,
                 &payload.receipt,
+                payload.expected_taskrun_version,
                 &payload.taskrun_events[0],
             ),
         )?;
-        diagnostics::on_error(
-            "reject.append_conversation",
-            append_conversation_event(
-                &transaction,
-                self.prohibited_content.as_ref(),
-                &payload.conversation_events[0],
-                payload.receipt.conversation_version,
-                global_position,
-                now,
-            ),
-        )?;
-        diagnostics::on_error(
-            "reject.append_taskrun",
-            append_taskrun_event(
-                &transaction,
-                self.prohibited_content.as_ref(),
-                &payload.taskrun_events[0],
-                payload.receipt.taskrun_version,
-                taskrun_global_position,
-                now,
-            ),
-        )?;
-        diagnostics::on_error(
-            "reject.occupation_retire",
-            super::terminal_occupation::retire_terminal_occupation(
-                &transaction,
-                &payload.receipt,
-                &payload.taskrun_events[0],
-            ),
+        append::append_events_and_retire(
+            &transaction,
+            self.prohibited_content.as_ref(),
+            &payload,
+            d2_restart.as_ref(),
+            global_position,
+            taskrun_global_position,
+            now,
         )?;
         diagnostics::on_error(
             "reject.conversation_head_update",
@@ -224,7 +225,7 @@ impl StoreTransaction {
                 &transaction,
                 CORRELATION_TYPE_TASK_RUN,
                 stored.taskrun_id.as_bytes(),
-                payload.expected_taskrun_version,
+                expected_taskrun_head,
                 payload.receipt.taskrun_version,
                 *payload.taskrun_events[0].event_id(),
                 now,

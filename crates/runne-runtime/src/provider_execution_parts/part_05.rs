@@ -11,6 +11,23 @@ where
         &self,
         context: &ProviderEventJournalContext,
     ) -> Result<ProviderTerminalCommitOutcome, RuntimeProviderExecutionError> {
+        self.finalize_terminal_output_kind(context, ProviderTerminalApplicationKind::TextGeneration)
+    }
+
+    /// Settles usage for a scanner-approved provider tool proposal without
+    /// routing the serialized proposal to conversation text recovery.
+    pub fn finalize_tool_terminal_output(
+        &self,
+        context: &ProviderEventJournalContext,
+    ) -> Result<ProviderTerminalCommitOutcome, RuntimeProviderExecutionError> {
+        self.finalize_terminal_output_kind(context, ProviderTerminalApplicationKind::ToolProposal)
+    }
+
+    fn finalize_terminal_output_kind(
+        &self,
+        context: &ProviderEventJournalContext,
+        application_kind: ProviderTerminalApplicationKind,
+    ) -> Result<ProviderTerminalCommitOutcome, RuntimeProviderExecutionError> {
         if self
             .redaction
             .terminal_disposition(context.attempt_id)
@@ -24,7 +41,11 @@ where
             .load_encrypted_events(context.attempt_id)
             .map_err(map_execution_error)?;
         let (events, journal_keys) = self.decrypt_terminal_journal(&encrypted_journal)?;
-        let assembled = assemble_terminal_stream(&events)?;
+        let assembled = if application_kind == ProviderTerminalApplicationKind::ToolProposal {
+            assemble_tool_terminal_stream(&events)?
+        } else {
+            assemble_terminal_stream(&events)?
+        };
         if assembled.disposition == ProviderTerminalDisposition::Completed {
             match self.prohibited_content.inspect(
                 CanonicalContentBoundary::CanonicalMutation,
@@ -125,6 +146,7 @@ where
             charge_micros,
             &currency,
         );
+        let settlement_digest = application_settlement_digest(application_kind, settlement_digest);
         let application_idempotency_key = terminal_application_key(context.attempt_id);
         let encrypted_output = if assembled.disposition == ProviderTerminalDisposition::Completed {
             let material = journal_keys
@@ -144,6 +166,7 @@ where
         };
         self.store
             .commit_terminal(&ProviderTerminalCommitRequest {
+                application_kind,
                 outbox_id,
                 attempt_id: context.attempt_id,
                 fencing_token: context.fencing_token,

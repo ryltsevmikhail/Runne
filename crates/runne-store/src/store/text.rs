@@ -2,6 +2,8 @@ mod begin;
 mod claimed_begin;
 mod claimed_begin_receipt;
 mod claimed_begin_validation;
+mod d2_tool_loop_completion;
+mod d2_tool_loop_restart;
 mod finish;
 mod lookup;
 mod reject;
@@ -17,7 +19,53 @@ use runne_application::ports::RejectTextGenerationAfterPreEffectCancellationComm
 use runne_application::ports::RejectTextGenerationAfterTerminalCancellationCommit;
 use runne_application::ports::RejectTextGenerationAfterUnknownTerminalCancellationCommit;
 
+pub(crate) fn verify_d2_cancelled_provider_rounds(
+    connection: &rusqlite::Connection,
+    taskrun_id: runne_domain::id::TaskRunId,
+    attempt_id: runne_domain::id::AttemptId,
+    evidence: runne_application::ports::D2ToolLoopCancellationEvidence,
+    original_claim_version: u64,
+    cancel_version: u64,
+) -> Result<(), CommitError> {
+    terminal_cancellation_validation::verify_d2_cancelled_provider_rounds(
+        connection,
+        taskrun_id,
+        attempt_id,
+        evidence,
+        original_claim_version,
+        cancel_version,
+    )
+}
+
 impl ConversationTextRepository for StoreTransaction {
+    fn validate_d2_tool_loop_cancellation_receipt(
+        &self,
+        receipt: &runne_application::ports::TextGenerationReceipt,
+        evidence: runne_application::ports::D2ToolLoopCancellationEvidence,
+    ) -> Result<bool, CommitError> {
+        if receipt.phase != TextGenerationPhase::Rejected {
+            return Ok(false);
+        }
+        let reader = self
+            .inner
+            .reader
+            .lock()
+            .map_err(|_| storage_failure(StorageFailureKind::Unavailable))?;
+        super::test_support_diagnostics::on_error(
+            "cancel.d2.post_terminal_receipt",
+            crate::store::terminal_cancellation_receipt::validate_terminal_cancellation_receipt(
+                &reader, receipt,
+            ),
+        )?;
+        super::test_support_diagnostics::on_error(
+            "cancel.d2.post_evidence_receipt",
+            crate::store::terminal_cancellation_receipt::validate_d2_tool_loop_cancellation_evidence(
+                &reader, receipt, evidence,
+            ),
+        )?;
+        Ok(true)
+    }
+
     fn validate_no_admission_cancellation_receipt(
         &self,
         receipt: &runne_application::ports::TextGenerationReceipt,
@@ -100,6 +148,13 @@ impl ConversationTextRepository for StoreTransaction {
         self.reject_text_generation_impl(payload)
     }
 
+    fn reject_text_generation_after_d2_tool_loop_restart(
+        &self,
+        payload: runne_application::ports::RejectTextGenerationAfterD2ToolLoopRestartCommit,
+    ) -> Result<TextGenerationCommitResult, CommitError> {
+        self.reject_text_generation_after_d2_tool_loop_restart_impl(payload)
+    }
+
     fn reject_text_generation_after_terminal_cancellation(
         &self,
         payload: RejectTextGenerationAfterTerminalCancellationCommit,
@@ -133,5 +188,27 @@ impl ConversationTextRepository for StoreTransaction {
         payload: runne_application::ports::RejectTextGenerationAfterNoAdmissionCancellationCommit,
     ) -> Result<TextGenerationCommitResult, CommitError> {
         self.reject_text_generation_after_no_admission_cancellation_impl(payload)
+    }
+
+    fn reject_text_generation_after_d2_tool_loop_cancellation(
+        &self,
+        payload: runne_application::ports::RejectTextGenerationAfterD2ToolLoopCancellationCommit,
+    ) -> Result<TextGenerationCommitResult, CommitError> {
+        self.reject_text_generation_after_cancellation_impl(
+            runne_application::ports::RejectTextGenerationAfterCancellationCommit {
+                command_id: payload.command_id,
+                idempotency_key: payload.idempotency_key,
+                idempotency_scope: payload.idempotency_scope,
+                command_fingerprint: payload.command_fingerprint,
+                expected_conversation_version: payload.expected_conversation_version,
+                expected_started_taskrun_version: payload.expected_started_taskrun_version,
+                proof: runne_application::ports::ProviderCancellationProof::D2ToolLoop(
+                    payload.evidence,
+                ),
+                conversation_events: payload.conversation_events,
+                taskrun_events: payload.taskrun_events,
+                receipt: payload.receipt,
+            },
+        )
     }
 }

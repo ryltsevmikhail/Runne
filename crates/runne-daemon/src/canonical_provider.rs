@@ -55,6 +55,8 @@ mod effect_adapter;
 #[path = "canonical_provider/composition/effects_projection.rs"]
 mod effects_projection;
 mod execution;
+#[cfg(all(feature = "desktop-protected", target_os = "linux"))]
+pub(crate) use execution::{D2ProviderRound, D2ProviderRoundOutcome, D2ToolTerminalRef};
 mod execution_authority;
 mod execution_cancellation;
 mod execution_diagnostics;

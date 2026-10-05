@@ -22,6 +22,23 @@ pub struct ProviderNoAdmissionCancellationEvidence {
     pub cancellation_taskrun_version: u64,
 }
 
+/// Exact D2 claim identity used by the shared atomic Conversation cancellation writer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct D2ToolLoopCancellationEvidence {
+    pub node_id: [u8; 16],
+    pub node_epoch: u64,
+    pub fence: u64,
+    pub cancellation_taskrun_version: u64,
+}
+
+/// Same-node restart authority for a D2 attempt stopped before its first cycle.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct D2ToolLoopRestartEvidence {
+    pub assignment: crate::ports::TaskRunAssignmentIdentity,
+    pub recovery_epoch: u64,
+    pub expected_taskrun_head: u64,
+}
+
 /// Atomic close of a started text attempt after cancellation won before admission.
 #[derive(Debug, Clone)]
 pub struct RejectTextGenerationAfterNoAdmissionCancellationCommit {
@@ -32,6 +49,36 @@ pub struct RejectTextGenerationAfterNoAdmissionCancellationCommit {
     pub expected_conversation_version: u64,
     pub expected_started_taskrun_version: u64,
     pub evidence: ProviderNoAdmissionCancellationEvidence,
+    pub conversation_events: Vec<UncommittedEvent<ConversationEvent>>,
+    pub taskrun_events: Vec<UncommittedEvent<TaskRunEvent>>,
+    pub receipt: TextGenerationReceipt,
+}
+
+/// D2-specific cancellation evidence routed through the shared terminal writer.
+#[derive(Debug, Clone)]
+pub struct RejectTextGenerationAfterD2ToolLoopCancellationCommit {
+    pub command_id: CommandId,
+    pub idempotency_key: IdempotencyKey,
+    pub idempotency_scope: IdempotencyScope,
+    pub command_fingerprint: CommandFingerprint,
+    pub expected_conversation_version: u64,
+    pub expected_started_taskrun_version: u64,
+    pub evidence: D2ToolLoopCancellationEvidence,
+    pub conversation_events: Vec<UncommittedEvent<ConversationEvent>>,
+    pub taskrun_events: Vec<UncommittedEvent<TaskRunEvent>>,
+    pub receipt: TextGenerationReceipt,
+}
+
+/// Atomic D2-only restart rejection when the TaskRun has no active loop cycle.
+#[derive(Debug, Clone)]
+pub struct RejectTextGenerationAfterD2ToolLoopRestartCommit {
+    pub command_id: CommandId,
+    pub idempotency_key: IdempotencyKey,
+    pub idempotency_scope: IdempotencyScope,
+    pub command_fingerprint: CommandFingerprint,
+    pub expected_conversation_version: u64,
+    pub expected_taskrun_version: u64,
+    pub evidence: D2ToolLoopRestartEvidence,
     pub conversation_events: Vec<UncommittedEvent<ConversationEvent>>,
     pub taskrun_events: Vec<UncommittedEvent<TaskRunEvent>>,
     pub receipt: TextGenerationReceipt,
@@ -74,6 +121,8 @@ pub enum ProviderCancellationProof {
     UnknownTerminal(ProviderUnknownTerminalCancellationEvidence),
     PreEffect(ProviderPreEffectCancellationEvidence),
     NoAdmission(ProviderNoAdmissionCancellationEvidence),
+    /// D2 loop cancellation after validating every invocation's local stop state.
+    D2ToolLoop(D2ToolLoopCancellationEvidence),
 }
 
 /// Internal shared request; proof kind remains explicit and closed.

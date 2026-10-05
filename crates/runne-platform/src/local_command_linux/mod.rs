@@ -4,9 +4,11 @@
 
 mod child;
 mod gate;
+mod io;
 mod policy;
 mod snapshot;
 mod spec;
 
+pub use io::{LinuxCommandOutputChunkV1, LinuxCommandOutputLimitsV1};
 pub use snapshot::SealedExecutableSnapshot;
 pub use spec::{GatedLinuxChild, LinuxCommandError, LinuxCommandExecutable, LinuxCommandSpec};

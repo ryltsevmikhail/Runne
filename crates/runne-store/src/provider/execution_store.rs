@@ -221,6 +221,13 @@ impl ProviderExecutionStore for SqliteProviderExecutionStore {
         self.pending_terminal_outbox_for_attempt_impl(attempt_id)
     }
 
+    fn pending_tool_proposal_outbox_for_attempt(
+        &self,
+        attempt_id: DispatchAttemptId,
+    ) -> Result<Vec<ProviderTerminalOutboxRecord>, ProviderExecutionError> {
+        self.pending_tool_proposal_outbox_for_attempt_impl(attempt_id)
+    }
+
     fn load_remote_attempt_snapshot(
         &self,
         attempt_id: DispatchAttemptId,

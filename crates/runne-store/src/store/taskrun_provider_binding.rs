@@ -1,13 +1,11 @@
-use super::*;
 use runne_application::ports::{
-    BindPreparedTaskRunProviderEffect, PreparedTaskRunProviderRequest, TaskRunAssignmentIdentity,
-    TaskRunProviderBindingError as Error, TaskRunProviderBindingPort, TaskRunProviderBindingResult,
+    PreparedTaskRunProviderRequest, TaskRunAssignmentIdentity, TaskRunProviderBindingError as Error,
 };
 use runne_provider::ProviderCallDigestVersion;
-use rusqlite::{OptionalExtension, TransactionBehavior, params};
+use rusqlite::{OptionalExtension, params};
 use std::str::FromStr;
 
-type BindingRow = (
+pub(super) type BindingRow = (
     Vec<u8>,
     i64,
     Vec<u8>,
@@ -21,7 +19,7 @@ type BindingRow = (
     Vec<u8>,
     String,
 );
-type PreparedRow = (
+pub(super) type PreparedRow = (
     i64,
     Vec<u8>,
     Vec<u8>,
@@ -40,75 +38,9 @@ type PreparedRow = (
     Vec<u8>,
 );
 
-impl TaskRunProviderBindingPort for StoreTransaction {
-    fn bind_prepared_taskrun_provider_effect(
-        &self,
-        request: BindPreparedTaskRunProviderEffect,
-    ) -> Result<TaskRunProviderBindingResult, Error> {
-        let identity = &request.identity;
-        let node = binding_node_id(identity)?;
-        let call_id = request.prepared.call_id.as_bytes();
-        let version = digest_version_value(request.prepared.call_digest_version);
-        validate_prepared_request(&request.prepared)?;
-        let mut writer = self.inner.writer.lock().map_err(|_| Error::Unavailable)?;
-        let tx = writer
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(|_| Error::Unavailable)?;
-        let now = binding_now_ms(&tx)?;
-        let occupation = super::taskrun_assignment::exact_occupation(&tx, identity, node)
-            .map_err(map_assignment_error)?;
-        super::taskrun_assignment::verify_current_claim(&tx, identity)
-            .map_err(map_assignment_error)?;
-        super::taskrun_assignment::ensure_live_local_node(&tx, identity, node, now)
-            .map_err(map_assignment_error)?;
-        if occupation.3 <= now {
-            return Err(Error::LeaseExpired);
-        }
-        if occupation.4 != "active" {
-            return Err(Error::StaleAssignment);
-        }
-        let claim_version: i64 = tx.query_row(
-            "SELECT new_version FROM taskrun_claim_receipts WHERE taskrun_id=?1 AND fence=?2 AND attempt_id=?3 AND node_id=?4 AND node_epoch=?5",
-            params![identity.taskrun_id.as_bytes(), identity.fence.0 as i64, identity.attempt_id.as_bytes(), node, identity.node_epoch as i64],
-            |row| row.get(0),
-        ).optional().map_err(|_| Error::CorruptData)?.ok_or(Error::StaleAssignment)?;
-        let stream_version: Option<i64> = tx.query_row(
-            "SELECT current_version FROM aggregate_streams WHERE aggregate_type=1 AND aggregate_id=?1",
-            [identity.taskrun_id.as_bytes()], |row| row.get(0),
-        ).optional().map_err(|_| Error::CorruptData)?;
-        if u64::try_from(claim_version).ok() != Some(request.expected_claim_version)
-            || stream_version.and_then(|v| u64::try_from(v).ok())
-                != Some(request.expected_claim_version)
-        {
-            return Err(Error::StaleVersion);
-        }
-        verify_prepared_metadata(&tx, identity, &request.prepared, version)?;
-        let existing = load_binding(&tx, identity)?;
-        if let Some(existing) = existing {
-            if !binding_matches(
-                &existing,
-                identity,
-                node,
-                request.expected_claim_version,
-                &request.prepared,
-                version,
-            ) {
-                return Err(Error::IdempotencyConflict);
-            }
-            tx.commit().map_err(|_| Error::Unavailable)?;
-            return Ok(TaskRunProviderBindingResult::Duplicate);
-        }
-        ensure_present_intent(&tx, identity, node, now, &occupation.5)?;
-        tx.execute(
-            "INSERT INTO taskrun_provider_bindings(taskrun_id,fence,attempt_id,node_id,node_epoch,claim_version,call_id,call_digest_version,prepared_digest,render_digest,profile_digest,provider_idempotency_key) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)",
-            params![identity.taskrun_id.as_bytes(),identity.fence.0 as i64,identity.attempt_id.as_bytes(),node,identity.node_epoch as i64,request.expected_claim_version as i64,call_id,version,request.prepared.prepared_digest.as_slice(),request.prepared.render_digest.as_slice(),request.prepared.profile_digest.as_slice(),request.prepared.provider_idempotency_key],
-        ).map_err(|_| Error::CorruptData)?;
-        tx.commit().map_err(|_| Error::Unavailable)?;
-        Ok(TaskRunProviderBindingResult::Bound)
-    }
-}
-
-fn validate_prepared_request(prepared: &PreparedTaskRunProviderRequest) -> Result<(), Error> {
+pub(super) fn validate_prepared_request(
+    prepared: &PreparedTaskRunProviderRequest,
+) -> Result<(), Error> {
     if prepared.provider_idempotency_key.is_empty()
         || prepared.provider_idempotency_key.len() > 256
         || !prepared
@@ -122,7 +54,7 @@ fn validate_prepared_request(prepared: &PreparedTaskRunProviderRequest) -> Resul
     Ok(())
 }
 
-fn verify_prepared_metadata(
+pub(super) fn verify_prepared_metadata(
     tx: &rusqlite::Transaction<'_>,
     identity: &TaskRunAssignmentIdentity,
     prepared: &PreparedTaskRunProviderRequest,
@@ -157,7 +89,7 @@ fn verify_prepared_metadata(
     Ok(())
 }
 
-fn load_binding(
+pub(super) fn load_binding(
     tx: &rusqlite::Transaction<'_>,
     identity: &TaskRunAssignmentIdentity,
 ) -> Result<Option<BindingRow>, Error> {
@@ -168,7 +100,7 @@ fn load_binding(
     ).optional().map_err(|_| Error::CorruptData)
 }
 
-fn binding_matches(
+pub(super) fn binding_matches(
     row: &BindingRow,
     identity: &TaskRunAssignmentIdentity,
     node: [u8; 16],
@@ -190,7 +122,7 @@ fn binding_matches(
         && row.11 == prepared.provider_idempotency_key
 }
 
-fn ensure_present_intent(
+pub(super) fn ensure_present_intent(
     tx: &rusqlite::Transaction<'_>,
     identity: &TaskRunAssignmentIdentity,
     node: [u8; 16],
@@ -212,7 +144,7 @@ fn ensure_present_intent(
     Err(Error::StaleAssignment)
 }
 
-fn binding_node_id(identity: &TaskRunAssignmentIdentity) -> Result<[u8; 16], Error> {
+pub(super) fn binding_node_id(identity: &TaskRunAssignmentIdentity) -> Result<[u8; 16], Error> {
     let parsed = uuid::Uuid::from_str(&identity.node_id.0).map_err(|_| Error::StaleAssignment)?;
     if parsed.is_nil()
         || parsed.to_string() != identity.node_id.0
@@ -224,14 +156,14 @@ fn binding_node_id(identity: &TaskRunAssignmentIdentity) -> Result<[u8; 16], Err
     Ok(*parsed.as_bytes())
 }
 
-fn digest_version_value(version: ProviderCallDigestVersion) -> i64 {
+pub(super) fn digest_version_value(version: ProviderCallDigestVersion) -> i64 {
     match version {
         ProviderCallDigestVersion::V1 => 1,
         ProviderCallDigestVersion::V2 => 2,
     }
 }
 
-fn binding_now_ms(tx: &rusqlite::Transaction<'_>) -> Result<i64, Error> {
+pub(super) fn binding_now_ms(tx: &rusqlite::Transaction<'_>) -> Result<i64, Error> {
     tx.query_row(
         "SELECT CAST((julianday('now')-2440587.5)*86400000 AS INTEGER)",
         [],
@@ -240,7 +172,9 @@ fn binding_now_ms(tx: &rusqlite::Transaction<'_>) -> Result<i64, Error> {
     .map_err(|_| Error::Unavailable)
 }
 
-fn map_assignment_error(error: runne_application::ports::TaskRunAssignmentError) -> Error {
+pub(super) fn map_assignment_error(
+    error: runne_application::ports::TaskRunAssignmentError,
+) -> Error {
     use runne_application::ports::TaskRunAssignmentError as AssignmentError;
     match error {
         AssignmentError::StaleAssignment => Error::StaleAssignment,

@@ -57,8 +57,48 @@ use runne_store::schema::ensure_event_log_lineage_id;
 use runne_store::store::StoreTransaction;
 
 type SqliteTaskRunService = TaskRunService<StoreTransaction, StoreTransaction, StoreTransaction>;
+#[cfg(all(feature = "desktop-protected", target_os = "linux"))]
+type SqliteToolLoopService = TaskRunService<
+    StoreTransaction,
+    StoreTransaction,
+    StoreTransaction,
+    runne_application::service::AgentLoopAuthorities<
+        tool_authorities::D2ToolLoopAuthority,
+        tool_authorities::D2ToolLoopAuthority,
+        tool_authorities::D2ToolLoopAuthority,
+        tool_authorities::D2ToolLoopAuthority,
+        tool_authorities::D2ToolLoopAuthority,
+    >,
+>;
+
+#[cfg(all(feature = "desktop-protected", target_os = "linux"))]
+fn tool_loop_service(
+    store: StoreTransaction,
+    authority: RuntimeAuthorityId,
+    provider: Option<Arc<DaemonCanonicalProviderService>>,
+    root_admission: root_handle_admission::RootAdmissionGateway,
+) -> Arc<SqliteToolLoopService> {
+    use runne_application::service::AgentLoopAuthorities;
+    let services =
+        tool_authorities::D2ToolLoopAuthority::new(store.clone(), provider, root_admission);
+    Arc::new(TaskRunService::with_agent_loop_authorities(
+        store.clone(),
+        store.clone(),
+        store,
+        authority,
+        AgentLoopAuthorities {
+            time: services.clone(),
+            retry_schedule: services.clone(),
+            wake_evidence: services.clone(),
+            reconciliation: services.clone(),
+            verification: services,
+        },
+    ))
+}
 type SqliteConversationService = ConversationService<StoreTransaction, StoreTransaction>;
 
+#[cfg(all(feature = "desktop-protected", target_os = "linux"))]
+pub(crate) mod d2_tool_outcome;
 mod exec_taskrun_pre_effect_cancel;
 pub(crate) mod exec_taskrun_recovery;
 mod exec_taskrun_service;
@@ -82,6 +122,14 @@ mod process_unavailable;
 pub(crate) mod provider_credential_enrollment;
 pub(crate) mod provider_credential_verification;
 mod provider_selection;
+#[cfg(all(feature = "desktop-protected", target_os = "linux"))]
+mod tool_authorities;
+#[cfg(all(feature = "desktop-protected", target_os = "linux"))]
+mod tool_loop_completion;
+#[cfg(all(feature = "desktop-protected", target_os = "linux"))]
+mod tool_loop_failure;
+#[cfg(all(feature = "desktop-protected", target_os = "linux"))]
+mod tool_loop_plan;
 
 #[cfg(test)]
 pub(crate) fn native_profile_for_fixture(

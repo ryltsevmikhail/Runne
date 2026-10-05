@@ -13,7 +13,13 @@ pub(super) fn verify_cancellation_evidence(
     payload: &RejectTextGenerationAfterCancellationCommit,
     authority: &RuntimeAuthorityId,
 ) -> Result<(), CommitError> {
+    if let ProviderCancellationProof::D2ToolLoop(evidence) = payload.proof {
+        return d2_tool_loop::verify(tx, payload, evidence, authority);
+    }
     let exact = match payload.proof {
+        ProviderCancellationProof::D2ToolLoop(evidence) => {
+            return d2_tool_loop::verify(tx, payload, evidence, authority);
+        }
         ProviderCancellationProof::Terminal(evidence) => {
             let code = match evidence.disposition {
                 runne_provider::ProviderTerminalDisposition::Completed => 1,
@@ -168,6 +174,7 @@ pub(super) fn retire_cancellation_occupation(
             payload.taskrun_events[0].event_id().as_bytes(), payload.receipt.taskrun_version as i64])
         .map_err(|_| storage_failure(StorageFailureKind::IntegrityViolation))?;
     let intent_guard = match payload.proof {
+        ProviderCancellationProof::D2ToolLoop(_) => "dispatch_intent IN ('absent','present')",
         ProviderCancellationProof::Terminal(_) | ProviderCancellationProof::UnknownTerminal(_) => {
             "dispatch_intent='present'"
         }
@@ -195,4 +202,25 @@ pub(super) fn retire_cancellation_occupation(
         return Err(storage_failure(StorageFailureKind::IntegrityViolation));
     }
     Ok(())
+}
+
+#[path = "terminal_cancellation_validation/d2_tool_loop.rs"]
+mod d2_tool_loop;
+
+pub(super) fn verify_d2_cancelled_provider_rounds(
+    connection: &rusqlite::Connection,
+    taskrun_id: runne_domain::id::TaskRunId,
+    attempt_id: runne_domain::id::AttemptId,
+    evidence: runne_application::ports::D2ToolLoopCancellationEvidence,
+    original_claim_version: u64,
+    cancel_version: u64,
+) -> Result<(), CommitError> {
+    d2_tool_loop::rounds::verify_cancelled_provider_rounds(
+        connection,
+        taskrun_id,
+        attempt_id,
+        evidence,
+        original_claim_version,
+        cancel_version,
+    )
 }

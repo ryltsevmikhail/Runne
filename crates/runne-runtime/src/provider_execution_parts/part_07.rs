@@ -24,6 +24,11 @@ where
         &self,
         record: ProviderTerminalOutboxRecord,
     ) -> Result<RecoveredProviderTerminalOutput, RuntimeProviderExecutionError> {
+        if record.application_kind
+            != runne_application::provider::ProviderTerminalApplicationKind::TextGeneration
+        {
+            return Err(RuntimeProviderExecutionError::ApplicationConflict);
+        }
         if let runne_application::provider::ProviderTerminalOutboxSource::RemoteArtifact {
             artifact_digest,
         } = record.source

@@ -16,6 +16,15 @@ use runne_application::provider::{
     ProviderTerminalOutboxRecord, ProviderTerminalPricingBinding,
     ProviderUnknownCommittedEffectFields, ProviderUnknownCommittedEffectProof,
 };
+
+fn encode_application_kind(
+    kind: runne_application::provider::ProviderTerminalApplicationKind,
+) -> i64 {
+    match kind {
+        runne_application::provider::ProviderTerminalApplicationKind::TextGeneration => 1,
+        runne_application::provider::ProviderTerminalApplicationKind::ToolProposal => 2,
+    }
+}
 use runne_domain::id::{AttemptId, ConversationId, TaskRunId};
 use runne_provider::{
     DispatchAttemptId, ProviderCallDigestVersion, ProviderDispatchClaim, ProviderRepositoryState,

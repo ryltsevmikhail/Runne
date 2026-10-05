@@ -1,7 +1,9 @@
 use std::collections::VecDeque;
 
 use runne_provider::{DispatchAttemptId, DispatchError, ProviderStreamEvent, ProviderStreamId};
-use runne_provider_openai::{OpenAiTransportResponse, decode_transport_response};
+use runne_provider_openai::{
+    OpenAiTransportResponse, decode_tool_transport_response, decode_transport_response,
+};
 
 use crate::Sender;
 
@@ -10,9 +12,18 @@ impl<C> Sender<C> {
         &self,
         attempt: DispatchAttemptId,
         response: OpenAiTransportResponse,
+        tool_mode: bool,
     ) -> Result<ProviderStreamId, DispatchError> {
-        let events =
-            decode_transport_response(&response).map_err(|_| DispatchError::MaybeDispatched)?;
+        let events = if tool_mode {
+            let profile = self
+                .tool_profile
+                .as_ref()
+                .ok_or(DispatchError::MaybeDispatched)?;
+            decode_tool_transport_response(&response, profile)
+        } else {
+            decode_transport_response(&response)
+        }
+        .map_err(|_| DispatchError::MaybeDispatched)?;
         self.store_events(attempt, events)
     }
 

@@ -17,6 +17,8 @@ use crate::codec::{
     ConversationEventCodec, IdempotencyScopeCodec, StoreCodec, TextGenerationReceiptCodec,
 };
 
+mod d2_candidate;
+
 /// One orphaned `Started` generation with everything the terminal finish path
 /// needs to replay the original command identity exactly.
 pub struct OrphanedTextGeneration {
@@ -99,6 +101,12 @@ pub fn scan_provably_effect_free_started_generations(
             continue;
         }
         let original = begin_input_from_user_event(connection, &receipt)?;
+        if d2_candidate::is_active_cycle(connection, &receipt, &original, &scope, authority)? {
+            // D2 recovery owns any started attempt whose cycle advanced after
+            // text admission. Generic settlement only accepts the original
+            // claim head and would otherwise abort boot before D2 recovery.
+            continue;
+        }
         match crate::store::taskrun_started_generation::classify_started_generation_taskrun(
             connection,
             &receipt,

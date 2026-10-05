@@ -2,7 +2,8 @@ use core::any::Any;
 use std::sync::Arc;
 
 use runne_application::ports::{
-    PreparedTaskRunProviderRequest, TaskRunAssignmentIdentity, TaskRunProviderBindingPort,
+    BindPreparedTaskRunProviderRoundEffect, PreparedTaskRunProviderRequest,
+    TaskRunAssignmentIdentity, TaskRunProviderBindingPort,
 };
 use runne_provider::{
     DispatchError, DispatchRequest, PreparedRequest, ProviderDispatchClaim, ProviderFuture,
@@ -22,6 +23,7 @@ pub(super) struct OnlineDispatchFence<'a> {
     inner: &'a dyn ProviderEffectPort,
     trust: Option<ProviderTrustContext>,
     taskrun: Option<(TaskRunAssignmentIdentity, u64, [u8; 32])>,
+    taskrun_round: Option<(TaskRunAssignmentIdentity, u64, D2ProviderRound, [u8; 32])>,
     taskrun_store: &'a StoreTransaction,
     request_intents: Arc<dyn ProviderRecoveryDispatchContextProvider>,
     provider_id: ProviderId,
@@ -40,6 +42,10 @@ struct LeasedReadyEffect {
     lease: Option<Box<dyn runne_application::project_trust::ProjectTrustEffectLease>>,
     taskrun_binding: Option<TaskRunPreparedBinding>,
     intent: ProviderRequestIntent,
+    #[cfg(all(feature = "desktop-protected", target_os = "linux"))]
+    continuation_target_fence: Option<
+        crate::application::exec_taskrun_worker::tool_invocation::target_snapshot::D2TargetFence,
+    >,
 }
 
 struct ProviderRequestIntent {
@@ -48,11 +54,12 @@ struct ProviderRequestIntent {
 }
 
 #[derive(Clone)]
-struct TaskRunPreparedBinding {
-    identity: TaskRunAssignmentIdentity,
-    expected_claim_version: u64,
-    prepared: PreparedTaskRunProviderRequest,
+enum TaskRunPreparedBinding {
+    Legacy(runne_application::ports::BindPreparedTaskRunProviderEffect),
+    ToolRound(BindPreparedTaskRunProviderRoundEffect),
 }
+
+use super::execution::D2ProviderRound;
 
 pub(super) struct OnlineDispatchFenceConfig<'a> {
     pub(super) authority: CredentialDispatchAuthority<'a>,
@@ -63,6 +70,7 @@ pub(super) struct OnlineDispatchFenceConfig<'a> {
         runne_domain::id::ConversationId,
     )>,
     pub(super) taskrun: Option<(TaskRunAssignmentIdentity, u64, [u8; 32])>,
+    pub(super) taskrun_round: Option<(TaskRunAssignmentIdentity, u64, D2ProviderRound, [u8; 32])>,
     pub(super) taskrun_store: &'a StoreTransaction,
     pub(super) request_intents: Arc<dyn ProviderRecoveryDispatchContextProvider>,
     pub(super) provider_id: ProviderId,
@@ -89,6 +97,7 @@ impl<'a> OnlineDispatchFence<'a> {
                     conversation_id,
                 }),
             taskrun: config.taskrun,
+            taskrun_round: config.taskrun_round,
             taskrun_store: config.taskrun_store,
             request_intents: config.request_intents,
             provider_id: config.provider_id,
@@ -98,154 +107,24 @@ impl<'a> OnlineDispatchFence<'a> {
     }
 }
 
-impl ProviderEffectPort for OnlineDispatchFence<'_> {
-    fn stage_effect(
-        &self,
-        request: DispatchRequest,
-        credential: CredentialDispatchBinding,
-    ) -> ProviderFuture<'_, Result<Box<dyn ProviderReadyEffect>, DispatchError>> {
-        Box::pin(async move {
-            if credential
-                .validate_online_materialization(
-                    self.authority,
-                    request.claim(),
-                    chrono::Utc::now().timestamp(),
-                )
-                .is_err()
-            {
-                return Err(DispatchError::RejectedBeforeEffect(
-                    ProviderPreEffectRejection::AdapterRejected,
-                ));
-            }
-            let intent = ProviderRequestIntent {
-                claim: request.claim().clone(),
-                prepared: request.prepared().clone(),
-            };
-            let taskrun_binding = if let Some((identity, expected_claim_version, profile_digest)) =
-                &self.taskrun
-            {
-                let prepared = request.prepared();
-                let binding = TaskRunPreparedBinding {
-                    identity: identity.clone(),
-                    expected_claim_version: *expected_claim_version,
-                    prepared: PreparedTaskRunProviderRequest {
-                        call_id: prepared.call().call_id(),
-                        call_digest_version: prepared.request_ref().digest_version(),
-                        prepared_digest: *prepared.request_ref().as_bytes(),
-                        render_digest: *prepared.render_digest(),
-                        profile_digest: *profile_digest,
-                        provider_idempotency_key: request.provider_idempotency_key().into(),
-                    },
-                };
-                bind_taskrun_request(self.taskrun_store, &binding).map_err(|_error| {
-                    DispatchError::RejectedBeforeEffect(ProviderPreEffectRejection::AdapterRejected)
-                })?;
-                Some(binding)
-            } else {
-                None
-            };
-            let ready = self.inner.stage_effect(request, credential).await?;
-            wait_for_t1_test_barrier("stage-ready").await?;
-            let lease = match &self.trust {
-                Some(context) => context
-                    .gate
-                    .acquire_provider_effect_lease(&context.principal, context.conversation_id)
-                    .map_err(|_| {
-                        DispatchError::RejectedBeforeEffect(
-                            ProviderPreEffectRejection::AdapterRejected,
-                        )
-                    })?,
-                None => None,
-            };
-            if lease.is_some() {
-                wait_for_t1_test_barrier("lease-held").await?;
-            }
-            Ok(Box::new(LeasedReadyEffect {
-                ready,
-                lease,
-                taskrun_binding,
-                intent,
-            }) as Box<dyn ProviderReadyEffect>)
-        })
-    }
-
-    fn dispatch_effect(
-        &self,
-        ready: Box<dyn ProviderReadyEffect>,
-        receipt: ProviderEffectStartReceipt,
-    ) -> ProviderFuture<'_, Result<ProviderStreamId, DispatchError>> {
-        let ready = ready.into_any();
-        let Ok(ready) = ready.downcast::<LeasedReadyEffect>() else {
-            return Box::pin(async { Err(DispatchError::MaybeDispatched) });
-        };
-        let LeasedReadyEffect {
-            ready,
-            lease,
-            taskrun_binding,
-            intent,
-        } = *ready;
-        if let Some(binding) = &taskrun_binding
-            && bind_taskrun_request(self.taskrun_store, binding).is_err()
-        {
-            return Box::pin(async {
-                Err(DispatchError::RejectedBeforeEffect(
-                    ProviderPreEffectRejection::AdapterRejected,
-                ))
-            });
-        }
-        if !receipt.matches_claim(&intent.claim) {
-            return Box::pin(async { Err(DispatchError::MaybeDispatched) });
-        }
-        let request_intents = Arc::clone(&self.request_intents);
-        let provider_id = self.provider_id.clone();
-        let credential_realm = self.credential_realm.clone();
-        let profile_id = self.profile_id.clone();
-        let taskrun_store = self.taskrun_store;
-        let inner = self.inner;
-        Box::pin(async move {
-            let context = request_intents
-                .for_new_dispatch(&intent.claim, &provider_id, &credential_realm, &profile_id)
-                .await
-                .map_err(|_| DispatchError::MaybeDispatched)?;
-            context
-                .persist_request(intent.prepared.rendered_bytes())
-                .await
-                .map_err(|_| DispatchError::MaybeDispatched)?;
-            // Intent persistence can yield while a caller accepts cancellation.
-            // Recheck at the last wrapper-controlled point before the adapter
-            // begins materialization or transport. A stale receipt remains an
-            // audit fact, but cannot authorize a fresh adapter dispatch.
-            if let Some(binding) = &taskrun_binding
-                && bind_taskrun_request(taskrun_store, binding).is_err()
-            {
-                return Err(DispatchError::RejectedBeforeEffect(
-                    ProviderPreEffectRejection::AdapterRejected,
-                ));
-            }
-            // Keep project trust held through adapter materialization and
-            // transport. The final TaskRun recheck above is the gate's
-            // linearization point; a cancellation committed after it is an
-            // already-started uncertain outcome, never a second dispatch.
-            let outcome = inner.dispatch_effect(ready, receipt).await;
-            drop(lease);
-            outcome
-        })
-    }
-}
+mod port;
 
 fn bind_taskrun_request(
     store: &StoreTransaction,
     binding: &TaskRunPreparedBinding,
+    recheck: bool,
 ) -> Result<(), runne_application::ports::TaskRunProviderBindingError> {
-    store
-        .bind_prepared_taskrun_provider_effect(
-            runne_application::ports::BindPreparedTaskRunProviderEffect {
-                identity: binding.identity.clone(),
-                expected_claim_version: binding.expected_claim_version,
-                prepared: binding.prepared.clone(),
-            },
-        )
-        .map(|_| ())
+    match binding {
+        TaskRunPreparedBinding::Legacy(request) => store
+            .bind_prepared_taskrun_provider_effect(request.clone())
+            .map(|_| ()),
+        TaskRunPreparedBinding::ToolRound(request) if recheck => {
+            store.verify_prepared_taskrun_provider_round_effect(request.clone())
+        }
+        TaskRunPreparedBinding::ToolRound(request) => store
+            .bind_prepared_taskrun_provider_round_effect(request.clone())
+            .map(|_| ()),
+    }
 }
 
 async fn wait_for_t1_test_barrier(stage: &str) -> Result<(), DispatchError> {

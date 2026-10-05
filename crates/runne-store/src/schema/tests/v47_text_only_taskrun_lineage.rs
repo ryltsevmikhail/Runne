@@ -8,7 +8,7 @@ fn v47_adds_durable_text_only_lineage_and_reopens() {
     apply_migrations(&connection).unwrap();
     assert_eq!(schema_marker(&connection), CURRENT_SCHEMA_VERSION);
     assert!(
-        v63_matches(&connection, CURRENT_SCHEMA_VERSION).unwrap(),
+        v64_matches(&connection, CURRENT_SCHEMA_VERSION).unwrap(),
         "v46 inherited schema"
     );
     assert!(

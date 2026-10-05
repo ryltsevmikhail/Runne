@@ -69,6 +69,7 @@ fn classify_schema_version(conn: &Connection) -> SqliteResult<i64> {
         61 => v61_matches(conn, version)?,
         62 => v62_matches(conn, version)?,
         63 => v63_matches(conn, version)?,
+        64 => v64_matches(conn, version)?,
         _ => false,
     };
     compatible

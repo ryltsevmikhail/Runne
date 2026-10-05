@@ -203,6 +203,7 @@ impl DaemonApplication {
                                 activation_provenance,
                                 expected_profile_digest: provider_profile_digest,
                                 secondary_catalog,
+                                d2_tool_loop_budget: config.d2_safe_tool_loop_budget,
                                 conversation_store,
                                 conversation_service,
                                 prohibited_content,

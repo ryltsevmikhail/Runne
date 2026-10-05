@@ -12,7 +12,11 @@ mod settlement;
 #[path = "run/supervise.rs"]
 mod supervise;
 #[path = "run/test_barrier.rs"]
-mod test_barrier;
+pub(in crate::application::exec_taskrun_worker) mod test_barrier;
+#[path = "run/tool_executor.rs"]
+pub(in crate::application) mod tool_executor;
+#[path = "run/x2_supervisor.rs"]
+mod x2_supervisor;
 use supervise::{mark_unconfirmed, supervise};
 
 impl DaemonAutomaticTaskRuns {
@@ -135,9 +139,8 @@ fn run_claimed(
     store
         .persist_local_command_launch_intent(&identity, claimed_version, &area_identity)
         .map_err(|_| AutomaticTaskRunError::Uncertain)?;
-    let mut child = spec
-        .spawn_gated(&area)
-        .map_err(|_| AutomaticTaskRunError::Unavailable)?;
+    let mut child =
+        x2_supervisor::spawn_gated(&spec, &area).map_err(|_| AutomaticTaskRunError::Unavailable)?;
     if test_barrier::pause_at(test_barrier::Point::BeforeRelease).is_err() {
         let error = mark_unconfirmed(&store, &identity, &area_identity);
         let _ = child.terminate_area(std::time::Duration::from_secs(2));

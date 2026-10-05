@@ -1,5 +1,6 @@
 use super::super::*;
 use super::settlement::{complete_cancelled, complete_local_task};
+use super::x2_supervisor::{X2Observation, X2Outcome, supervise_gated_child};
 use runne_application::ports::{
     TaskRunAssignmentIdentity, TaskRunAssignmentPort, TaskRunLeaseRenewal,
 };
@@ -18,7 +19,8 @@ pub(super) fn supervise(
     current_epoch: &AtomicU64,
 ) -> Result<(), AutomaticTaskRunError> {
     let mut renewal_at = std::time::Instant::now() + Duration::from_secs(30);
-    loop {
+    let mut cancel_version = None;
+    let observed = supervise_gated_child(child, area, Duration::from_millis(100), |child| {
         if std::time::Instant::now() >= renewal_at {
             if current_epoch.load(Ordering::Acquire) != identity.node_epoch
                 || store
@@ -29,52 +31,63 @@ pub(super) fn supervise(
                     })
                     .is_err()
             {
-                let error = mark_unconfirmed(store, identity, area_identity);
-                let _ = child.terminate_area(Duration::from_secs(2));
-                return Err(error);
+                return Err(());
             }
             renewal_at = std::time::Instant::now() + Duration::from_secs(30);
         }
-        let stream = store
-            .load_task_run(identity.taskrun_id)
-            .map_err(|_| AutomaticTaskRunError::Uncertain)?;
-        let task = TaskRun::replay(&stream.events).map_err(|_| AutomaticTaskRunError::Uncertain)?;
+        let stream = store.load_task_run(identity.taskrun_id).map_err(|_| ())?;
+        let task = TaskRun::replay(&stream.events).map_err(|_| ())?;
         if task.state() == TaskRunState::Cancelling {
             store
                 .request_local_command_stop(identity, area_identity)
-                .map_err(|_| AutomaticTaskRunError::Uncertain)?;
-            stop_area(store, child, area, identity, area_identity)?;
-            complete_cancelled(
-                &taskruns,
-                store,
-                identity.taskrun_id,
-                stream.current_version,
-            )?;
+                .map_err(|_| ())?;
+            cancel_version = Some(stream.current_version);
+            return Ok(X2Observation::Stop);
+        }
+        match child.try_wait() {
+            Ok(Some(code)) => Ok(X2Observation::Complete(code)),
+            Ok(None) => Ok(X2Observation::Continue),
+            Err(_) => Err(()),
+        }
+    });
+    let exit_code = match observed {
+        Ok(X2Outcome::Stopped) => {
+            let version =
+                cancel_version.ok_or_else(|| mark_unconfirmed(store, identity, area_identity))?;
+            confirm_stopped(store, identity, area, area_identity)
+                .map_err(|_| mark_unconfirmed(store, identity, area_identity))?;
+            complete_cancelled(&taskruns, store, identity.taskrun_id, version)?;
             return Ok(());
         }
-        let exit_code = match child.try_wait() {
-            Ok(Some(code)) => code,
-            Ok(None) => {
-                std::thread::sleep(Duration::from_millis(100));
-                continue;
-            }
-            Err(_) => {
-                let error = mark_unconfirmed(store, identity, area_identity);
-                let _ = child.terminate_area(Duration::from_secs(1));
-                return Err(error);
-            }
-        };
-        if child.terminate_area(Duration::from_secs(1)).is_err()
-            || area.is_populated().map_err(|_| ()).unwrap_or(true)
-        {
-            let error = mark_unconfirmed(store, identity, area_identity);
-            let _ = child.terminate_area(Duration::ZERO);
-            return Err(error);
-        }
-        let latest = store
+        Ok(X2Outcome::Complete(code)) => code,
+        Err(()) => return Err(mark_unconfirmed(store, identity, area_identity)),
+    };
+    let latest = store
+        .load_task_run(identity.taskrun_id)
+        .map_err(|_| AutomaticTaskRunError::Uncertain)?;
+    if TaskRun::replay(&latest.events)
+        .map_err(|_| AutomaticTaskRunError::Uncertain)?
+        .state()
+        == TaskRunState::Cancelling
+    {
+        store
+            .request_local_command_stop(identity, area_identity)
+            .map_err(|_| AutomaticTaskRunError::Uncertain)?;
+        confirm_stopped(store, identity, area, area_identity)
+            .map_err(|_| AutomaticTaskRunError::Uncertain)?;
+        complete_cancelled(
+            &taskruns,
+            store,
+            identity.taskrun_id,
+            latest.current_version,
+        )?;
+        return Ok(());
+    }
+    if record_exit(store, identity, area, area_identity, exit_code).is_err() {
+        let current = store
             .load_task_run(identity.taskrun_id)
             .map_err(|_| AutomaticTaskRunError::Uncertain)?;
-        if TaskRun::replay(&latest.events)
+        if TaskRun::replay(&current.events)
             .map_err(|_| AutomaticTaskRunError::Uncertain)?
             .state()
             == TaskRunState::Cancelling
@@ -88,128 +101,72 @@ pub(super) fn supervise(
                 &taskruns,
                 store,
                 identity.taskrun_id,
+                current.current_version,
+            )?;
+            return Ok(());
+        }
+        return Err(mark_unconfirmed(store, identity, area_identity));
+    }
+    if super::test_barrier::pause_at(super::test_barrier::Point::AfterExit).is_err() {
+        return Err(AutomaticTaskRunError::Uncertain);
+    }
+    let current = store
+        .load_task_run(identity.taskrun_id)
+        .map_err(|_| AutomaticTaskRunError::Uncertain)?;
+    if complete_local_task(
+        &taskruns,
+        identity.taskrun_id,
+        current.current_version,
+        exit_code,
+    )
+    .is_err()
+    {
+        let latest = store
+            .load_task_run(identity.taskrun_id)
+            .map_err(|_| AutomaticTaskRunError::Uncertain)?;
+        let latest_task =
+            TaskRun::replay(&latest.events).map_err(|_| AutomaticTaskRunError::Uncertain)?;
+        if latest_task.state() == TaskRunState::Cancelling {
+            store
+                .request_local_command_stop(identity, area_identity)
+                .map_err(|_| AutomaticTaskRunError::Uncertain)?;
+            confirm_stopped(store, identity, area, area_identity)
+                .map_err(|_| AutomaticTaskRunError::Uncertain)?;
+            complete_cancelled(
+                &taskruns,
+                store,
+                identity.taskrun_id,
                 latest.current_version,
             )?;
             return Ok(());
         }
-        if record_exit(store, identity, area, area_identity, exit_code).is_err() {
-            let current = store
-                .load_task_run(identity.taskrun_id)
-                .map_err(|_| AutomaticTaskRunError::Uncertain)?;
-            if TaskRun::replay(&current.events)
-                .map_err(|_| AutomaticTaskRunError::Uncertain)?
-                .state()
-                == TaskRunState::Cancelling
-            {
-                store
-                    .request_local_command_stop(identity, area_identity)
-                    .map_err(|_| AutomaticTaskRunError::Uncertain)?;
-                confirm_stopped(store, identity, area, area_identity)
-                    .map_err(|_| AutomaticTaskRunError::Uncertain)?;
-                complete_cancelled(
-                    &taskruns,
-                    store,
-                    identity.taskrun_id,
-                    current.current_version,
-                )?;
-                return Ok(());
-            }
+        if !matches!(
+            latest_task.state(),
+            TaskRunState::Succeeded | TaskRunState::Failed
+        ) {
             return Err(mark_unconfirmed(store, identity, area_identity));
         }
-        if super::test_barrier::pause_at(super::test_barrier::Point::AfterExit).is_err() {
-            return Err(AutomaticTaskRunError::Uncertain);
-        }
-        let current = store
-            .load_task_run(identity.taskrun_id)
-            .map_err(|_| AutomaticTaskRunError::Uncertain)?;
-        if complete_local_task(
-            &taskruns,
-            identity.taskrun_id,
-            current.current_version,
-            exit_code,
+    }
+    let terminal = store
+        .load_task_run(identity.taskrun_id)
+        .map_err(|_| AutomaticTaskRunError::Uncertain)?;
+    let event = terminal
+        .last_event_id
+        .ok_or(AutomaticTaskRunError::Uncertain)?;
+    store
+        .settle_local_command_terminal(
+            identity,
+            area_identity,
+            event,
+            terminal.current_version,
+            area.prove_empty()
+                .map_err(|_| AutomaticTaskRunError::Uncertain)?,
         )
-        .is_err()
-        {
-            let latest = store
-                .load_task_run(identity.taskrun_id)
-                .map_err(|_| AutomaticTaskRunError::Uncertain)?;
-            let latest_task =
-                TaskRun::replay(&latest.events).map_err(|_| AutomaticTaskRunError::Uncertain)?;
-            if latest_task.state() == TaskRunState::Cancelling {
-                store
-                    .request_local_command_stop(identity, area_identity)
-                    .map_err(|_| AutomaticTaskRunError::Uncertain)?;
-                confirm_stopped(store, identity, area, area_identity)
-                    .map_err(|_| AutomaticTaskRunError::Uncertain)?;
-                complete_cancelled(
-                    &taskruns,
-                    store,
-                    identity.taskrun_id,
-                    latest.current_version,
-                )?;
-                return Ok(());
-            }
-            if !matches!(
-                latest_task.state(),
-                TaskRunState::Succeeded | TaskRunState::Failed
-            ) {
-                return Err(mark_unconfirmed(store, identity, area_identity));
-            }
-        }
-        let terminal = store
-            .load_task_run(identity.taskrun_id)
-            .map_err(|_| AutomaticTaskRunError::Uncertain)?;
-        let event = terminal
-            .last_event_id
-            .ok_or(AutomaticTaskRunError::Uncertain)?;
-        store
-            .settle_local_command_terminal(
-                identity,
-                area_identity,
-                event,
-                terminal.current_version,
-                area.prove_empty()
-                    .map_err(|_| AutomaticTaskRunError::Uncertain)?,
-            )
-            .map_err(|_| AutomaticTaskRunError::Uncertain)?;
-        if super::test_barrier::pause_at(super::test_barrier::Point::AfterDurableTerminal).is_err()
-        {
-            return Err(AutomaticTaskRunError::Uncertain);
-        }
-        return Ok(());
+        .map_err(|_| AutomaticTaskRunError::Uncertain)?;
+    if super::test_barrier::pause_at(super::test_barrier::Point::AfterDurableTerminal).is_err() {
+        return Err(AutomaticTaskRunError::Uncertain);
     }
-}
-
-fn stop_area(
-    store: &StoreTransaction,
-    child: &mut runne_platform::local_command_linux::GatedLinuxChild<'_>,
-    area: &runne_platform::process_managed_area::LinuxManagedArea,
-    identity: &TaskRunAssignmentIdentity,
-    area_identity: &[u8],
-) -> Result<(), AutomaticTaskRunError> {
-    let stop = (|| {
-        child
-            .terminate_area(Duration::from_secs(2))
-            .map_err(|_| AutomaticTaskRunError::Uncertain)?;
-        if area
-            .is_populated()
-            .map_err(|_| AutomaticTaskRunError::Uncertain)?
-        {
-            return Err(AutomaticTaskRunError::Uncertain);
-        }
-        child
-            .reap_after_stop(Duration::from_secs(3))
-            .map_err(|_| AutomaticTaskRunError::Uncertain)?;
-        confirm_stopped(store, identity, area, area_identity)
-            .map_err(|_| AutomaticTaskRunError::Uncertain)?;
-        Ok(())
-    })();
-    if stop.is_err() {
-        let error = mark_unconfirmed(store, identity, area_identity);
-        let _ = child.terminate_area(Duration::ZERO);
-        return Err(error);
-    }
-    stop
+    Ok(())
 }
 
 fn confirm_stopped(

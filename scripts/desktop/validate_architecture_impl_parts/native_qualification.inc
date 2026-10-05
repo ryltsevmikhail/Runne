@@ -51,7 +51,7 @@ NATIVE_QUALIFICATION_ADMISSION_ALLOWED = {
     NATIVE_QUALIFICATION_ADMISSION_SOURCE,
     Path("apps/desktop/src-tauri/src/qualification_ticket_tests.rs"),
     Path("apps/desktop/src-tauri/src/bundled_runtime.rs"),
-    Path("apps/desktop/src-tauri/src/lib_parts/run.rs"),
+    Path("apps/desktop/src-tauri/src/lib_parts/setup_app.rs"),
     Path("apps/desktop/src-tauri/src/provider_credential_enrollment/dispatch.rs"),
     Path("apps/desktop/src-tauri/src/provider_credential_enrollment/prepared.rs"),
     Path("apps/desktop/src-tauri/src/provider_credential_enrollment/prepared/runner.rs"),
@@ -267,7 +267,7 @@ def find_native_qualification_admission_surface_violations(root: Path) -> list[s
                 relative
                 in {
                     Path("apps/desktop/src-tauri/src/bundled_runtime.rs"),
-                    Path("apps/desktop/src-tauri/src/lib_parts/run.rs"),
+                    Path("apps/desktop/src-tauri/src/lib_parts/setup_app.rs"),
                 }
                 and NATIVE_QUALIFICATION_ADMISSION_FORBIDDEN_SETUP.search(text)
             ):

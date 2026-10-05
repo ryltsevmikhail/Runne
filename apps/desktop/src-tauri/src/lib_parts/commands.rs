@@ -117,6 +117,8 @@ async fn resync_task_run_timeline(
 }
 
 include!("task_run_commands.rs");
+include!("managed_task_run_commands.rs");
+include!("managed_task_run_handler.rs");
 include!("task_run_effects_command.rs");
 include!("task_run_successor_command.rs");
 include!("approval_commands.rs");

@@ -11,12 +11,14 @@ use runne_application::ports::{
 };
 
 mod api;
+#[path = "terminal_cancellation/append.rs"]
+mod append;
 mod disposition;
 mod duplicate;
 mod remote_artifact;
 
 impl StoreTransaction {
-    fn reject_text_generation_after_cancellation_impl(
+    pub(super) fn reject_text_generation_after_cancellation_impl(
         &self,
         payload: RejectTextGenerationAfterCancellationCommit,
     ) -> Result<TextGenerationCommitResult, CommitError> {
@@ -47,6 +49,9 @@ impl StoreTransaction {
             ProviderCancellationProof::NoAdmission(evidence) => {
                 (evidence.cancellation_taskrun_version, None, None, None)
             }
+            ProviderCancellationProof::D2ToolLoop(evidence) => {
+                (evidence.cancellation_taskrun_version, None, None, None)
+            }
         };
         if payload.conversation_events.len() != 1
             || payload.taskrun_events.len() != 1
@@ -54,11 +59,12 @@ impl StoreTransaction {
                 evidence.disposition
                     == runne_provider::ProviderTerminalDisposition::CancelledUncertain
             })
-            || cancellation_taskrun_version
-                != payload
-                    .expected_started_taskrun_version
-                    .checked_add(1)
-                    .ok_or_else(|| storage_failure(StorageFailureKind::IntegrityViolation))?
+            || (!matches!(payload.proof, ProviderCancellationProof::D2ToolLoop(_))
+                && cancellation_taskrun_version
+                    != payload
+                        .expected_started_taskrun_version
+                        .checked_add(1)
+                        .ok_or_else(|| storage_failure(StorageFailureKind::IntegrityViolation))?)
             || payload.receipt.phase != TextGenerationPhase::Rejected
             || payload.receipt.conversation_version
                 != payload
@@ -90,6 +96,9 @@ impl StoreTransaction {
                 Sensitivity::Public,
             )
         {
+            if matches!(payload.proof, ProviderCancellationProof::D2ToolLoop(_)) {
+                diagnostics::record("cancel.d2.writer_shape");
+            }
             if matches!(payload.proof, ProviderCancellationProof::NoAdmission(_)) {
                 diagnostics::record("cancel.no_admission.payload_shape");
             }
@@ -106,15 +115,19 @@ impl StoreTransaction {
         let scope = IdempotencyScopeCodec
             .encode(&payload.idempotency_scope)
             .map_err(|_| storage_failure(StorageFailureKind::IntegrityViolation))?;
-        let stored = match lookup_text_receipt(
-            &tx,
-            payload.command_id,
-            &payload.idempotency_key,
-            &scope,
-            &payload.command_fingerprint,
-            &self.runtime_authority_id,
+        let stored = match diagnostics::on_error(
+            "cancel.d2.lookup_receipt",
+            lookup_text_receipt(
+                &tx,
+                payload.command_id,
+                &payload.idempotency_key,
+                &scope,
+                &payload.command_fingerprint,
+                &self.runtime_authority_id,
+            ),
         )? {
             TextGenerationReceiptLookup::Miss => {
+                diagnostics::record("cancel.d2.receipt_miss");
                 return Err(storage_failure(StorageFailureKind::IntegrityViolation));
             }
             TextGenerationReceiptLookup::Duplicate { stored_result } => stored_result,
@@ -151,6 +164,9 @@ impl StoreTransaction {
             || payload.receipt.user_message_id != stored.user_message_id
             || payload.receipt.assistant_message_id != stored.assistant_message_id
         {
+            if matches!(payload.proof, ProviderCancellationProof::D2ToolLoop(_)) {
+                diagnostics::record("cancel.d2.started_receipt_mismatch");
+            }
             return Err(storage_failure(StorageFailureKind::IntegrityViolation));
         }
         let conversation_head = load_stream_head_for_commit(
@@ -168,6 +184,9 @@ impl StoreTransaction {
             || payload.conversation_events[0].causation_id().copied() != conversation_head.1
             || payload.taskrun_events[0].causation_id().copied() != taskrun_head.1
         {
+            if matches!(payload.proof, ProviderCancellationProof::D2ToolLoop(_)) {
+                diagnostics::record("cancel.d2.writer_head");
+            }
             return Err(storage_failure(StorageFailureKind::IntegrityViolation));
         }
         crate::conversation_writer_lease::ensure_writer_lease(
@@ -176,7 +195,12 @@ impl StoreTransaction {
             payload.idempotency_scope.principal_id.0.as_str(),
             crate::conversation_writer_lease::unix_now(),
         )
-        .map_err(|_| storage_failure(StorageFailureKind::WriterFenced))?;
+        .map_err(|_| {
+            if matches!(payload.proof, ProviderCancellationProof::D2ToolLoop(_)) {
+                diagnostics::record("cancel.d2.writer_lease");
+            }
+            storage_failure(StorageFailureKind::WriterFenced)
+        })?;
         diagnostics::on_error(
             "cancel.verify_evidence",
             super::terminal_cancellation_validation::verify_cancellation_evidence(
@@ -194,75 +218,20 @@ impl StoreTransaction {
             });
         }
         let position = next_global_position(&tx)?;
-        let next_position = position
-            .checked_add(2)
-            .ok_or(CommitError::GlobalPositionExhausted)?;
-        guard_conversation_event(
-            self.prohibited_content.as_ref(),
-            &payload.conversation_events[0],
-            payload.receipt.conversation_version,
-            position,
-            now,
-        )?;
-        let taskrun_position = position
-            .checked_add(1)
-            .ok_or(CommitError::GlobalPositionExhausted)?;
-        guard_taskrun_event(
-            self.prohibited_content.as_ref(),
-            &payload.taskrun_events[0],
-            payload.receipt.taskrun_version,
-            taskrun_position,
-            now,
-        )?;
-        append_conversation_event(
+        self.append_cancellation_events(
             &tx,
-            self.prohibited_content.as_ref(),
-            &payload.conversation_events[0],
-            payload.receipt.conversation_version,
-            position,
-            now,
-        )?;
-        append_taskrun_event(
-            &tx,
-            self.prohibited_content.as_ref(),
-            &payload.taskrun_events[0],
-            payload.receipt.taskrun_version,
-            taskrun_position,
-            now,
-        )?;
-        super::terminal_cancellation_validation::retire_cancellation_occupation(&tx, &payload)?;
-        update_stream_head(
-            &tx,
-            CORRELATION_TYPE_CONVERSATION,
-            stored.conversation_id.as_bytes(),
-            payload.expected_conversation_version,
-            payload.receipt.conversation_version,
-            *payload.conversation_events[0].event_id(),
-            now,
-        )?;
-        update_stream_head(
-            &tx,
-            CORRELATION_TYPE_TASK_RUN,
-            stored.taskrun_id.as_bytes(),
+            &payload,
+            &stored,
             cancellation_taskrun_version,
-            payload.receipt.taskrun_version,
-            *payload.taskrun_events[0].event_id(),
+            position,
             now,
         )?;
-        crate::store::snapshot::refresh_aggregate_snapshot(
-            &tx,
-            CORRELATION_TYPE_CONVERSATION,
-            stored.conversation_id.as_bytes(),
-        )?;
-        crate::store::snapshot::refresh_aggregate_snapshot(
-            &tx,
-            CORRELATION_TYPE_TASK_RUN,
-            stored.taskrun_id.as_bytes(),
-        )?;
-        update_global_position(&tx, next_position)?;
         let bytes = TextGenerationReceiptCodec
             .encode(&payload.receipt)
-            .map_err(|_| storage_failure(StorageFailureKind::IntegrityViolation))?;
+            .map_err(|_| {
+                diagnostics::record("cancel.d2.receipt_encode");
+                storage_failure(StorageFailureKind::IntegrityViolation)
+            })?;
         if tx.execute("UPDATE command_receipts SET command_outcome=?1,committed_at=?2 WHERE command_id=?3 AND idempotency_scope_bytes=?4 AND idempotency_key=?5 AND fingerprint=?6",
             params![bytes, now, payload.command_id.as_bytes(), scope, payload.idempotency_key.as_str().as_bytes(), payload.command_fingerprint.as_bytes()]).map_err(|_| storage_failure(StorageFailureKind::IntegrityViolation))? != 1 {
             return Err(storage_failure(StorageFailureKind::IntegrityViolation));

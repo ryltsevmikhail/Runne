@@ -1,0 +1,10 @@
+include!("commands.rs");
+include!("directory_selection_commands.rs");
+include!("settings_commands.rs");
+include!("workspace_file_commands.rs");
+include!("workspace_diff_commands.rs");
+include!("process_commands.rs");
+include!("editor_commands.rs");
+include!("prepared_commit.rs");
+include!("run.rs");
+include!("test_modules.rs");

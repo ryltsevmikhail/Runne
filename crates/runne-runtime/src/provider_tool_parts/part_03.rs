@@ -32,9 +32,10 @@ where
     ) -> Result<ProviderToolLoopOutcome, ProviderToolLoopError> {
         let recovery = self.journal.recovery_state(stream_id)?;
         let mut cursor = recovery.next_cursor();
-        let mut text = recovery.text().to_owned();
-        let mut usage = recovery.usage();
-        let mut usage_unavailable = recovery.usage_unavailable();
+        let text = recovery.text().to_owned();
+        let usage = recovery.usage();
+        let usage_unavailable = recovery.usage_unavailable();
+        let deadline = tokio::time::Instant::now() + TOOL_RESPONSE_DEADLINE;
         if text.len() > self.max_text_bytes {
             return self.freeze(stream_id, "journal_text_bound");
         }
@@ -47,6 +48,7 @@ where
                 ProviderToolRecoveryStatus::Terminal { .. }
                     | ProviderToolRecoveryStatus::ToolCallPending { .. }
                     | ProviderToolRecoveryStatus::ToolResultReady { .. }
+                    | ProviderToolRecoveryStatus::ToolProposalReady { .. }
             )
         {
             return self.freeze(stream_id, "provider_journal");
@@ -91,18 +93,32 @@ where
                     result_digest: *result_digest,
                 });
             }
+            ProviderToolRecoveryStatus::ToolProposalReady { call } => {
+                return Ok(ProviderToolLoopOutcome::ToolProposalReady {
+                    call: call.clone(),
+                    text,
+                    usage,
+                    usage_unavailable,
+                });
+            }
             ProviderToolRecoveryStatus::Cancelled => {
                 return Ok(ProviderToolLoopOutcome::Cancelled);
             }
         }
-        let mut validator = match ProviderStreamValidator::resume_at(
+        let mut collector = match CommittedToolProposalCollector::new(
             cursor,
-            usage.is_some() || usage_unavailable,
+            text,
+            usage,
+            usage_unavailable,
+            self.max_text_bytes,
         ) {
-            Ok(validator) => validator,
+            Ok(collector) => collector,
             Err(_) => return self.freeze(stream_id, "provider_journal"),
         };
         loop {
+            if cursor >= MAX_PROVIDER_TOOL_EVENTS {
+                return self.freeze(stream_id, "provider_event_bound");
+            }
             let item = tokio::select! {
                 biased;
                 _ = cancellation.cancelled() => {
@@ -116,6 +132,9 @@ where
                     )?;
                     return Ok(ProviderToolLoopOutcome::Cancelled);
                 }
+                _ = tokio::time::sleep_until(deadline) => {
+                    return self.freeze(stream_id, "provider_response_deadline");
+                }
                 item = provider.next(&stream_id, StreamCursor::new(cursor)) => item,
             };
             let item = match item {
@@ -123,9 +142,6 @@ where
                 Err(_) => return self.freeze(stream_id, "provider_stream"),
             };
             let provider_event = item.event();
-            if validator.accept(provider_event).is_err() {
-                return self.freeze(stream_id, "provider_grammar");
-            }
             let event = match self
                 .redaction
                 .scan_before_journal(&self.journal_context, provider_event)
@@ -139,158 +155,34 @@ where
                 | Ok(PreJournalProviderEvent::Terminal(_))
                 | Err(_) => return self.freeze(stream_id, "scanner_boundary"),
             };
-            let released_text = match event.kind() {
-                ProviderStreamEventKind::TextDelta { text }
-                | ProviderStreamEventKind::ScannerCompleted { text, .. } => Some(text),
-                _ => None,
+            let mut next_collector = collector.clone();
+            let terminal = match next_collector.accept_committed(&event, self.scanner_completed()) {
+                Ok(terminal) => terminal,
+                Err(reason) => return self.freeze(stream_id, reason),
             };
-            if let Some(delta) = released_text {
-                let next = text
-                    .len()
-                    .checked_add(delta.len())
-                    .ok_or(ProviderToolLoopError::TextTooLarge)?;
-                if next > self.max_text_bytes {
-                    return self.freeze(stream_id, "text_bound");
-                }
-            }
             self.journal.append_provider_event(stream_id, &event)?;
             cursor = cursor
                 .checked_add(1)
                 .ok_or(ProviderToolLoopError::MalformedStream)?;
-
-            match event.kind() {
-                ProviderStreamEventKind::Started => {}
-                ProviderStreamEventKind::TextDelta { text: delta } => {
-                    text.push_str(delta);
-                }
-                ProviderStreamEventKind::Usage { usage: event_usage } => {
-                    if usage_unavailable || usage.replace(*event_usage).is_some() {
-                        return self.freeze(stream_id, "duplicate_usage");
-                    }
-                }
-                ProviderStreamEventKind::UsageUnavailable => {
-                    if usage.is_some() || usage_unavailable {
-                        return self.freeze(stream_id, "duplicate_usage");
-                    }
-                    usage_unavailable = true;
-                }
-                ProviderStreamEventKind::ToolCallRequested {
-                    call_id,
-                    tool_name,
-                    arguments_json,
-                } => {
-                    let call = RuntimeToolCall {
-                        call_id: call_id.clone(),
-                        tool_name: tool_name.clone(),
-                        arguments_json: arguments_json.clone(),
-                    };
-                    match self.tool_handoff.dispatch(&call) {
-                        Ok(ToolHandoffDisposition::Completed { result_digest }) => {
-                            self.journal.append(ProviderToolTransition::ToolResult {
+            collector = next_collector;
+            if let Some(outcome) = terminal {
+                return match outcome {
+                    ProviderToolLoopOutcome::ToolProposalReady { call, .. } => {
+                        self.journal
+                            .append(ProviderToolTransition::ToolProposalReady {
                                 stream_id,
-                                call_id: call.call_id.clone(),
-                                result_digest,
+                                call: call.clone(),
                             })?;
-                            return Ok(ProviderToolLoopOutcome::ToolResultReady {
-                                call_id: call.call_id,
-                                result_digest,
-                            });
-                        }
-                        Ok(ToolHandoffDisposition::Uncertain) | Err(_) => {
-                            return self.freeze(stream_id, "tool_effect");
-                        }
+                        Ok(ProviderToolLoopOutcome::ToolProposalReady {
+                            call,
+                            text: collector.text.clone(),
+                            usage: collector.usage,
+                            usage_unavailable: collector.usage_unavailable,
+                        })
                     }
-                }
-                ProviderStreamEventKind::Finished {
-                    disposition: ProviderTerminalDisposition::Completed,
-                    reason: ProviderFinishReason::Stop,
-                } if !usage_unavailable && self.scanner_completed() => {
-                    return Ok(ProviderToolLoopOutcome::Completed { text, usage });
-                }
-                ProviderStreamEventKind::Finished {
-                    disposition,
-                    reason,
-                } if valid_remote_terminal(disposition, reason)
-                    && (usage.is_some() || usage_unavailable)
-                    && self.scanner_completed() =>
-                {
-                    return Ok(ProviderToolLoopOutcome::RemoteTerminal {
-                        disposition: *disposition,
-                        reason: reason.clone(),
-                        text,
-                        usage,
-                        usage_unavailable,
-                    });
-                }
-                ProviderStreamEventKind::Finished { .. } => {
-                    return self.freeze(stream_id, "terminal_reason");
-                }
-                ProviderStreamEventKind::ScannerCompleted {
-                    text: tail,
-                    disposition: ProviderTerminalDisposition::Completed,
-                    reason: ProviderFinishReason::Stop,
-                } if !usage_unavailable && self.scanner_completed() => {
-                    text.push_str(tail);
-                    return Ok(ProviderToolLoopOutcome::Completed { text, usage });
-                }
-                ProviderStreamEventKind::ScannerCompleted {
-                    text: tail,
-                    disposition,
-                    reason,
-                } if valid_remote_terminal(disposition, reason)
-                    && (usage.is_some() || usage_unavailable)
-                    && self.scanner_completed() =>
-                {
-                    text.push_str(tail);
-                    return Ok(ProviderToolLoopOutcome::RemoteTerminal {
-                        disposition: *disposition,
-                        reason: reason.clone(),
-                        text,
-                        usage,
-                        usage_unavailable,
-                    });
-                }
-                ProviderStreamEventKind::ScannerCompleted { .. } => {
-                    return self.freeze(stream_id, "scanner_terminal");
-                }
-                ProviderStreamEventKind::ScannerProgress => {}
+                    other => Ok(other),
+                };
             }
         }
     }
-
-    fn scanner_completed(&self) -> bool {
-        matches!(
-            self.redaction
-                .terminal_disposition(self.journal_context.attempt_id),
-            Ok(Some(ScannerTerminalDisposition::Completed))
-        )
-    }
-
-    fn freeze(
-        &self,
-        stream_id: ProviderStreamId,
-        reason: &'static str,
-    ) -> Result<ProviderToolLoopOutcome, ProviderToolLoopError> {
-        self.journal
-            .append(ProviderToolTransition::Frozen { stream_id, reason })?;
-        Ok(ProviderToolLoopOutcome::Uncertain)
-    }
-}
-
-fn valid_remote_terminal(
-    disposition: &ProviderTerminalDisposition,
-    reason: &ProviderFinishReason,
-) -> bool {
-    matches!(
-        (disposition, reason),
-        (
-            ProviderTerminalDisposition::RemoteFailed,
-            ProviderFinishReason::Error
-        ) | (
-            ProviderTerminalDisposition::RemoteIncomplete,
-            ProviderFinishReason::Length
-                | ProviderFinishReason::ContentFilter
-                | ProviderFinishReason::Error
-        )
-    )
 }

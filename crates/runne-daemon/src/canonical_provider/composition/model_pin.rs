@@ -20,6 +20,14 @@ impl DaemonCanonicalProviderService {
     /// selected default or route an unspecified submission away from primary.
     pub(crate) fn selected_profile_identities(&self) -> Vec<SelectedProviderProfile> {
         let mut profiles = vec![self.selected_profile_identity()];
+        if let Some(profile) = &self.tool_profile
+            && let Ok(identity) = SelectedProviderProfile::new(
+                profile.profile_id().to_owned(),
+                profile.profile_digest(),
+            )
+        {
+            profiles.push(identity);
+        }
         if let Some(route) = self
             .secondary_profile
             .as_ref()
@@ -41,6 +49,12 @@ impl DaemonCanonicalProviderService {
         selected: &SelectedProviderProfile,
     ) -> Option<&str> {
         if selected == &self.selected_profile_identity() {
+            return Some(&self.model_id);
+        }
+        if self.tool_profile.as_ref().is_some_and(|profile| {
+            SelectedProviderProfile::new(profile.profile_id().to_owned(), profile.profile_digest())
+                .is_ok_and(|identity| selected == &identity)
+        }) {
             return Some(&self.model_id);
         }
         let route = self

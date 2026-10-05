@@ -6,6 +6,9 @@ use runne_platform::process_managed_area::LinuxManagedAreaRoot;
 use runne_store::store::{LocalCommandAttemptState, LocalCommandRecoveryCandidate};
 use std::time::Duration;
 
+#[path = "local/tool_areas.rs"]
+mod tool_areas;
+
 impl DaemonAutomaticTaskRuns {
     #[cfg(test)]
     pub(super) fn verify_provider_only_fixture_has_no_local_attempts(
@@ -27,6 +30,7 @@ impl DaemonAutomaticTaskRuns {
                 .map_err(|_| "scan")?;
             if page.is_empty() {
                 self.cleanup_settled_terminal_areas()?;
+                recovered += self.recover_d2_tool_areas()?;
                 return Ok(recovered);
             }
             let mut recovered_page = 0;
@@ -49,7 +53,7 @@ impl DaemonAutomaticTaskRuns {
         }
     }
 
-    fn renew_recovery_node_lease(&self) -> Result<(), &'static str> {
+    pub(super) fn renew_recovery_node_lease(&self) -> Result<(), &'static str> {
         (self.node_lease_heartbeat)().map_err(|_| "renew_node_lease")
     }
 

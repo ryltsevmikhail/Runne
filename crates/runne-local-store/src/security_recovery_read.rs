@@ -1,6 +1,7 @@
+pub use crate::security_recovery_read_types::{operation_from_name, target_from_name};
 use crate::{
     BoundedCanonicalId, BoundedIdempotencyKey, ClientMutationDisposition, LocalStore,
-    MutationIdentity, MutationOperation, MutationRecord, MutationTargetKind, SecurityStateError,
+    MutationIdentity, MutationRecord, SecurityStateError,
     security_recovery_read_types::{
         MutationRecoveryBatch, MutationRecoveryBinding, MutationRecoveryEvidence,
         MutationRecoveryLimit,
@@ -29,6 +30,54 @@ impl LocalStore {
                 .map(|identity| recovery_evidence(connection, identity, lock, profile, database))
                 .collect::<Result<Vec<_>, _>>()?;
             Ok(MutationRecoveryBatch { records, has_more })
+        })
+    }
+
+    /// Reads a terminal or nonterminal receipt for one exact idempotency key.
+    /// The normalized command and outcome remain native-only and are
+    /// authenticated/decrypted under the same anchored profile lock.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when anchoring, identity validation, or payload
+    /// authentication fails.
+    pub fn lookup_anchored_mutation_receipt_v7(
+        &mut self,
+        secure: &dyn SecureStore,
+        binding: MutationRecoveryBinding,
+        idempotency_key: &str,
+    ) -> Result<Option<crate::MutationReceiptV7>, SecurityStateError> {
+        let key = BoundedIdempotencyKey::parse(idempotency_key.to_owned())?;
+        self.admitted_recovery_read(secure, |connection, lock, profile, database| {
+            let mut statement = connection.prepare(
+                "SELECT runtime_authority_digest,principal_digest,operation_kind,target_kind,target_id,idempotency_key,expected_version,semantic_digest FROM mutation_ledger WHERE idempotency_key=?1",
+            )?;
+            let rows = statement
+                .query_map([key.as_str()], raw_identity)?
+                .collect::<Result<Vec<_>, _>>()?;
+            if rows.is_empty() {
+                return Ok(None);
+            }
+            if rows.len() != 1 {
+                return Err(SecurityStateError::IdentityConflict);
+            }
+            let raw = rows.into_iter().next().ok_or(SecurityStateError::IdentityConflict)?;
+            let runtime: [u8; 32] = raw.0.as_slice().try_into()
+                .map_err(|_| SecurityStateError::IdentityConflict)?;
+            let principal: [u8; 32] = raw.1.as_slice().try_into()
+                .map_err(|_| SecurityStateError::IdentityConflict)?;
+            if runtime != binding.runtime_identity_digest || principal != binding.principal_digest {
+                return Err(SecurityStateError::IdentityConflict);
+            }
+            let identity = identity_from_raw(raw)?;
+            let record = crate::security_record::load_record(
+                connection, identity, lock, profile, database,
+            )?.ok_or(SecurityStateError::IdentityConflict)?;
+            Ok(Some(crate::MutationReceiptV7 {
+                runtime_identity_digest: runtime,
+                principal_digest: principal,
+                record,
+            }))
         })
     }
 
@@ -214,42 +263,4 @@ fn nonterminal(record: MutationRecord) -> Result<MutationRecoveryEvidence, Secur
         disposition: record.client_state,
         resend_count: record.resend_count,
     })
-}
-
-pub fn operation_from_name(value: &str) -> Result<MutationOperation, SecurityStateError> {
-    match value {
-        "project_rename" => Ok(MutationOperation::ProjectRename),
-        "project_create" => Ok(MutationOperation::ProjectCreate),
-        "project_archive" => Ok(MutationOperation::ProjectArchive),
-        "project_delete" => Ok(MutationOperation::ProjectDelete),
-        "workspace_create" => Ok(MutationOperation::WorkspaceCreate),
-        "workspace_bind_root" => Ok(MutationOperation::WorkspaceBindRoot),
-        "workspace_open" => Ok(MutationOperation::WorkspaceOpen),
-        "conversation_create" => Ok(MutationOperation::ConversationCreate),
-        "conversation_generate_text" => Ok(MutationOperation::ConversationGenerateText),
-        "task_run_submit" => Ok(MutationOperation::TaskRunSubmit),
-        "task_run_cancel" => Ok(MutationOperation::TaskRunCancel),
-        "task_run_unknown_successor" => Ok(MutationOperation::TaskRunUnknownSuccessor),
-        "approval_respond" => Ok(MutationOperation::ApprovalRespond),
-        "device_revoke" => Ok(MutationOperation::DeviceRevoke),
-        "runtime_stop" => Ok(MutationOperation::RuntimeStop),
-        "update_install" => Ok(MutationOperation::UpdateInstall),
-        "domain_reset" => Ok(MutationOperation::DomainReset),
-        _ => Err(SecurityStateError::IdentityConflict),
-    }
-}
-
-pub fn target_from_name(value: &str) -> Result<MutationTargetKind, SecurityStateError> {
-    match value {
-        "project" => Ok(MutationTargetKind::Project),
-        "workspace" => Ok(MutationTargetKind::Workspace),
-        "conversation" => Ok(MutationTargetKind::Conversation),
-        "task_run" => Ok(MutationTargetKind::TaskRun),
-        "approval" => Ok(MutationTargetKind::Approval),
-        "device" => Ok(MutationTargetKind::Device),
-        "runtime" => Ok(MutationTargetKind::Runtime),
-        "update" => Ok(MutationTargetKind::Update),
-        "domain" => Ok(MutationTargetKind::Domain),
-        _ => Err(SecurityStateError::IdentityConflict),
-    }
 }

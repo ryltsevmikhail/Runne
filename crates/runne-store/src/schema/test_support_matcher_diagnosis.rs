@@ -36,14 +36,14 @@ pub fn diagnose_schema_matchers(connection: &Connection) -> SchemaMatcherDiagnos
         [],
         |row| row.get::<_, i64>(0),
     ) {
-        Ok(version) if (49..=63).contains(&version) => version,
+        Ok(version) if (49..=64).contains(&version) => version,
         Ok(_) => {
             return rejected(0, SchemaMatcherFailure::CommonAdmissionGate);
         }
         Err(_) => return rejected(0, SchemaMatcherFailure::QueryError),
     };
 
-    let matchers = [62_u8, 61, 60, 59, 58, 57, 56, 55, 54, 53, 52, 51, 50, 49];
+    let matchers = [63_u8, 62, 61, 60, 59, 58, 57, 56, 55, 54, 53, 52, 51, 50, 49];
     let mut latest_rejection = None;
     for matcher_version in matchers {
         if i64::from(matcher_version) > schema_version {
@@ -74,6 +74,7 @@ fn matcher_at_version(
     actual_version: i64,
 ) -> SqliteResult<bool> {
     match matcher {
+        63 => v64_matches(connection, actual_version),
         62 => v63_matches(connection, actual_version),
         61 => v61_matches(connection, actual_version),
         60 => v60_matches(connection, actual_version),

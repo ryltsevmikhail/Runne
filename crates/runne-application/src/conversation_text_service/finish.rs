@@ -9,27 +9,9 @@ where
         context: &ApplicationCommandContext,
         input: FinishConversationTextInput,
     ) -> Result<TextGenerationReceipt, ConversationTextServiceError> {
-        let fingerprint = CommandFingerprint::for_generate_conversation_text(
-            &input.original.conversation_id,
-            input.original.expected_version,
-            &input.original.text,
-        );
         let scope = self.scope(context, input.original.conversation_id);
-        let durable = match self
-            .repository
-            .lookup_text_generation_receipt(
-                context.command_id,
-                &context.idempotency_key,
-                &scope,
-                &fingerprint,
-            )
-            .map_err(map_commit)?
-        {
-            TextGenerationReceiptLookup::Miss => {
-                return Err(ConversationTextServiceError::ReceiptMismatch);
-            }
-            TextGenerationReceiptLookup::Duplicate { stored_result } => stored_result,
-        };
+        let (fingerprint, durable) =
+            lookup_durable_receipt(&self.repository, context, &scope, &input.original)?;
         let terminal_cancellation_input = matches!(
             &input.completion,
             ConversationTextCompletion::TerminalSettledCancellation { .. }
@@ -37,6 +19,7 @@ where
                 | ConversationTextCompletion::RemoteArtifactSettledCancellation { .. }
                 | ConversationTextCompletion::PreEffectRejectedCancellation { .. }
                 | ConversationTextCompletion::NoProviderAdmissionCancellation { .. }
+                | ConversationTextCompletion::D2ToolLoopCancellation { .. }
         );
         if let Some(receipt) = self.replay_remote_artifact_cancellation(
             context,
@@ -47,9 +30,26 @@ where
         )? {
             return Ok(receipt);
         }
-        if terminal_cancellation_input {
+        let d2_restart_input = matches!(
+            &input.completion,
+            ConversationTextCompletion::D2ToolLoopRestart { .. }
+        );
+        validate_d2_tool_loop_restart_replay(&durable, &input.completion, input.original.conversation_id)?;
+        if let (
+            ConversationTextCompletion::D2ToolLoopCancellation { evidence },
+            TextGenerationPhase::Rejected,
+        ) = (&input.completion, durable.phase)
+        {
+            if !self
+                .repository
+                .validate_d2_tool_loop_cancellation_receipt(&durable, *evidence)
+                .map_err(map_commit)?
+            {
+                return Err(ConversationTextServiceError::ReceiptMismatch);
+            }
+        } else if !d2_restart_input && terminal_cancellation_input {
             validate_terminal_cancellation_receipt(&durable, input.original.conversation_id)?;
-        } else {
+        } else if !d2_restart_input {
             validate_receipt(&durable, input.original.conversation_id)?;
         }
         validate_no_admission_replay(&self.repository, &durable, &input.completion)?;
@@ -64,7 +64,6 @@ where
         if durable != input.started || durable.phase != TextGenerationPhase::Started {
             return Err(ConversationTextServiceError::ReceiptMismatch);
         }
-
         let conversation_stream = self
             .repository
             .load_conversation(durable.conversation_id)
@@ -85,6 +84,8 @@ where
             remote_artifact: remote_artifact_cancellation,
             pre_effect: pre_effect_cancellation,
             no_admission: no_admission_cancellation,
+            d2_tool_loop: d2_tool_loop_cancellation,
+            d2_restart,
             taskrun_version: cancellation_taskrun_version,
         } = CancellationFacts::from_completion(&input.completion);
         let expected_taskrun_head = cancellation_taskrun_version.unwrap_or(durable.taskrun_version);
@@ -228,6 +229,42 @@ where
                         receipt: terminal,
                     },
                 ),
+            TextGenerationPhase::Rejected if d2_tool_loop_cancellation.is_some() => self
+                .repository
+                .reject_text_generation_after_d2_tool_loop_cancellation(
+                    RejectTextGenerationAfterD2ToolLoopCancellationCommit {
+                        command_id: context.command_id,
+                        idempotency_key: context.idempotency_key.clone(),
+                        idempotency_scope: scope,
+                        command_fingerprint: fingerprint,
+                        expected_conversation_version: input.started.conversation_version,
+                        expected_started_taskrun_version: input.started.taskrun_version,
+                        evidence: d2_tool_loop_cancellation
+                            .ok_or(ConversationTextServiceError::ReceiptMismatch)?,
+                        conversation_events,
+                        taskrun_events,
+                        receipt: terminal,
+                    },
+                ),
+            TextGenerationPhase::Rejected if d2_restart.is_some() => self
+                .repository
+                .reject_text_generation_after_d2_tool_loop_restart(
+                    crate::ports::RejectTextGenerationAfterD2ToolLoopRestartCommit {
+                        command_id: context.command_id,
+                        idempotency_key: context.idempotency_key.clone(),
+                        idempotency_scope: scope,
+                        command_fingerprint: fingerprint,
+                        expected_conversation_version: input.started.conversation_version,
+                        expected_taskrun_version: input.started.taskrun_version,
+                        evidence: d2_restart
+                            .as_ref()
+                            .cloned()
+                            .ok_or(ConversationTextServiceError::ReceiptMismatch)?,
+                        conversation_events,
+                        taskrun_events,
+                        receipt: terminal,
+                    },
+                ),
             TextGenerationPhase::Rejected | TextGenerationPhase::ProhibitedInputRejected => self
                 .repository
                 .reject_text_generation(RejectTextGenerationCommit {
@@ -244,38 +281,20 @@ where
             TextGenerationPhase::Started => unreachable!("started is not a terminal phase"),
         }
         .map_err(map_commit)?;
-        if remote_artifact_cancellation.is_some() {
-            let receipt = match result {
-                TextGenerationCommitResult::Committed { result } => result,
-                TextGenerationCommitResult::Duplicate { stored_result } => stored_result,
-            };
-            if receipt.phase != TextGenerationPhase::Rejected
-                || receipt.conversation_id != input.original.conversation_id
-            {
-                return Err(ConversationTextServiceError::ReceiptMismatch);
-            }
-            Ok(receipt)
-        } else if terminal_cancellation.is_some()
-            || unknown_terminal_cancellation.is_some()
-            || pre_effect_cancellation.is_some()
-            || no_admission_cancellation.is_some()
-        {
-            commit_terminal_cancellation_result(result, input.original.conversation_id)
-        } else {
-            commit_result(result, input.original.conversation_id)
-        }
-    }
-
-    fn scope(
-        &self,
-        context: &ApplicationCommandContext,
-        conversation_id: runne_domain::id::ConversationId,
-    ) -> IdempotencyScope {
-        IdempotencyScope {
-            runtime_authority_id: self.runtime_authority_id.clone(),
-            principal_id: context.principal_id.clone(),
-            operation: OperationTag::GenerateConversationText,
-            aggregate_scope: AggregateScope::ExistingConversation { conversation_id },
-        }
+        finish_result(
+            &self.repository,
+            result,
+            input.original.conversation_id,
+            TerminalCancellationOptions {
+                remote_artifact: remote_artifact_cancellation,
+                d2_tool_loop: d2_tool_loop_cancellation,
+                terminal: terminal_cancellation,
+                unknown_terminal: unknown_terminal_cancellation,
+                pre_effect: pre_effect_cancellation,
+                no_admission: no_admission_cancellation,
+                d2_restart,
+            },
+        )
     }
 }
+include!("finish/result.rs");

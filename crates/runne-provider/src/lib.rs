@@ -108,8 +108,10 @@ pub use fake::{ScriptedProvider, ScriptedProviderError};
 pub use id::{DispatchAttemptId, InvalidProviderId, ProviderCallId, ProviderId, ProviderStreamId};
 pub use model::{
     MAX_PROVIDER_TEXT_INPUT_BYTES, MAX_PROVIDER_TEXT_INPUT_TOTAL_BYTES, MAX_PROVIDER_TEXT_INPUTS,
-    ModelRef, ProviderCall, ProviderCallError, ProviderCapability, ProviderFinishReason,
-    ProviderInputRole, ProviderTextInput,
+    MAX_PROVIDER_TOOL_ARGUMENT_CONTEXT_BYTES, MAX_PROVIDER_TOOL_CALL_ID_BYTES,
+    MAX_PROVIDER_TOOL_CONTENT_BYTES, MAX_PROVIDER_TOOL_RESULT_BYTES, ModelRef, ProviderCall,
+    ProviderCallError, ProviderCapability, ProviderFinishReason, ProviderInputRole,
+    ProviderTextInput, ProviderToolDeclarationV1, ProviderToolNameV1, ProviderToolResultV1,
 };
 pub use port::{
     CancelDisposition, CancelRequest, DispatchError, DispatchRequest, DispatchRequestError,
@@ -144,4 +146,4 @@ pub use stream::{
     ProviderStreamEventKind, ProviderStreamItem, ProviderStreamValidator,
     ProviderTerminalDisposition, ProviderUsage, ProviderUsageError, StreamCursor, StreamError,
 };
-pub use text_profile::TextProviderProfile;
+pub use text_profile::{TextProviderProfile, ToolProviderProfile};

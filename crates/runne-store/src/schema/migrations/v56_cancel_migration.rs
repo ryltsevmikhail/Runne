@@ -1,5 +1,7 @@
 type V56TaskRunEventRow = (Vec<u8>, Vec<u8>, i64, Vec<u8>);
 
+use runne_domain::id::{AttemptId, TaskRunId};
+
 fn backfill_v56_cancel_fences(tx: &Transaction<'_>) -> SqliteResult<()> {
     use crate::codec::{StoreCodec, TaskRunEventCodec};
     use runne_domain::id::TaskRunId;
@@ -80,20 +82,26 @@ fn backfill_v56_cancel_fences(tx: &Transaction<'_>) -> SqliteResult<()> {
     Ok(())
 }
 
-fn v56_cancel_fences_cover_cancellations(connection: &Connection) -> SqliteResult<bool> {
+fn v56_cancel_fences_cover_cancellations(
+    connection: &Connection,
+    allow_v64_d2: bool,
+) -> SqliteResult<bool> {
     use crate::codec::{StoreCodec, TaskRunEventCodec};
     use runne_domain::id::TaskRunId;
     use runne_domain::task_run::TaskRunEvent;
     use runne_provider::DispatchAttemptId;
 
-    let events: Vec<(Vec<u8>, i64, Vec<u8>)> = connection
+    type CancellationEventRow = (Vec<u8>, Vec<u8>, i64, Vec<u8>);
+    let events: Vec<CancellationEventRow> = connection
         .prepare(
-            "SELECT aggregate_id,sequence,payload FROM events
+            "SELECT event_id,aggregate_id,sequence,payload FROM events
              WHERE aggregate_type=1 ORDER BY aggregate_id,sequence",
         )?
-        .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
+        .query_map([], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+        })?
         .collect::<Result<_, _>>()?;
-    for (taskrun, version, payload) in events {
+    for (event_id, taskrun, version, payload) in events {
         let decoded: Result<TaskRunEvent, _> = TaskRunEventCodec.decode(&payload);
         if !matches!(decoded, Ok(TaskRunEvent::CancellationRequested)) {
             continue;
@@ -115,6 +123,12 @@ fn v56_cancel_fences_cover_cancellations(connection: &Connection) -> SqliteResul
         else {
             continue;
         };
+        if allow_v64_d2 && has_d2_rounds(connection, taskrun, attempt)? {
+            if !v64_d2_cancel_fence_covers(connection, taskrun, attempt, &event_id, version)? {
+                return Ok(false);
+            }
+            continue;
+        }
         let mut statement = connection.prepare(
             "SELECT dispatch_attempt_id FROM provider_execution_admissions
              WHERE taskrun_id=?1 AND execution_attempt_id=?2 ORDER BY dispatch_attempt_id LIMIT 2",
@@ -158,4 +172,93 @@ fn v56_cancel_fences_cover_cancellations(connection: &Connection) -> SqliteResul
         }
     }
     Ok(true)
+}
+
+fn has_d2_rounds(
+    connection: &Connection,
+    taskrun: TaskRunId,
+    attempt: AttemptId,
+) -> SqliteResult<bool> {
+    connection.query_row(
+        "SELECT EXISTS(SELECT 1 FROM taskrun_provider_round_bindings
+         WHERE taskrun_id=?1 AND attempt_id=?2)",
+        rusqlite::params![taskrun.as_bytes(), attempt.as_bytes()],
+        |row| row.get(0),
+    )
+}
+
+fn v64_d2_cancel_fence_covers(
+    connection: &Connection,
+    taskrun: TaskRunId,
+    attempt: AttemptId,
+    event_id: &[u8],
+    cancel_version: i64,
+) -> SqliteResult<bool> {
+    let first: Option<(Vec<u8>, i64, i64, i64)> = connection
+        .query_row(
+            "SELECT node_id,node_epoch,fence,original_claim_version
+             FROM taskrun_provider_round_bindings
+             WHERE taskrun_id=?1 AND attempt_id=?2 ORDER BY round_index LIMIT 1",
+            rusqlite::params![taskrun.as_bytes(), attempt.as_bytes()],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        )
+        .optional()?;
+    let Some((node, epoch, fence, original)) = first else {
+        return Ok(false);
+    };
+    let (Ok(node_id), Ok(node_epoch), Ok(fence), Ok(original_claim_version), Ok(cancel_version_u64)) = (
+        <[u8; 16]>::try_from(node.as_slice()),
+        u64::try_from(epoch),
+        u64::try_from(fence),
+        u64::try_from(original),
+        u64::try_from(cancel_version),
+    ) else {
+        return Ok(false);
+    };
+    let evidence = runne_application::ports::D2ToolLoopCancellationEvidence {
+        node_id,
+        node_epoch,
+        fence,
+        cancellation_taskrun_version: cancel_version_u64,
+    };
+    if crate::store::verify_d2_cancelled_provider_rounds(
+        connection,
+        taskrun,
+        attempt,
+        evidence,
+        original_claim_version,
+        cancel_version_u64,
+    )
+    .is_err()
+    {
+        return Ok(false);
+    }
+    let latest: Option<Option<Vec<u8>>> = connection
+        .query_row(
+            "SELECT a.dispatch_attempt_id FROM taskrun_provider_round_bindings b
+             LEFT JOIN provider_execution_admissions a ON a.taskrun_id=b.taskrun_id
+               AND a.execution_attempt_id=b.attempt_id AND a.call_id=b.call_id
+             WHERE b.taskrun_id=?1 AND b.attempt_id=?2
+             ORDER BY b.round_index DESC LIMIT 1",
+            rusqlite::params![taskrun.as_bytes(), attempt.as_bytes()],
+            |row| row.get(0),
+        )
+        .optional()?;
+    let latest = latest.flatten();
+    let fences: Vec<(Vec<u8>, Vec<u8>, i64)> = connection
+        .prepare(
+            "SELECT dispatch_attempt_id,cancellation_event_id,cancellation_version
+             FROM taskrun_provider_cancel_fences WHERE taskrun_id=?1 AND taskrun_attempt_id=?2",
+        )?
+        .query_map(rusqlite::params![taskrun.as_bytes(), attempt.as_bytes()], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        })?
+        .collect::<Result<_, _>>()?;
+    match latest {
+        Some(dispatch) if fences.len() == 1 => Ok(
+            fences[0].0 == dispatch && fences[0].1 == event_id && fences[0].2 == cancel_version,
+        ),
+        None => Ok(fences.is_empty()),
+        _ => Ok(false),
+    }
 }

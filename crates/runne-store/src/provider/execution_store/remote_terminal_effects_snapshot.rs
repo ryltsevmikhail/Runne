@@ -36,10 +36,6 @@ fn load_remote_effects_snapshot_at(
     Option<runne_application::provider::ProviderRemoteEffectsSnapshot>,
     ProviderExecutionError,
 > {
-    use runne_application::provider::{
-        ProviderRemoteEffectsSnapshot, ProviderRemoteObservationProjection as Observation,
-    };
-
     let ids = crate::store::test_support_diagnostics::on_error(
         "remote.dispatch_lookup",
         remote_effect_dispatch_ids(transaction, taskrun_id, taskrun_attempt_id),
@@ -48,10 +44,63 @@ fn load_remote_effects_snapshot_at(
         if ids.is_empty() {
             return Ok(None);
         }
+        if ids.len() <= 3 {
+            let latest = crate::store::test_support_diagnostics::on_error(
+                "remote.d2_round_chain",
+                d2_latest_remote_dispatch(transaction, taskrun_id, taskrun_attempt_id),
+            )?;
+            let Some(latest) = latest else {
+                crate::store::test_support_diagnostics::record("remote.dispatch_ambiguous");
+                return Err(ProviderExecutionError::JournalCorrupt);
+            };
+            if !ids.iter().any(|dispatch| dispatch == &latest) {
+                return Err(ProviderExecutionError::JournalCorrupt);
+            }
+            return load_remote_effects_snapshot_for_dispatch(
+                transaction,
+                runtime_authority_id,
+                taskrun_id,
+                taskrun_attempt_id,
+                DispatchAttemptId::from_bytes(latest),
+                authenticator,
+                successor_eligibility,
+                now,
+            );
+        }
         crate::store::test_support_diagnostics::record("remote.dispatch_ambiguous");
         return Err(ProviderExecutionError::JournalCorrupt);
     };
     let dispatch = DispatchAttemptId::from_bytes(*dispatch);
+    load_remote_effects_snapshot_for_dispatch(
+        transaction,
+        runtime_authority_id,
+        taskrun_id,
+        taskrun_attempt_id,
+        dispatch,
+        authenticator,
+        successor_eligibility,
+        now,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn load_remote_effects_snapshot_for_dispatch(
+    transaction: &Transaction<'_>,
+    runtime_authority_id: &runne_application::ports::RuntimeAuthorityId,
+    taskrun_id: TaskRunId,
+    taskrun_attempt_id: AttemptId,
+    dispatch: DispatchAttemptId,
+    authenticator: Option<&dyn runne_application::provider::ProviderRemoteFactAuthenticator>,
+    successor_eligibility: runne_api::SuccessorEligibilityV1,
+    now: i64,
+) -> Result<
+    Option<runne_application::provider::ProviderRemoteEffectsSnapshot>,
+    ProviderExecutionError,
+> {
+    use runne_application::provider::{
+        ProviderRemoteEffectsSnapshot, ProviderRemoteObservationProjection as Observation,
+    };
+
     let record = crate::store::test_support_diagnostics::on_error(
         "remote.attempt_read",
         read_remote_attempt_in_transaction(transaction, dispatch),
@@ -160,7 +209,7 @@ fn remote_effect_dispatch_ids(
         .prepare(
             "SELECT dispatch_attempt_id FROM provider_remote_request_intents
              WHERE taskrun_id=?1 AND taskrun_attempt_id=?2
-             ORDER BY dispatch_attempt_id LIMIT 2",
+             ORDER BY dispatch_attempt_id LIMIT 4",
         )
         .map_err(|_| ProviderExecutionError::StoreUnavailable)?;
     let rows = statement
@@ -180,6 +229,8 @@ fn remote_effect_dispatch_ids(
     })
     .collect()
 }
+
+include!("remote_terminal_effects_snapshot_d2.rs");
 
 fn remote_expected_identity(
     binding: &runne_application::provider::ProviderRemoteAttemptBinding,

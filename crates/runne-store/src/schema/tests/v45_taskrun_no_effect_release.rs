@@ -17,7 +17,7 @@ fn v45_upgrades_v44_with_release_receipt_guards() {
         "inherited V44 admission"
     );
     assert_eq!(schema_marker(&connection), CURRENT_SCHEMA_VERSION);
-    assert!(v63_matches(&connection, CURRENT_SCHEMA_VERSION).unwrap());
+    assert!(v64_matches(&connection, CURRENT_SCHEMA_VERSION).unwrap());
     assert!(classify_existing_connection(&connection).is_ok());
 }
 
@@ -28,6 +28,6 @@ fn v45_admission_rejects_missing_receipt_guards() {
     connection
         .execute_batch("DROP TRIGGER global_command_id_from_release_v45;")
         .unwrap();
-    assert!(!v63_matches(&connection, CURRENT_SCHEMA_VERSION).unwrap());
+    assert!(!v64_matches(&connection, CURRENT_SCHEMA_VERSION).unwrap());
     assert!(classify_existing_connection(&connection).is_err());
 }

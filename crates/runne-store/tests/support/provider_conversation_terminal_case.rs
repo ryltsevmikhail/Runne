@@ -72,6 +72,8 @@ fn production_terminal_application_reconstructs_started_command_and_finishes_onc
         )
         .unwrap();
     let record = ProviderTerminalOutboxRecord {
+        application_kind:
+            runne_application::provider::ProviderTerminalApplicationKind::TextGeneration,
         outbox_id: [31; 16],
         attempt_id: DispatchAttemptId::from_bytes([32; 16]),
         source: runne_application::provider::ProviderTerminalOutboxSource::StreamJournal,

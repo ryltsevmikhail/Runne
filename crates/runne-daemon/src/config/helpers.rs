@@ -1,4 +1,36 @@
+#[path = "helpers/canonical_values.rs"]
+mod canonical_values;
+use canonical_values::{canonical_values_map, compute_digest};
+
 impl ConfigurationSnapshot {
+    /// Copy only the D2 finite-budget opt-in from a verified external snapshot.
+    /// Protected startup uses this without importing external DB/provider settings.
+    #[cfg(all(feature = "desktop-protected", target_os = "linux"))]
+    pub(crate) fn with_d2_tool_budget_from(&self, external: &Self) -> Self {
+        let mut snapshot = self.clone();
+        snapshot.d2_safe_tool_loop_budget = external.d2_safe_tool_loop_budget;
+        if snapshot.d2_safe_tool_loop_budget.is_some()
+            && let Some(source) = external.provenance.get("d2_safe_tool_loop_budget")
+        {
+            snapshot
+                .provenance
+                .insert("d2_safe_tool_loop_budget".into(), source.clone());
+        }
+        let values = canonical_values_map(
+            snapshot.schema_version,
+            &snapshot.db_path,
+            &snapshot.http_bind,
+            &snapshot.replay_integrity_key_path,
+            snapshot.max_in_flight,
+            snapshot.shutdown_timeout_ms,
+            snapshot.provider_activation.binding(),
+            Some(&snapshot.provider_activation_settings),
+            snapshot.d2_safe_tool_loop_budget,
+        );
+        snapshot.digest = compute_digest(&values);
+        snapshot
+    }
+
     /// Build a snapshot from defaults only (no system config file).
     pub fn from_defaults(defaults: &BuiltInDefaults) -> Self {
         let mut provenance = BTreeMap::new();
@@ -20,6 +52,7 @@ impl ConfigurationSnapshot {
             defaults.shutdown_timeout_ms,
             provider_activation.binding(),
             Some(&provider_settings),
+            None,
         );
 
         Self {
@@ -32,6 +65,7 @@ impl ConfigurationSnapshot {
             provider_activation,
             provider_activation_settings: provider_settings,
             secondary_profile_catalog: None,
+            d2_safe_tool_loop_budget: None,
             provenance,
             digest: compute_digest(&values),
         }
@@ -50,6 +84,12 @@ impl ConfigurationSnapshot {
         system_path: &Path,
     ) -> Result<Self, DaemonError> {
         let schema_version = defaults.schema_version;
+        if system
+            .d2_safe_tool_loop_budget
+            .is_some_and(|budget| budget.limits().is_none())
+        {
+            return Err(DaemonError::Config("invalid D2 tool-loop budget".into()));
+        }
         let db_path = system
             .db_path
             .as_deref()
@@ -123,6 +163,10 @@ impl ConfigurationSnapshot {
             "secondary_profile_catalog".into(),
             select_provenance(system.secondary_profile_catalog.is_some(), &sys_src),
         );
+        provenance.insert(
+            "d2_safe_tool_loop_budget".into(),
+            select_provenance(system.d2_safe_tool_loop_budget.is_some(), &sys_src),
+        );
 
         let values = canonical_values_map(
             schema_version,
@@ -133,6 +177,7 @@ impl ConfigurationSnapshot {
             shutdown_timeout_ms,
             provider_activation.binding(),
             Some(&provider_settings),
+            system.d2_safe_tool_loop_budget,
         );
 
         Ok(Self {
@@ -145,6 +190,7 @@ impl ConfigurationSnapshot {
             provider_activation,
             provider_activation_settings: provider_settings,
             secondary_profile_catalog: system.secondary_profile_catalog.clone(),
+            d2_safe_tool_loop_budget: system.d2_safe_tool_loop_budget,
             provenance,
             digest: compute_digest(&values),
         })
@@ -152,99 +198,6 @@ impl ConfigurationSnapshot {
 }
 
 // ── Digest helpers ────────────────────────────────────────────────────
-
-/// Build a `serde_json::Map` with sorted keys for canonical serialization.
-#[allow(clippy::too_many_arguments)]
-fn canonical_values_map(
-    schema_version: i64,
-    db_path: &str,
-    http_bind: &str,
-    replay_integrity_key_path: &str,
-    max_in_flight: u32,
-    shutdown_timeout_ms: u64,
-    provider_activation: &ProviderActivationBindingV1,
-    provider_settings: Option<&crate::provider_activation::ProviderActivationSettings>,
-) -> serde_json::Map<String, serde_json::Value> {
-    // Insert keys in alphabetical order — serde_json::Map is BTreeMap-backed,
-    // so iteration order matches insertion order, giving us canonical output.
-    let mut map = serde_json::Map::new();
-    map.insert("db_path".into(), serde_json::Value::String(db_path.into()));
-    map.insert(
-        "http_bind".into(),
-        serde_json::Value::String(http_bind.into()),
-    );
-    map.insert(
-        "max_in_flight".into(),
-        serde_json::Value::Number((max_in_flight).into()),
-    );
-    map.insert(
-        "schema_version".into(),
-        serde_json::Value::Number((schema_version).into()),
-    );
-    map.insert(
-        "shutdown_timeout_ms".into(),
-        serde_json::Value::Number((shutdown_timeout_ms).into()),
-    );
-    map.insert(
-        "replay_integrity_key_path".into(),
-        serde_json::Value::String(replay_integrity_key_path.into()),
-    );
-    map.insert(
-        "provider_activation".into(),
-        serde_json::json!({
-            "mode": provider_activation.mode().as_str(),
-            "profile_digest": hex::encode(provider_activation.profile_digest()),
-            "profile_id": provider_activation.profile_id(),
-        }),
-    );
-    if let Some(settings) = provider_settings {
-        map.insert(
-            "provider_activation_settings".into(),
-            serde_json::json!({
-                "vertex_project": settings.vertex_project.as_deref(),
-                "vertex_location": settings.vertex_location.as_deref(),
-                "radius_catalog_digest": settings.radius_catalog.as_ref().map(|bytes| hex::encode(Sha256::digest(bytes))),
-                "radius_model_id": settings.radius_model_id.as_deref(),
-                "radius_revision": settings.radius_revision.as_deref(),
-                "accounting_mode": settings.accounting_mode.map(|mode| match mode {
-                    crate::provider_activation::ProviderAccountingMode::Payg => "payg",
-                    crate::provider_activation::ProviderAccountingMode::Subscription => "subscription",
-                    crate::provider_activation::ProviderAccountingMode::TokenPlan => "token_plan",
-                }),
-                "responses_resource": settings.responses_resource.as_deref(),
-                "responses_deployment": settings.responses_deployment.as_deref(),
-                "responses_pricing_digest": settings.responses_pricing_digest.map(hex::encode),
-                "responses_input_micros_per_million": settings.responses_input_micros_per_million,
-                "responses_output_micros_per_million": settings.responses_output_micros_per_million,
-                "responses_cached_input_micros_per_million": settings.responses_cached_input_micros_per_million,
-                "responses_max_output_tokens": settings.responses_max_output_tokens,
-                "responses_context_tokens": settings.responses_context_tokens,
-                "cloud_region_or_account": settings.cloud_region_or_account.as_deref(),
-                "cloud_gateway": settings.cloud_gateway.as_deref(),
-                "cloud_input_micros_per_million": settings.cloud_input_micros_per_million,
-                "cloud_output_micros_per_million": settings.cloud_output_micros_per_million,
-                "cloud_cached_input_micros_per_million": settings.cloud_cached_input_micros_per_million,
-                "cloud_context_tokens": settings.cloud_context_tokens,
-                "cloud_max_output_tokens": settings.cloud_max_output_tokens,
-                "cloud_max_model_output_tokens": settings.cloud_max_model_output_tokens,
-                "cloud_max_input_entries": settings.cloud_max_input_entries,
-                "cloud_max_input_entry_bytes": settings.cloud_max_input_entry_bytes,
-                "cloud_max_input_bytes": settings.cloud_max_input_bytes,
-                "cloud_max_request_bytes": settings.cloud_max_request_bytes,
-                "cloud_max_response_frame_bytes": settings.cloud_max_response_frame_bytes,
-                "cloud_gateway_billing": settings.cloud_gateway_billing.as_deref(),
-            }),
-        );
-    }
-    map
-}
-
-/// Compute SHA-256 hex digest of canonical JSON (no whitespace, sorted keys).
-fn compute_digest(values: &serde_json::Map<String, serde_json::Value>) -> String {
-    let json = serde_json::to_string(values).expect("canonical JSON serialization is infallible");
-    let hash = Sha256::digest(json.as_bytes());
-    hex::encode(hash)
-}
 
 // ── Provenance helpers ────────────────────────────────────────────────
 

@@ -80,6 +80,7 @@ mod sourcecraft_persistence_tests {
             expected_settlement
         );
         let record = ProviderTerminalOutboxRecord {
+            application_kind: ProviderTerminalApplicationKind::TextGeneration,
             outbox_id,
             attempt_id: context.attempt_id,
             source: runne_application::provider::ProviderTerminalOutboxSource::StreamJournal,

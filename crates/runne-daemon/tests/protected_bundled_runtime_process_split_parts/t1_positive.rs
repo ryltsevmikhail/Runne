@@ -1,6 +1,10 @@
 use super::*;
+#[path = "t1_positive/d2_pending.rs"]
+mod d2_pending;
 #[path = "t1_positive/trust.rs"]
 mod trust;
+#[path = "t1_positive/workspace.rs"]
+mod workspace;
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "launched with an explicit test-only fixture environment by the parent test"]
 async fn t1_protected_provider_http_and_runtime_client_replay_child() {
@@ -97,24 +101,13 @@ async fn t1_protected_provider_http_and_runtime_client_replay_child() {
         .get_workspace(workspace_id)
         .await
         .expect("bound workspace metadata");
-    if !workspace.is_open() {
-        let open_identity = runne_runtime_client::CommandIdentity::new(
-            runne_runtime_client::CanonicalId::now_v7(),
-            format!("t1-open-{}", runne_runtime_client::CanonicalId::now_v7()),
-        )
-        .expect("open command identity");
-        client
-            .open_workspace(
-                runne_runtime_client::ExistingWorkspaceRequest::new(
-                    open_identity,
-                    workspace_id,
-                    workspace.version(),
-                )
-                .expect("open request"),
-            )
-            .await
-            .expect("open bound workspace");
-    }
+    workspace::open_if_closed(
+        &client,
+        workspace_id,
+        workspace.is_open(),
+        workspace.version(),
+    )
+    .await;
     trust::confirm_rebound_project_trust(
         &mut supervisor,
         &client,
@@ -129,7 +122,22 @@ async fn t1_protected_provider_http_and_runtime_client_replay_child() {
         .await
         .expect("open trusted runtime conversation");
     let conversation_id =
-        runne_runtime_client::CanonicalId::parse(&before.conversation_id).expect("conversation id");
+        runne_runtime_client::CanonicalId::parse(&before.conversation_id).expect("id");
+    if d2_pending::dispatch_if_requested(
+        &client,
+        conversation_id,
+        workspace_id,
+        temporary.path(),
+        &daemon_db,
+        &runtime_root,
+        &mut supervisor,
+        executable.path(),
+        &session_bus_socket,
+    )
+    .await
+    {
+        return;
+    }
     let scope = runne_runtime_client::ReplayScope::new(
         runne_runtime_client::ReplayAggregateKind::Conversation,
         conversation_id,

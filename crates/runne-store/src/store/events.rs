@@ -224,11 +224,12 @@ impl AppEventStore for StoreTransaction {
                 .map_err(|_| EventStoreError::CorruptData)?;
             let sensitivity = match sensitivity_value {
                 0 => Sensitivity::Public,
-                2 if matches!(&payload, TaskRunEvent::TaskRunSubmitted { .. }) => {
-                    Sensitivity::Sensitive
-                }
+                2 => Sensitivity::Sensitive,
                 _ => return Err(EventStoreError::CorruptData),
             };
+            if !payload.accepts_sensitivity(sensitivity) {
+                return Err(EventStoreError::CorruptData);
+            }
             let aggregate_id = AggregateId::TaskRun(taskrun_id);
             if integrity_profile != INTEGRITY_PROFILE_V1 {
                 return Err(EventStoreError::CorruptData);

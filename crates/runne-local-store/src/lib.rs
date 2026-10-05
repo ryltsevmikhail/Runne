@@ -66,6 +66,7 @@ mod security_schema_v7;
 #[allow(clippy::redundant_pub_crate)]
 mod security_schema_v8;
 mod security_schema_v9;
+mod security_state_receipt;
 #[allow(clippy::redundant_pub_crate)]
 mod security_state_root;
 mod security_v6_migration;
@@ -78,8 +79,8 @@ pub use security_ledger_v7::{
     NormalizedMutationCommand,
 };
 pub use security_recovery_read_types::{
-    MAX_MUTATION_RECOVERY_RECORDS, MutationRecoveryBatch, MutationRecoveryBinding,
-    MutationRecoveryEvidence, MutationRecoveryLimit,
+    MAX_MUTATION_RECOVERY_RECORDS, MutationReceiptV7, MutationRecoveryBatch,
+    MutationRecoveryBinding, MutationRecoveryEvidence, MutationRecoveryLimit,
 };
 
 #[cfg(feature = "test-support")]

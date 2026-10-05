@@ -1,5 +1,9 @@
+#[path = "support/online_credential_fixture.rs"]
+mod online_credential_fixture;
 #[path = "support/online_proof.rs"]
 mod online_proof;
+#[path = "support/online_stream_fixture.rs"]
+mod online_stream_fixture;
 #[path = "support/validated_reopen.rs"]
 mod validated_reopen;
 
@@ -12,6 +16,8 @@ mod project_workspace_sqlite {
     mod claimed_text_authority_scope;
     mod claimed_text_taskrun;
     mod command_id;
+    mod d2_failure_recovery;
+    mod d2_tool_loop_cancellation;
     mod durability;
     mod execution_input;
     mod execution_input_submit_origin;
@@ -35,6 +41,8 @@ mod project_workspace_sqlite {
     mod taskrun_claimed_cancellation;
     mod taskrun_legacy_cancellation;
     mod taskrun_queue_scan;
+    mod taskrun_tool_budget;
+    mod taskrun_tool_invocation_positive;
     mod text_fence;
     mod unknown_successor;
     mod workspace_snapshot;

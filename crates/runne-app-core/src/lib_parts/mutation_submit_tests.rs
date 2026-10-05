@@ -69,6 +69,41 @@ fn submit_prompt_must_be_nonempty_and_within_the_message_bound() {
 }
 
 #[tokio::test]
+async fn managed_token_reuses_exact_command_and_rejects_rebinding() {
+    let directory = tempfile::tempdir().expect("directory");
+    let core = AppCore::open_with_mock_runtime(
+        &directory.path().join("profile.sqlite3"),
+        mutation_test_client("authority-a", "lineage-a", 1),
+    )
+    .expect("core");
+    let conversation = CanonicalId::parse("018f2e3a-7000-7000-8000-000000000901").unwrap();
+    let workspace = CanonicalId::parse("018f2e3a-7000-7000-8000-000000000902").unwrap();
+    let token = CanonicalId::parse("018f2e3a-7000-7000-8000-000000000999").unwrap();
+    let build = |workspace, prompt: &str| {
+        MutationRequest::submit_task_run_with_identity(
+            token,
+            conversation,
+            workspace,
+            prompt.to_owned(),
+        )
+        .expect("managed request")
+    };
+    let first = core.prepare_mutation(build(workspace, "managed task")).await.expect("first");
+    let duplicate = core.prepare_mutation(build(workspace, "managed task")).await.expect("duplicate");
+    assert_eq!(first.anchored_record.idempotency_key(), token.to_string());
+    assert_eq!(duplicate.anchored_record.idempotency_key(), token.to_string());
+    assert!(matches!(
+        core.prepare_mutation(build(workspace, "changed prompt")).await,
+        Err(AppCoreError::MutationUnavailable)
+    ));
+    let other_workspace = CanonicalId::parse("018f2e3a-7000-7000-8000-000000000903").unwrap();
+    assert!(matches!(
+        core.prepare_mutation(build(other_workspace, "managed task")).await,
+        Err(AppCoreError::MutationUnavailable)
+    ));
+}
+
+#[tokio::test]
 async fn whitespace_submit_is_rejected_before_ledger_preparation() {
     let directory = tempfile::tempdir().expect("directory");
     let core = AppCore::open_with_mock_runtime(

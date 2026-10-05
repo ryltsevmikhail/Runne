@@ -12,7 +12,9 @@ use std::path::Path;
 use std::time::{Duration, Instant};
 
 #[derive(Clone, Copy)]
-pub(super) enum Point {
+pub(in crate::application::exec_taskrun_worker) enum Point {
+    AfterApprovalBeforeLease,
+    AfterClaimBeforeArea,
     BeforeRelease,
     AfterExit,
     AfterDurableTerminal,
@@ -26,6 +28,8 @@ impl Point {
     ))]
     const fn mode(self) -> &'static str {
         match self {
+            Self::AfterApprovalBeforeLease => "approved-before-lease",
+            Self::AfterClaimBeforeArea => "claimed-before-area",
             Self::BeforeRelease => "pre-release",
             Self::AfterExit => "after-exit",
             Self::AfterDurableTerminal => "after-terminal",
@@ -39,6 +43,8 @@ impl Point {
     ))]
     const fn file_stem(self) -> &'static str {
         match self {
+            Self::AfterApprovalBeforeLease => "approved-before-lease",
+            Self::AfterClaimBeforeArea => "claimed-before-area",
             Self::BeforeRelease => "pre-release",
             Self::AfterExit => "after-exit",
             Self::AfterDurableTerminal => "after-terminal",
@@ -46,7 +52,7 @@ impl Point {
     }
 }
 
-pub(super) fn pause_at(point: Point) -> Result<(), ()> {
+pub(in crate::application::exec_taskrun_worker) fn pause_at(point: Point) -> Result<(), ()> {
     #[cfg(not(all(
         feature = "test-support",
         feature = "desktop-protected",

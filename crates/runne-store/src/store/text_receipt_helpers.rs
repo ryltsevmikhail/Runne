@@ -1,6 +1,13 @@
 use super::event_context::*;
 use super::parse_helpers::*;
 use super::*;
+use sha2::{Digest, Sha256};
+
+mod d2;
+use d2::validate_d2_completed_receipt;
+pub(crate) mod d2_failure;
+pub(crate) use d2_failure::validate_d2_failed_receipt;
+mod d2_restart_shape;
 
 fn validate_text_receipt_origin(
     connection: &Connection,
@@ -100,7 +107,7 @@ pub(super) fn lookup_text_receipt(
             let stored_scope = IdempotencyScopeCodec
                 .decode(&stored_scope)
                 .map_err(|_| storage_failure(StorageFailureKind::IntegrityViolation))?;
-            let version_valid = match stored_result.phase {
+            let legacy_version_valid = match stored_result.phase {
                 TextGenerationPhase::Started => stored_result.taskrun_version == 4,
                 TextGenerationPhase::Completed
                 | TextGenerationPhase::Rejected
@@ -110,11 +117,42 @@ pub(super) fn lookup_text_receipt(
                             && stored_result.taskrun_version == 6)
                 }
             };
-            if stored_scope.operation != OperationTag::GenerateConversationText || !version_valid {
+            let d2_linkage_present = stored_result.phase == TextGenerationPhase::Completed
+                && connection
+                    .query_row(
+                        "SELECT EXISTS(SELECT 1 FROM d2_tool_loop_completions WHERE command_id=?1)",
+                        [command_id.as_bytes()],
+                        |row| row.get::<_, bool>(0),
+                    )
+                    .map_err(map_commit_read_error)?;
+            let d2_version_valid = d2_linkage_present
+                && validate_d2_completed_receipt(connection, command_id, &stored_result)?;
+            let d2_failure_valid = stored_result.phase == TextGenerationPhase::Rejected
+                && validate_d2_failed_receipt(
+                    connection,
+                    command_id,
+                    idempotency_key,
+                    &stored_scope,
+                    &stored_result,
+                )?;
+            let d2_cancellation_valid = stored_result.phase == TextGenerationPhase::Rejected
+                && super::terminal_cancellation_receipt::validate_terminal_cancellation_receipt(
+                    connection,
+                    &stored_result,
+                )
+                .is_ok();
+            if stored_scope.operation != OperationTag::GenerateConversationText
+                || (!legacy_version_valid
+                    && !d2_version_valid
+                    && !d2_failure_valid
+                    && !d2_cancellation_valid)
+                || (d2_linkage_present && !d2_version_valid)
+            {
                 return Err(storage_failure(StorageFailureKind::IntegrityViolation));
             }
             if stored_result.phase == TextGenerationPhase::Rejected
-                && stored_result.taskrun_version == 6
+                && ((stored_result.taskrun_version == 6 && !d2_failure_valid)
+                    || d2_cancellation_valid)
             {
                 super::terminal_cancellation_receipt::validate_terminal_cancellation_receipt(
                     connection,

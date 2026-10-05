@@ -197,6 +197,7 @@ fn terminal_commit_exists(
                     outbox.profile_digest, outbox.ciphertext, outbox.plaintext_len,
                     outbox.plaintext_digest, outbox.settlement_digest,
                     outbox.application_idempotency_key,
+                    app.application_kind,
                     accounting.input_tokens, accounting.output_tokens,
                     accounting.cached_input_tokens, accounting.reasoning_output_tokens,
                     accounting.charge_micros, accounting.currency,
@@ -206,6 +207,9 @@ fn terminal_commit_exists(
                ON keys.key_id = outbox.key_id AND keys.key_version = outbox.key_version
              JOIN provider_accounting_settlements accounting
                ON accounting.dispatch_attempt_id = outbox.dispatch_attempt_id
+             LEFT JOIN provider_terminal_application_kinds app
+               ON app.dispatch_attempt_id=outbox.dispatch_attempt_id
+              AND app.outbox_id=outbox.outbox_id
             WHERE outbox.outbox_id = ?1 OR outbox.dispatch_attempt_id = ?2",
             params![
                 request.outbox_id().as_slice(),
@@ -227,10 +231,10 @@ fn terminal_commit_exists(
                 )
                 .map_err(|_| rusqlite::Error::InvalidQuery)?;
                 let usage = runne_provider::ProviderUsage::new(
-                    nonnegative_u64(row.get(16)?)?,
                     nonnegative_u64(row.get(17)?)?,
                     nonnegative_u64(row.get(18)?)?,
                     nonnegative_u64(row.get(19)?)?,
+                    nonnegative_u64(row.get(20)?)?,
                 )
                 .map_err(|_| rusqlite::Error::InvalidQuery)?;
                 Ok((
@@ -244,10 +248,11 @@ fn terminal_commit_exists(
                     fixed_bytes::<32>(row.get(10)?)?,
                     fixed_bytes::<32>(row.get(14)?)?,
                     row.get::<_, String>(15)?,
+                    row.get::<_, i64>(16)?,
                     usage,
-                    nonnegative_u64(row.get(20)?)?,
-                    row.get::<_, String>(21)?,
-                    fixed_bytes::<32>(row.get(22)?)?,
+                    nonnegative_u64(row.get(21)?)?,
+                    row.get::<_, String>(22)?,
+                    fixed_bytes::<32>(row.get(23)?)?,
                 ))
             },
         )
@@ -268,10 +273,11 @@ fn terminal_commit_exists(
         || existing.7 != *request.profile_digest()
         || existing.8 != *request.settlement_digest()
         || existing.9 != request.application_idempotency_key()
-        || existing.10 != request.usage()
-        || existing.11 != request.charge_micros()
-        || existing.12 != request.currency()
-        || existing.13 != attempt.pricing_revision_digest
+        || existing.10 != encode_application_kind(request.application_kind())
+        || existing.11 != request.usage()
+        || existing.12 != request.charge_micros()
+        || existing.13 != request.currency()
+        || existing.14 != attempt.pricing_revision_digest
         || !matches!(attempt.state, 4 | 5)
     {
         return Err(ProviderExecutionError::TerminalConflict);

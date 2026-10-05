@@ -56,6 +56,10 @@ fn persist_unknown_terminal(
                 execution_i64(payload.plaintext_len())?, payload.plaintext_digest().as_slice(),
                 authorization.commitment().as_slice(), application_key, now],
         ).map_err(|_| ProviderExecutionError::TerminalConflict)?;
+        connection.execute(
+            "INSERT INTO provider_terminal_application_kinds(dispatch_attempt_id,outbox_id,application_kind) VALUES(?1,?2,1)",
+            params![selector.attempt_id().as_bytes().as_slice(), outbox_id.as_slice()],
+        ).map_err(|_| ProviderExecutionError::TerminalConflict)?;
     }
     let usage = authorization.usage();
     let (usage_present, input, output_tokens, cached, reasoning) =

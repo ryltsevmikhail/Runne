@@ -140,6 +140,8 @@ pub struct SystemConfig {
     pub provider_activation: Option<ExternalProviderActivationConfig>,
     /// Independent, explicit catalog grant; never a primary route selector.
     pub secondary_profile_catalog: Option<SecondaryProfileCatalogConfig>,
+    /// Finite owner-controlled D2 provider budget; absent by default.
+    pub d2_safe_tool_loop_budget: Option<D2SafeToolLoopBudgetConfig>,
 }
 
 /// Explicit owner-controlled, non-secret external provider selection.
@@ -271,6 +273,7 @@ pub struct ConfigurationSnapshot {
     /// Raw owner-private optional catalog input; startup must verify its source
     /// before turning it into opaque runtime evidence.
     pub(crate) secondary_profile_catalog: Option<SecondaryProfileCatalogConfig>,
+    pub(crate) d2_safe_tool_loop_budget: Option<D2SafeToolLoopBudgetConfig>,
 
     /// Per-field provenance map (field name → source).
     pub provenance: BTreeMap<String, FieldSource>,

@@ -230,6 +230,20 @@ impl RootHandleAdmissionAuthority {
 }
 
 impl RootAdmissionGateway {
+    /// D2 target check runs frozen T1 exclusion and fresh source admission
+    /// before opening metadata descriptors.
+    pub(in crate::application) fn admit_d2_tool_target(
+        &self,
+        workspace_id: WorkspaceId,
+        path: &str,
+    ) -> Result<(), TrustSourceError> {
+        if super::diff_baseline::sensitive_path(path) {
+            return Err(TrustSourceError::Denied);
+        }
+        self.admit_workspace_source(workspace_id, SourceChannel::FilesRead, Some(path))
+            .map(|_| ())
+    }
+
     /// Stage-1 pre-read admission; must run before any root access.
     pub(super) fn admit_workspace_source(
         &self,

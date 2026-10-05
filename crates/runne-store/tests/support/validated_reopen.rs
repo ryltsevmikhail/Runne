@@ -232,7 +232,7 @@ pub(super) fn open_validated_connection(
     )
 }
 
-fn read_main_database_identity(
+pub(super) fn read_main_database_identity(
     connection: &Connection,
 ) -> Result<MainDatabaseIdentity, SqliteError> {
     let authority_id = read_authority_id(connection)?.ok_or(SqliteError::InvalidQuery)?;

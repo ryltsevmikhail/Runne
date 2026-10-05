@@ -7,6 +7,7 @@ include!("provider_execution_parts/part_01.rs");
 include!("provider_execution_parts/part_02.rs");
 include!("provider_execution_parts/part_02_runtime_service.rs");
 include!("provider_execution_parts/part_03.rs");
+include!("provider_execution_parts/part_28_tool_aware.rs");
 include!("provider_execution_parts/part_09.rs");
 include!("provider_execution_parts/part_10.rs");
 include!("provider_execution_parts/part_04.rs");
@@ -32,6 +33,8 @@ include!("provider_execution_parts/part_25_unknown_journal.rs");
 include!("provider_execution_parts/part_22_terminal_assembly.rs");
 include!("provider_execution_parts/part_23_unknown_commit.rs");
 include!("provider_execution_parts/part_27_unknown_effect_auth.rs");
+include!("provider_execution_parts/part_29_tool_payload.rs");
+include!("provider_execution_parts/part_30_tool_stop_recovery.rs");
 #[cfg(test)]
 #[path = "provider_execution_parts/part_13_remote_recovery_tests.rs"]
 mod remote_recovery_tests;

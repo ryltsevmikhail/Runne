@@ -159,7 +159,7 @@ fn managed_latest_schema_rejects_missing_inherited_cleanup_guard() {
         let connection = open_managed_connection(&path, ConnectionMode::Writer).unwrap();
         apply_migrations(&connection).unwrap();
         assert_eq!(schema_marker(&connection), CURRENT_SCHEMA_VERSION);
-        assert!(v63_matches(&connection, CURRENT_SCHEMA_VERSION).unwrap());
+        assert!(v64_matches(&connection, CURRENT_SCHEMA_VERSION).unwrap());
         drop(connection);
 
         // Prove a valid latest-schema database reopens before corruption.

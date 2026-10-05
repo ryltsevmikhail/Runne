@@ -53,108 +53,7 @@ fn handle_window_event(window: &tauri::Window, event: &WindowEvent) {
     }
 }
 
-fn setup_app(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
-    let profile_directory = app.path().app_data_dir()?;
-    #[cfg(target_os = "linux")]
-    ensure_linux_profile_directory_private(&profile_directory)?;
-    #[cfg(not(target_os = "linux"))]
-    std::fs::create_dir_all(&profile_directory)?;
-    app.manage(crate::LocalModelState::new(
-        profile_directory.join("local-engine").join("models"),
-    ));
-    let profile_lock = ProfileLock::acquire(&profile_directory.join("profile.lock"))?;
-    let arguments: Vec<_> = std::env::args_os().skip(1).collect();
-    let provider_selection = crate::provider_selection::provider_selection(arguments.iter().cloned())?;
-    #[cfg(target_os = "linux")]
-    let approve_linux_enrollment = linux_enrollment_approval_requested(&arguments)?;
-    let runtime_mode = select_runtime_mode(arguments.iter().cloned())?;
-    if provider_selection.is_explicit() && runtime_mode != RuntimeMode::Bundled {
-        return Err("provider selection requires bundled runtime".into());
-    }
-    #[cfg(target_os = "linux")]
-    if approve_linux_enrollment && runtime_mode != RuntimeMode::Bundled {
-        return Err("activation requires bundled runtime".into());
-    }
-    let core = Arc::new(AppCore::open_production(
-        &profile_directory.join("profile.sqlite3"),
-        runtime_mode,
-    )?);
-    let mut monitor = None;
-    let lifecycle = match runtime_mode {
-        RuntimeMode::ExternalLocal => RuntimeLifecycleManager::external(),
-        RuntimeMode::Bundled => match std::env::current_exe()
-            .map_err(|_| RuntimeFailureCode::BundledExecutableUnavailable)
-            .and_then(|executable| {
-                BundledRuntimeController::discover_with_provider_activation(
-                    Arc::clone(&core),
-                    &executable,
-                    &profile_directory.join("bundled-runtime"),
-                    provider_selection.binding(),
-                )
-            }) {
-            Ok(controller) => {
-                #[cfg(target_os = "linux")]
-                crate::provider_credential_enrollment::linux_activation::install_managed_context(&controller);
-                monitor = Some(Arc::clone(&controller));
-                RuntimeLifecycleManager::bundled_with_native_root(controller)
-            }
-            Err(failure) => {
-                tauri::async_runtime::block_on(core.mark_bundled_runtime_failed(failure))?;
-                RuntimeLifecycleManager::bundled_unavailable()
-            }
-        },
-    };
-    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-    let qualification_admission =
-        crate::bundled_runtime::qualification_ticket::admit_inherited_qualification_admission(
-            monitor
-                .as_deref()
-                .map(BundledRuntimeController::qualification_admission),
-        )?;
-    let notification_core = Arc::clone(&core);
-    let notification_state = Arc::new(crate::notifications::NotificationState::default());
-    app.manage(profile_lock);
-    app.manage(core);
-    app.manage(crate::updater_status::UpdateStatusStore::new(
-        &profile_directory.join("bundled-runtime"),
-    ));
-    let _ = app
-        .state::<crate::updater_status::UpdateStatusStore>()
-        .begin_health_check_if_required();
-    app.manage(Arc::clone(&notification_state));
-    app.state::<crate::external_activation::ActivationManager>()
-        .forward(app.handle(), std::env::args_os().skip(1));
-    app.manage(ConversationSubscriptionManager::new());
-    app.manage(TaskRunSubscriptionManager::new());
-    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-    app.manage(qualification_admission);
-    app.manage(lifecycle);
-    #[cfg(target_os = "linux")]
-    if approve_linux_enrollment {
-        start_linux_enrollment_approval(app.handle().clone());
-    }
-    if let Some(controller) = monitor.take() {
-        controller.spawn_monitor(app.handle().clone());
-    }
-    drop(monitor);
-    tray::install(app.handle())?;
-    let notification_app = app.handle().clone();
-    tauri::async_runtime::spawn(async move {
-        loop {
-            tokio::time::sleep(std::time::Duration::from_secs(15)).await;
-            if notification_app.get_webview_window("main").is_none() {
-                break;
-            }
-            let _ = crate::notifications::sync_notifications_inner(
-                &notification_app,
-                &notification_core,
-                notification_state.as_ref(),
-            )
-            .await;
-        }
-    });
-    Ok(())
-}
+include!("setup_app.rs");
 
 fn handle_run_event(app: &tauri::AppHandle, event: &RunEvent) {
     if !matches!(event, RunEvent::ExitRequested { .. } | RunEvent::Exit) {
@@ -187,6 +86,19 @@ fn handle_run_event(app: &tauri::AppHandle, event: &RunEvent) {
     reason = "the Tauri builder is kept together as one declarative registration list"
 )]
 pub fn run() {
+    run_with_identity(false);
+}
+
+#[cfg(all(target_os = "linux", feature = "test-support"))]
+pub fn run_gui_qualification() {
+    run_with_identity(true);
+}
+
+#[allow(
+    clippy::too_many_lines,
+    reason = "the Tauri builder is kept together as one declarative registration list"
+)]
+fn run_with_identity(gui_qualification: bool) {
     let activations = crate::external_activation::ActivationManager::default();
     let second_instance_activations = activations.clone();
     let (selections, prepared) = directory_managers();
@@ -198,14 +110,28 @@ pub fn run() {
         crate::destructive_intent::ApprovalIntentManager::new(std::time::Duration::from_secs(30))
             .expect("fixed approval intent lifetime is valid");
     let credential_intents = credential_intent_registry();
-    let app = tauri::Builder::default()
+    let mut builder = tauri::Builder::default()
         .manage(selections)
         .manage(prepared)
         .manage(destructive_intents)
         .manage(approval_intents)
         .manage(credential_intents)
         .manage(activations)
-        .plugin(tauri_plugin_single_instance::init(
+        .plugin(tauri_plugin_dialog::init())
+        .on_page_load(|webview, payload| {
+            fence_page_load(webview, payload);
+            #[cfg(all(target_os = "linux", feature = "test-support"))]
+            crate::gui_qualification::on_page_load(webview, payload);
+        })
+        .on_window_event(handle_window_event)
+        .setup(setup_app)
+        .invoke_handler(managed_task_run_handler!());
+    #[cfg(not(all(target_os = "linux", feature = "test-support")))]
+    let _ = gui_qualification;
+    #[cfg(not(all(target_os = "linux", feature = "test-support")))]
+    let gui_qualification = false;
+    if !gui_qualification {
+        builder = builder.plugin(tauri_plugin_single_instance::init(
             move |app, args, _cwd| {
                 second_instance_activations.forward(app, args);
                 if let Some(window) = app.get_webview_window("main") {
@@ -214,87 +140,20 @@ pub fn run() {
                     let _ = window.set_focus();
                 }
             },
-        ))
-        .plugin(tauri_plugin_dialog::init())
-        .on_page_load(fence_page_load)
-        .on_window_event(handle_window_event)
-        .setup(setup_app)
-        .invoke_handler(tauri::generate_handler![
-            get_bootstrap,
-            set_theme,
-            get_locale,
-            set_locale,
-            get_shortcuts,
-            set_shortcuts,
-            get_device_status,
-            get_provider_status,
-            get_provider_quota,
-            get_provider_catalog,
-            local_model_stage,
-            local_model_admit,
-            local_model_list,
-            local_model_discard,
-            get_provider_credential_enrollment_status,
-            request_provider_credential_intent,
-            get_update_status,
-            check_update,
-            download_update,
-            prepare_update_install,
-            crate::notifications::sync_notifications,
-            list_projects,
-            list_canonical_projects,
-            create_runtime_project,
-            create_runtime_workspace,
-            open_runtime_workspace,
-            get_project,
-            get_canonical_project,
-            rename_runtime_project,
-            get_workspace,
-            get_canonical_workspace,
-            get_project_trust_control,
-            request_project_trust_control,
-            list_workspace_files,
-            read_workspace_file,
-            list_workspace_changes,
-            read_workspace_diff,
-            start_process,
-            get_process,
-            read_process_output,
-            stop_process,
-            open_workspace_editor,
-            get_task_run_timeline,
-            get_task_run_effects,
-            list_pending_approvals,
-            get_approval,
-            prepare_approval_decision,
-            consume_approval_decision,
-            resync_task_run_timeline,
-            cancel_task_run,
-            supersede_unknown_task_run,
-            submit_task_run,
-            subscribe_task_run_timeline,
-            ack_task_run_update,
-            cancel_task_run_subscription,
-            open_workspace_conversation, resync_workspace_conversation, send_workspace_message,
-            subscribe_workspace_conversation, open_text_only_conversation,
-            resync_text_only_conversation, send_text_only_message, subscribe_text_only_conversation,
-            ack_conversation_update,
-            cancel_conversation_subscription,
-            acquire_renderer_generation,
-            request_directory_selection,
-            prepare_selected_workspace,
-            open_selected_workspace,
-            retry_open_selected_workspace,
-            prepare_destructive_project_action,
-            dispatch_destructive_project_action,
-            get_diagnostics,
-            diagnostics_export::get_diagnostics_export_preview,
-            diagnostics_export::export_diagnostics,
-            operational_telemetry_command::get_operational_telemetry,
-            connect_runtime,
-            get_pending_external_activation,
-        ])
-        .build(tauri::generate_context!())
+        ));
+    }
+    let context = qualification_context(gui_qualification);
+    let app = builder
+        .build(context)
         .expect("failed to initialize Runne desktop application");
     app.run(|app, event| handle_run_event(app, &event));
+}
+
+fn qualification_context(gui_qualification: bool) -> tauri::Context<tauri::Wry> {
+    #[cfg(all(target_os = "linux", feature = "test-support"))]
+    if gui_qualification {
+        return tauri::generate_context!("tauri.gui-qualification.conf.json");
+    }
+    let _ = gui_qualification;
+    tauri::generate_context!()
 }

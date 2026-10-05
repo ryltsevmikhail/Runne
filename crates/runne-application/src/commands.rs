@@ -158,6 +158,15 @@ pub enum ConversationTextCompletion {
     NoProviderAdmissionCancellation {
         evidence: crate::ports::ProviderNoAdmissionCancellationEvidence,
     },
+    /// The bounded D2 tool loop was cancelled and all local invocation areas
+    /// have either never launched or have exact durable empty-area proof.
+    D2ToolLoopCancellation {
+        evidence: crate::ports::D2ToolLoopCancellationEvidence,
+    },
+    /// A same-node restart stopped a D2 attempt before its first loop cycle.
+    D2ToolLoopRestart {
+        evidence: crate::ports::D2ToolLoopRestartEvidence,
+    },
 }
 
 #[derive(Debug, Clone)]

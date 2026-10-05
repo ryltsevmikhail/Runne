@@ -6,6 +6,7 @@ import runtimeRussian from './russian-runtime'
 import providerSurfaces from './provider-surfaces-ru'
 import projectTrustControl from './project-trust-control-ru'
 import taskRunEffects from './task-run-effects-ru'
+import managedWorkflows from './managed-workflows-ru'
 
 const russian: Record<keyof typeof english, string> = {
   'settings.title': 'Настройки',
@@ -288,6 +289,7 @@ const russian: Record<keyof typeof english, string> = {
   ...providerSurfaces,
   ...projectTrustControl,
   ...taskRunEffects,
+  ...managedWorkflows,
 }
 
 export default russian

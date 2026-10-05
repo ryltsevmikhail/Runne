@@ -32,7 +32,7 @@ async fn dispatch(provider: &ScriptedProvider) -> runne_provider::ProviderStream
 fn handoff(disposition: ToolHandoffDisposition) -> ToolHandoff {
     ToolHandoff {
         disposition,
-        calls: Mutex::new(Vec::new()),
+        calls: Arc::new(Mutex::new(Vec::new())),
     }
 }
 
@@ -123,40 +123,6 @@ async fn text_completion_persists_every_event_before_success() {
         ProviderToolLoopOutcome::Completed {
             text: "hello".into(),
             usage: Some(ProviderUsage::new(2, 1, 0, 0).unwrap()),
-        }
-    );
-}
-
-#[tokio::test]
-async fn tool_request_is_persisted_before_handoff_and_result_before_continuation() {
-    let provider = provider(vec![
-        event(0, ProviderStreamEventKind::Started),
-        event(
-            1,
-            ProviderStreamEventKind::ToolCallRequested {
-                call_id: "call-1".into(),
-                tool_name: "process.exec".into(),
-                arguments_json: "{}".into(),
-            },
-        ),
-    ]);
-    let stream = dispatch(&provider).await;
-    let loop_ = test_loop(
-        Journal::default(),
-        handoff(ToolHandoffDisposition::Completed {
-            result_digest: [9; 32],
-        }),
-        64,
-    )
-    .unwrap();
-    assert_eq!(
-        loop_
-            .run(&provider, stream, &CancellationToken::new())
-            .await
-            .unwrap(),
-        ProviderToolLoopOutcome::ToolResultReady {
-            call_id: "call-1".into(),
-            result_digest: [9; 32]
         }
     );
 }

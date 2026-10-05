@@ -25,8 +25,9 @@ pub use execution::{
     ProviderRemoteIdentityRecord, ProviderRemoteLocalDisposition,
     ProviderRemoteObservationProjection, ProviderRemoteRecoveryStore, ProviderRemoteRequestIntent,
     ProviderRemoteTerminalDisposition, ProviderRemoteTerminalRecord,
-    ProviderRemoteTerminalSettlementDigestCandidate, ProviderTerminalCommitOutcome,
-    ProviderTerminalOutboxRecord, ProviderTerminalOutboxSource, ProviderTerminalPricingBinding,
+    ProviderRemoteTerminalSettlementDigestCandidate, ProviderTerminalApplicationKind,
+    ProviderTerminalCommitOutcome, ProviderTerminalOutboxRecord, ProviderTerminalOutboxSource,
+    ProviderTerminalPricingBinding,
 };
 pub use historical_model_ref::{
     HistoricalProviderModelError, HistoricalProviderModelResolver,

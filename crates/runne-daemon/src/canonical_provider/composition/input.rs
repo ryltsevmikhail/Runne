@@ -20,6 +20,7 @@ pub(crate) struct DaemonCanonicalProviderComposition {
     pub(crate) activation_provenance: DaemonActivationProvenance,
     pub(crate) expected_profile_digest: [u8; 32],
     pub(crate) secondary_catalog: Option<VerifiedSecondaryCatalog>,
+    pub(crate) d2_tool_loop_budget: Option<crate::config::D2SafeToolLoopBudgetConfig>,
     pub(crate) conversation_store: StoreTransaction,
     pub(crate) conversation_service: Arc<dyn ConversationTextCommandService>,
     pub(crate) prohibited_content: Arc<dyn ProhibitedContentPort>,

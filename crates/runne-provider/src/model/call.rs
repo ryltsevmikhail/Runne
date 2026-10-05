@@ -1,4 +1,3 @@
-
 impl<'de> Deserialize<'de> for ProviderCall {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
@@ -16,6 +15,7 @@ impl<'de> Deserialize<'de> for ProviderCall {
             raw.extension,
         )
         .and_then(|call| call.with_text_inputs(raw.inputs))
+        .and_then(|call| call.with_tool_context(raw.tool_declarations, raw.tool_results))
         .map(|call| call.with_required_capabilities(required_capabilities))
         .map_err(<D::Error as serde::de::Error>::custom)
     }
@@ -42,7 +42,51 @@ impl ProviderCall {
             inputs: Vec::new(),
             extension,
             required_capabilities: Vec::new(),
+            tool_declarations: Vec::new(),
+            tool_results: Vec::new(),
         })
+    }
+
+    /// Replaces the explicit workspace tool declarations and correlated outputs.
+    pub fn with_tool_context(
+        mut self,
+        declarations: Vec<ProviderToolDeclarationV1>,
+        results: Vec<ProviderToolResultV1>,
+    ) -> Result<Self, ProviderCallError> {
+        if declarations.len() > 2 || results.len() > 32 {
+            return Err(ProviderCallError::InvalidToolContext);
+        }
+        let mut seen = std::collections::BTreeSet::new();
+        for declaration in &declarations {
+            if declaration.parameters() != &declaration.name().parameters()
+                || !seen.insert(declaration.name())
+            {
+                return Err(ProviderCallError::InvalidToolContext);
+            }
+        }
+        let allowed = declarations
+            .iter()
+            .map(ProviderToolDeclarationV1::name)
+            .collect::<std::collections::BTreeSet<_>>();
+        let mut result_ids = std::collections::BTreeSet::new();
+        let mut total = 0usize;
+        for result in &results {
+            total = total
+                .checked_add(result.output().len() + result.arguments_json().len())
+                .ok_or(ProviderCallError::InvalidToolContext)?;
+            if result.output().len() > MAX_PROVIDER_TOOL_RESULT_BYTES
+                || !allowed.contains(&result.name())
+                || !result_ids.insert(result.call_id())
+            {
+                return Err(ProviderCallError::InvalidToolContext);
+            }
+        }
+        if total > 32 * MAX_PROVIDER_TOOL_RESULT_BYTES {
+            return Err(ProviderCallError::InvalidToolContext);
+        }
+        self.tool_declarations = declarations;
+        self.tool_results = results;
+        Ok(self)
     }
 
     /// Replaces the required capability set with a sorted, deduplicated set.
@@ -114,6 +158,16 @@ impl ProviderCall {
     /// Returns the exact required capability set.
     pub fn required_capabilities(&self) -> &[ProviderCapability] {
         &self.required_capabilities
+    }
+
+    /// Returns the exact fixed schemas declared for this provider call.
+    pub fn tool_declarations(&self) -> &[ProviderToolDeclarationV1] {
+        &self.tool_declarations
+    }
+
+    /// Returns bounded correlated outputs from earlier tool calls.
+    pub fn tool_results(&self) -> &[ProviderToolResultV1] {
+        &self.tool_results
     }
 }
 

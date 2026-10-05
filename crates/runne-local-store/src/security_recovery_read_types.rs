@@ -1,5 +1,6 @@
 use crate::{
-    ClientMutationDisposition, MutationOperation, SecurityStateError, StoredMutationTarget,
+    ClientMutationDisposition, MutationOperation, MutationTargetKind, SecurityStateError,
+    StoredMutationTarget,
 };
 
 pub const MAX_MUTATION_RECOVERY_RECORDS: usize = 64;
@@ -101,6 +102,38 @@ pub struct MutationRecoveryBatch {
     pub(crate) has_more: bool,
 }
 
+/// Authenticated native-only view of one exact v7 mutation ledger row.
+///
+/// This intentionally has no serialization implementation: normalized commands
+/// can contain prompts and are for native recovery only.
+#[derive(Clone, Eq, PartialEq)]
+pub struct MutationReceiptV7 {
+    pub(crate) runtime_identity_digest: [u8; 32],
+    pub(crate) principal_digest: [u8; 32],
+    pub(crate) record: crate::MutationRecord,
+}
+
+impl std::fmt::Debug for MutationReceiptV7 {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("MutationReceiptV7(<native-only, redacted>)")
+    }
+}
+
+impl MutationReceiptV7 {
+    #[must_use]
+    pub const fn runtime_identity_digest(&self) -> [u8; 32] {
+        self.runtime_identity_digest
+    }
+    #[must_use]
+    pub const fn principal_digest(&self) -> [u8; 32] {
+        self.principal_digest
+    }
+    #[must_use]
+    pub const fn record(&self) -> &crate::MutationRecord {
+        &self.record
+    }
+}
+
 impl MutationRecoveryBatch {
     #[must_use]
     pub fn records(&self) -> &[MutationRecoveryEvidence] {
@@ -109,5 +142,43 @@ impl MutationRecoveryBatch {
     #[must_use]
     pub const fn has_more(&self) -> bool {
         self.has_more
+    }
+}
+
+pub fn operation_from_name(value: &str) -> Result<MutationOperation, SecurityStateError> {
+    match value {
+        "project_rename" => Ok(MutationOperation::ProjectRename),
+        "project_create" => Ok(MutationOperation::ProjectCreate),
+        "project_archive" => Ok(MutationOperation::ProjectArchive),
+        "project_delete" => Ok(MutationOperation::ProjectDelete),
+        "workspace_create" => Ok(MutationOperation::WorkspaceCreate),
+        "workspace_bind_root" => Ok(MutationOperation::WorkspaceBindRoot),
+        "workspace_open" => Ok(MutationOperation::WorkspaceOpen),
+        "conversation_create" => Ok(MutationOperation::ConversationCreate),
+        "conversation_generate_text" => Ok(MutationOperation::ConversationGenerateText),
+        "task_run_submit" => Ok(MutationOperation::TaskRunSubmit),
+        "task_run_cancel" => Ok(MutationOperation::TaskRunCancel),
+        "task_run_unknown_successor" => Ok(MutationOperation::TaskRunUnknownSuccessor),
+        "approval_respond" => Ok(MutationOperation::ApprovalRespond),
+        "device_revoke" => Ok(MutationOperation::DeviceRevoke),
+        "runtime_stop" => Ok(MutationOperation::RuntimeStop),
+        "update_install" => Ok(MutationOperation::UpdateInstall),
+        "domain_reset" => Ok(MutationOperation::DomainReset),
+        _ => Err(SecurityStateError::IdentityConflict),
+    }
+}
+
+pub fn target_from_name(value: &str) -> Result<MutationTargetKind, SecurityStateError> {
+    match value {
+        "project" => Ok(MutationTargetKind::Project),
+        "workspace" => Ok(MutationTargetKind::Workspace),
+        "conversation" => Ok(MutationTargetKind::Conversation),
+        "task_run" => Ok(MutationTargetKind::TaskRun),
+        "approval" => Ok(MutationTargetKind::Approval),
+        "device" => Ok(MutationTargetKind::Device),
+        "runtime" => Ok(MutationTargetKind::Runtime),
+        "update" => Ok(MutationTargetKind::Update),
+        "domain" => Ok(MutationTargetKind::Domain),
+        _ => Err(SecurityStateError::IdentityConflict),
     }
 }

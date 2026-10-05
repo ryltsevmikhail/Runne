@@ -1,3 +1,22 @@
+impl<R, I> ConversationTextService<R, I>
+where
+    R: ConversationRepository + ConversationTextRepository + EventStore,
+    I: IdGenerator,
+{
+    fn scope(
+        &self,
+        context: &ApplicationCommandContext,
+        conversation_id: runne_domain::id::ConversationId,
+    ) -> IdempotencyScope {
+        IdempotencyScope {
+            runtime_authority_id: self.runtime_authority_id.clone(),
+            principal_id: context.principal_id.clone(),
+            operation: OperationTag::GenerateConversationText,
+            aggregate_scope: AggregateScope::ExistingConversation { conversation_id },
+        }
+    }
+}
+
 fn domain_context(context: &ApplicationCommandContext) -> CommandContext {
     CommandContext {
         command_id: context.command_id,

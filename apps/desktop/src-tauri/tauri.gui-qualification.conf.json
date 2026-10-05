@@ -1,0 +1,59 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Runne GUI Qualification",
+  "version": "0.0.3",
+  "identifier": "com.runne.desktop.d2-gui-qualification",
+  "mainBinaryName": "runne-d2-gui-qualification",
+  "build": {
+    "beforeDevCommand": "cargo build -p runne-daemon && pnpm dev",
+    "devUrl": "http://127.0.0.1:1420",
+    "beforeBuildCommand": "pnpm stage:bundled-daemon && pnpm stage:bundled-cli && pnpm stage:credential-service && pnpm build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "security": {
+      "csp": "default-src 'self'; img-src 'self' asset: data:; style-src 'self' 'unsafe-inline'; connect-src ipc: http://ipc.localhost"
+    },
+    "windows": [
+      {
+        "label": "main",
+        "title": "Runne",
+        "width": 1440,
+        "height": 900,
+        "minWidth": 960,
+        "minHeight": 600,
+        "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
+        "resizable": true
+      }
+    ]
+  },
+  "bundle": {
+    "active": false,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "macOS": {
+      "entitlements": "macos/desktop.entitlements",
+      "hardenedRuntime": true,
+      "minimumSystemVersion": "13.0",
+      "files": {
+        "Library/LaunchAgents/com.runne.credential-service.plist": "macos/com.runne.credential-service.plist",
+        "Library/Helpers/RunneCredentialService.app": "macos/credential-service/staged/RunneCredentialService.app",
+        "Resources/native-enrollment/credential-service.entitlements.plist": "macos/credential-service.entitlements",
+        "Resources/native-enrollment/xpc-protocol-v1.json": "macos/native-enrollment/staged/xpc-protocol-v1.json",
+        "Resources/native-enrollment/release-candidate-binding.json": "macos/native-enrollment/staged/release-candidate-binding.json"
+      }
+    },
+    "windows": {
+      "allowDowngrades": false,
+      "digestAlgorithm": "sha256",
+      "timestampUrl": "https://timestamp.digicert.com"
+    }
+  }
+}

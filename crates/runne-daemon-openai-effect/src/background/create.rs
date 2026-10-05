@@ -102,6 +102,8 @@ pub(crate) fn new_background_sender<C: OpenAiBackgroundCredentialMaterializer>(
     let recovery_timeout = recovery_timeout.min(policy.total_timeout());
     Ok(Sender {
         renderer: OpenAiResponsesTextRenderer::new(profile.clone()),
+        tool_profile: None,
+        tool_renderer: None,
         profile,
         policy,
         credential,
@@ -286,7 +288,7 @@ impl<C: OpenAiCredentialMaterializer> Sender<C> {
                     }
                     let rejected = OpenAiTransportResponse::json_rejection(status, body)
                         .map_err(|_| DispatchError::MaybeDispatched)?;
-                    self.store_response(ready.request.attempt_id(), rejected)
+                    self.store_response(ready.request.attempt_id(), rejected, false)
                 }
             }
         };

@@ -1,5 +1,6 @@
 use crate::codec::{IdempotencyScopeCodec, TextGenerationReceiptCodec};
 use runne_application::ports::{OperationTag, TextGenerationPhase};
+type Candidate = (Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>);
 
 /// Validate Rejected-v6 cancellation receipts at managed open without reopening the store.
 /// Provider-backed legacy receipts use the existing low-level verifier; receipts with no
@@ -7,14 +8,16 @@ use runne_application::ports::{OperationTag, TextGenerationPhase};
 pub(crate) fn validate_no_admission_cancellation_receipts(
     connection: &Connection,
 ) -> SqliteResult<()> {
-    let candidates: Vec<(Vec<u8>, Vec<u8>, Vec<u8>)> = {
+    let candidates: Vec<Candidate> = {
         let mut statement = connection.prepare(
-            "SELECT command_id,idempotency_scope_bytes,command_outcome FROM command_receipts",
+            "SELECT command_id,idempotency_scope_bytes,idempotency_key,command_outcome
+             FROM command_receipts",
         )?;
-        let rows = statement.query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?;
+        let rows = statement
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)))?;
         rows.collect::<SqliteResult<Vec<_>>>()?
     };
-    for (command_id, scope_bytes, outcome) in candidates {
+    for (command_id_bytes, scope_bytes, key_bytes, outcome) in candidates {
         let scope = IdempotencyScopeCodec
             .decode(&scope_bytes)
             .map_err(|_| rusqlite::Error::InvalidQuery)?;
@@ -25,6 +28,27 @@ pub(crate) fn validate_no_admission_cancellation_receipts(
             .decode(&outcome)
             .map_err(|_| rusqlite::Error::InvalidQuery)?;
         if receipt.phase != TextGenerationPhase::Rejected || receipt.taskrun_version != 6 {
+            continue;
+        }
+        let command_id = runne_domain::id::CommandId::from_bytes(
+            command_id_bytes
+                .as_slice()
+                .try_into()
+                .map_err(|_| rusqlite::Error::InvalidQuery)?,
+        );
+        let idempotency_key = runne_domain::id::IdempotencyKey::new(
+            String::from_utf8(key_bytes).map_err(|_| rusqlite::Error::InvalidQuery)?,
+        )
+        .map_err(|_| rusqlite::Error::InvalidQuery)?;
+        if crate::store::text_receipt_helpers::d2_failure::validate_d2_failed_receipt(
+            connection,
+            command_id,
+            &idempotency_key,
+            &scope,
+            &receipt,
+        )
+        .map_err(|_| rusqlite::Error::InvalidQuery)?
+        {
             continue;
         }
         if crate::store::terminal_cancellation_receipt::requires_no_admission_proof(
@@ -40,7 +64,7 @@ pub(crate) fn validate_no_admission_cancellation_receipts(
                     ],
                     |row| row.get(0),
                 )?;
-            if begin_command != command_id
+            if begin_command != command_id.as_bytes()
                 || !crate::store::terminal_cancellation_receipt::validate_no_admission_receipt(
                     connection, &receipt,
                 )?

@@ -1,6 +1,8 @@
 use super::parse_helpers::storage_failure;
 use super::*;
 
+#[path = "terminal_cancellation_receipt/d2_tool_loop.rs"]
+mod d2_tool_loop;
 mod no_admission;
 mod unknown_terminal;
 
@@ -23,6 +25,9 @@ pub(crate) fn validate_terminal_cancellation_receipt(
     connection: &Connection,
     receipt: &TextGenerationReceipt,
 ) -> Result<(), CommitError> {
+    if d2_tool_loop::validate(connection, receipt)? {
+        return Ok(());
+    }
     if validate_remote_artifact_cancellation_receipt(connection, receipt)? {
         return Ok(());
     }
@@ -138,6 +143,14 @@ pub(crate) fn validate_terminal_cancellation_receipt(
     } else {
         Err(storage_failure(StorageFailureKind::IntegrityViolation))
     }
+}
+
+pub(crate) fn validate_d2_tool_loop_cancellation_evidence(
+    connection: &Connection,
+    receipt: &TextGenerationReceipt,
+    evidence: runne_application::ports::D2ToolLoopCancellationEvidence,
+) -> Result<(), CommitError> {
+    d2_tool_loop::validate_evidence(connection, receipt, evidence)
 }
 
 pub(crate) fn validate_unknown_terminal_cancellation(

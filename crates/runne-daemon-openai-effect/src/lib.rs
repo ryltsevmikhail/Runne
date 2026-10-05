@@ -13,12 +13,16 @@ use runne_provider::{
 };
 use runne_provider_openai::{
     OpenAiCredentialMaterializer, OpenAiResponsesTextProfile, OpenAiResponsesTextRenderer,
-    OpenAiTransportPolicy, OpenAiTransportResponse,
+    OpenAiResponsesToolProfile, OpenAiResponsesToolRenderer, OpenAiTransportPolicy,
+    OpenAiTransportResponse,
 };
 use runne_store::provider::{ProviderEffectPort, ProviderEffectStartReceipt, ProviderReadyEffect};
 use tokio::time::timeout_at;
 use zeroize::Zeroizing;
 
+#[cfg(test)]
+#[path = "authorized_tool_tests.rs"]
+mod authorized_tool_tests;
 mod background;
 mod bounds;
 mod client;
@@ -154,6 +158,8 @@ impl ProviderReadyEffect for Ready {
 struct Sender<C> {
     profile: OpenAiResponsesTextProfile,
     renderer: OpenAiResponsesTextRenderer,
+    tool_profile: Option<OpenAiResponsesToolProfile>,
+    tool_renderer: Option<OpenAiResponsesToolRenderer>,
     policy: OpenAiTransportPolicy,
     credential: C,
     client: reqwest::Client,
@@ -165,15 +171,28 @@ struct Sender<C> {
 }
 
 impl<C: OpenAiCredentialMaterializer> Sender<C> {
+    fn expected_profile_digest(&self, tool_mode: bool) -> Option<[u8; 32]> {
+        if tool_mode {
+            self.tool_profile
+                .as_ref()
+                .map(OpenAiResponsesToolProfile::profile_digest)
+        } else {
+            Some(self.profile.profile_digest())
+        }
+    }
+
     fn new(
         profile: OpenAiResponsesTextProfile,
         credential: C,
         client: reqwest::Client,
     ) -> Result<Self, ()> {
         let policy = OpenAiTransportPolicy::for_profile(&profile).map_err(|_| ())?;
+        let tool_profile = OpenAiResponsesToolProfile::new(profile.clone()).map_err(|_| ())?;
         let recovery_timeout = policy.total_timeout();
         Ok(Self {
             renderer: OpenAiResponsesTextRenderer::new(profile.clone()),
+            tool_renderer: Some(OpenAiResponsesToolRenderer::new(tool_profile.clone())),
+            tool_profile: Some(tool_profile),
             profile,
             policy,
             credential,
@@ -194,8 +213,24 @@ impl<C: OpenAiCredentialMaterializer> Sender<C> {
         let ready = ready.into_any().downcast::<Ready>().map_err(|_| {
             DispatchError::RejectedBeforeEffect(ProviderPreEffectRejection::AdapterRejected)
         })?;
+        let tool_mode = !ready
+            .request
+            .prepared()
+            .call()
+            .tool_declarations()
+            .is_empty();
+        let expected_profile_digest = if tool_mode {
+            self.tool_profile
+                .as_ref()
+                .map(OpenAiResponsesToolProfile::profile_digest)
+        } else {
+            Some(self.profile.profile_digest())
+        }
+        .ok_or(DispatchError::RejectedBeforeEffect(
+            ProviderPreEffectRejection::AdapterRejected,
+        ))?;
         if !receipt.matches_claim(ready.request.claim())
-            || ready.request.claim().profile_digest != self.profile.profile_digest()
+            || ready.request.claim().profile_digest != expected_profile_digest
         {
             return Err(DispatchError::MaybeDispatched);
         }
@@ -251,7 +286,7 @@ impl<C: OpenAiCredentialMaterializer> Sender<C> {
                 }
             }
             .map_err(|_| DispatchError::MaybeDispatched)?;
-            self.store_response(ready.request.attempt_id(), response)
+            self.store_response(ready.request.attempt_id(), response, tool_mode)
         };
         timeout_at(receipt.deadline().into(), effect)
             .await

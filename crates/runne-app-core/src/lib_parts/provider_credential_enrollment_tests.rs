@@ -97,3 +97,4 @@ fn capability_digest(capabilities: &[String]) -> String {
     }
     hex::encode(digest.finalize())
 }
+include!("managed_task_run_tests.rs");

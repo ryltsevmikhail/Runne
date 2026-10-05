@@ -4,7 +4,7 @@ from __future__ import annotations
 NATIVE_QUALIFICATION_NON_DELIVERY_OWNERS = {
     NATIVE_QUALIFICATION_ADMISSION_SOURCE,
     Path("apps/desktop/src-tauri/src/bundled_runtime.rs"),
-    Path("apps/desktop/src-tauri/src/lib_parts/run.rs"),
+    Path("apps/desktop/src-tauri/src/lib_parts/setup_app.rs"),
 }
 NATIVE_QUALIFICATION_TEST_ONLY_PATHS = frozenset({
     Path("crates/runne-daemon/src/application/provider_credential_enrollment/broker/qualified_exchange/source_boundary_tests.rs"),

@@ -165,3 +165,9 @@ impl AppCore {
 
 include!("task_run/reconcile.rs");
 include!("task_run/projection.rs");
+include!("task_run/managed_types.rs");
+include!("task_run/managed.rs");
+include!("task_run/managed_recovery.rs");
+include!("task_run/managed_intent.rs");
+include!("task_run/managed_inventory.rs");
+include!("task_run/managed_attention_effects.rs");

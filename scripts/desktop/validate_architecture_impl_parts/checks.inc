@@ -70,6 +70,7 @@ PROVIDER_TERMINAL_PERSISTENCE_ALLOWED = {
     Path("crates/runne-store/src/provider/execution_store/decomposition/part_08.rs"),
     Path("crates/runne-store/src/provider/execution_store/decomposition/part_09.rs"),
     Path("crates/runne-daemon/src/canonical_provider/runtime_store.rs"),
+    Path("crates/runne-daemon/src/canonical_provider/runtime_store/terminal.rs"),
     Path("crates/runne-daemon-loopback-fixture/src/ack_failure_store.rs"),
     Path("crates/runne-daemon/src/protected_activation/loopback_fixture/ack_failure_store.rs"),
 }

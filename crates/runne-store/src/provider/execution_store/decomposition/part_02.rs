@@ -104,14 +104,28 @@ impl SqliteProviderExecutionStore {
                 Err(ProviderAdmissionError::AuthorityConflict)
             };
         }
-        crate::store::taskrun_provider_start::verify_fresh_running_attempt(
-            &transaction,
-            state.runtime_authority_id,
-            request.taskrun_id,
-            request.conversation_id,
-            request.execution_attempt_id,
-            &request.principal_id,
-        )
+        let is_d2_tool_profile = grant
+            .is_some_and(|grant| grant.spec().profile_id() == "runne-linux-agent-tools-v1");
+        if is_d2_tool_profile {
+            crate::store::taskrun_provider_start::verify_fresh_d2_running_attempt(
+                &transaction,
+                state.runtime_authority_id,
+                request.taskrun_id,
+                request.conversation_id,
+                request.execution_attempt_id,
+                &request.principal_id,
+                request.prepared.profile_digest,
+            )
+        } else {
+            crate::store::taskrun_provider_start::verify_fresh_running_attempt(
+                &transaction,
+                state.runtime_authority_id,
+                request.taskrun_id,
+                request.conversation_id,
+                request.execution_attempt_id,
+                &request.principal_id,
+            )
+        }
         .map_err(|_| ProviderAdmissionError::AuthorityDenied)?;
         let online_proof = self.online_effect_proof(&transaction)?;
         let online_proof = online_proof

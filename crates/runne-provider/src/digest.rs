@@ -3,7 +3,10 @@ use thiserror::Error;
 
 use serde::Serialize;
 
-use crate::{ModelRef, ProviderCall, ProviderCallId, ProviderCapability, ProviderTextInput};
+use crate::{
+    ModelRef, ProviderCall, ProviderCallId, ProviderCapability, ProviderTextInput,
+    ProviderToolDeclarationV1, ProviderToolResultV1,
+};
 
 const PROVIDER_CALL_V1_DOMAIN: &[u8] = b"GOCODE_PROVIDER_CALL_V1\0";
 const PROVIDER_CALL_V2_DOMAIN: &[u8] = b"GOCODE_PROVIDER_CALL_V2\0";
@@ -42,8 +45,8 @@ pub enum CanonicalProviderError {
     /// Canonical JSON serialization rejected the call.
     #[error("provider call canonicalization failed: {0}")]
     Serialization(#[from] serde_json::Error),
-    /// V1 cannot represent V2 canonical text input semantics.
-    #[error("provider call V1 digest cannot represent text inputs")]
+    /// V1 cannot represent canonical text input or tool context semantics.
+    #[error("provider call V1 digest cannot represent text or tool context")]
     V1TextInputs,
 }
 
@@ -66,6 +69,14 @@ struct CanonicalProviderCallV2<'a> {
     inputs: &'a [ProviderTextInput],
     extension: &'a serde_json::Value,
     required_capabilities: &'a [ProviderCapability],
+    #[serde(skip_serializing_if = "is_empty")]
+    tool_declarations: &'a [ProviderToolDeclarationV1],
+    #[serde(skip_serializing_if = "is_empty")]
+    tool_results: &'a [ProviderToolResultV1],
+}
+
+fn is_empty<T>(values: &[T]) -> bool {
+    values.is_empty()
 }
 
 /// Calculates the current V2 domain-separated provider-call digest.
@@ -82,7 +93,10 @@ pub fn canonical_provider_call_digest_for_version(
 ) -> Result<ProviderCallDigest, CanonicalProviderError> {
     let (domain, bytes) = match version {
         ProviderCallDigestVersion::V1 => {
-            if !call.text_inputs().is_empty() {
+            if !call.text_inputs().is_empty()
+                || !call.tool_declarations().is_empty()
+                || !call.tool_results().is_empty()
+            {
                 return Err(CanonicalProviderError::V1TextInputs);
             }
             (
@@ -107,6 +121,8 @@ pub fn canonical_provider_call_digest_for_version(
                 inputs: call.text_inputs(),
                 extension: call.extension(),
                 required_capabilities: call.required_capabilities(),
+                tool_declarations: call.tool_declarations(),
+                tool_results: call.tool_results(),
             })?,
         ),
     };
@@ -128,7 +144,10 @@ pub fn provider_call_wire_bytes_for_version(
 ) -> Result<Vec<u8>, CanonicalProviderError> {
     match version {
         ProviderCallDigestVersion::V1 => {
-            if !call.text_inputs().is_empty() {
+            if !call.text_inputs().is_empty()
+                || !call.tool_declarations().is_empty()
+                || !call.tool_results().is_empty()
+            {
                 return Err(CanonicalProviderError::V1TextInputs);
             }
             Ok(serde_json::to_vec(&CanonicalProviderCallV1 {
@@ -148,6 +167,8 @@ pub fn provider_call_wire_bytes_for_version(
             inputs: call.text_inputs(),
             extension: call.extension(),
             required_capabilities: call.required_capabilities(),
+            tool_declarations: call.tool_declarations(),
+            tool_results: call.tool_results(),
         })?),
     }
 }

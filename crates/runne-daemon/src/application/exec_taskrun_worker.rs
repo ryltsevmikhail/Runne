@@ -1,4 +1,4 @@
-#[cfg(feature = "desktop-protected")]
+#[cfg(all(feature = "desktop-protected", target_os = "linux"))]
 use super::root_handle_admission::RootAdmissionGateway;
 use super::*;
 use runne_application::ports::{ExecutionNodeId, TaskRunAssignmentIdentity};
@@ -12,10 +12,17 @@ mod local;
 mod logging;
 #[path = "exec_taskrun_worker/provider.rs"]
 mod provider;
+#[cfg(all(feature = "desktop-protected", target_os = "linux"))]
+pub(crate) use provider::d2_stage;
+#[cfg(all(feature = "desktop-protected", target_os = "linux"))]
+pub(crate) mod tool_invocation;
 
+#[derive(Clone)]
 pub(crate) struct DaemonAutomaticTaskRuns {
     pub(super) store: StoreTransaction,
     pub(super) taskruns: Arc<SqliteTaskRunService>,
+    #[cfg(all(feature = "desktop-protected", target_os = "linux"))]
+    pub(super) tool_loop_service: Option<Arc<SqliteToolLoopService>>,
     pub(super) text: Arc<dyn ConversationTextCommandService>,
     pub(super) provider: Option<Arc<DaemonCanonicalProviderService>>,
     pub(super) node_id: ExecutionNodeId,
@@ -25,7 +32,7 @@ pub(crate) struct DaemonAutomaticTaskRuns {
     pub(super) node_lease_heartbeat: Arc<dyn Fn() -> Result<(), ()> + Send + Sync>,
     #[cfg(all(test, feature = "desktop-protected", target_os = "linux"))]
     pub(super) provider_only_test_fixture: bool,
-    #[cfg(feature = "desktop-protected")]
+    #[cfg(all(feature = "desktop-protected", target_os = "linux"))]
     pub(super) root_admission: RootAdmissionGateway,
 }
 
@@ -33,11 +40,14 @@ pub(crate) struct DaemonAutomaticTaskRuns {
 pub(crate) struct ProtectedTaskRunWorkerConfig {
     pub(crate) store: StoreTransaction,
     pub(crate) taskruns: Arc<SqliteTaskRunService>,
+    #[cfg(target_os = "linux")]
+    pub(super) tool_loop_service: Arc<SqliteToolLoopService>,
     pub(crate) text: Arc<dyn ConversationTextCommandService>,
     pub(crate) provider: Option<Arc<DaemonCanonicalProviderService>>,
     pub(crate) node_id: ExecutionNodeId,
     pub(crate) epoch: u64,
     pub(crate) current_epoch: Arc<AtomicU64>,
+    #[cfg(target_os = "linux")]
     pub(crate) root_admission: RootAdmissionGateway,
     #[cfg(target_os = "linux")]
     pub(crate) node_lease_heartbeat: Arc<dyn Fn() -> Result<(), ()> + Send + Sync>,
@@ -58,11 +68,14 @@ impl DaemonAutomaticTaskRuns {
         return Self {
             store,
             taskruns,
+            #[cfg(target_os = "linux")]
+            tool_loop_service: None,
             text,
             provider,
             node_id,
             epoch,
             current_epoch,
+            #[cfg(all(feature = "desktop-protected", target_os = "linux"))]
             root_admission: RootAdmissionGateway::unavailable(),
             #[cfg(target_os = "linux")]
             node_lease_heartbeat: Arc::new(|| Err(())),
@@ -91,6 +104,9 @@ impl DaemonAutomaticTaskRuns {
             node_id: config.node_id,
             epoch: config.epoch,
             current_epoch: config.current_epoch,
+            #[cfg(target_os = "linux")]
+            tool_loop_service: Some(config.tool_loop_service),
+            #[cfg(target_os = "linux")]
             root_admission: config.root_admission,
             #[cfg(target_os = "linux")]
             node_lease_heartbeat: config.node_lease_heartbeat,

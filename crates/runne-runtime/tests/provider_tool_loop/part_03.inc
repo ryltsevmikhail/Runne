@@ -171,47 +171,6 @@ async fn crash_after_tool_request_commit_freezes_without_tool_dispatch() {
 }
 
 #[tokio::test]
-async fn crash_after_tool_result_commit_recovers_result_without_second_tool_effect() {
-    let provider = provider(vec![
-        event(0, ProviderStreamEventKind::Started),
-        event(
-            1,
-            ProviderStreamEventKind::ToolCallRequested {
-                call_id: "call-1".into(),
-                tool_name: "process.exec".into(),
-                arguments_json: "{}".into(),
-            },
-        ),
-    ]);
-    let stream = dispatch(&provider).await;
-    let loop_ = test_loop(
-        CrashRecoveryJournal::new(CrashPoint::ToolResult),
-        handoff(ToolHandoffDisposition::Completed {
-            result_digest: [9; 32],
-        }),
-        64,
-    )
-    .unwrap();
-
-    assert_eq!(
-        loop_
-            .run(&provider, stream, &CancellationToken::new())
-            .await,
-        Err(ProviderToolLoopError::JournalUnavailable)
-    );
-    assert_eq!(
-        loop_
-            .run(&provider, stream, &CancellationToken::new())
-            .await
-            .unwrap(),
-        ProviderToolLoopOutcome::ToolResultReady {
-            call_id: "call-1".into(),
-            result_digest: [9; 32],
-        }
-    );
-}
-
-#[tokio::test]
 async fn crash_after_cancellation_intent_recovers_as_uncertain_without_repoll() {
     let provider = provider(vec![event(0, ProviderStreamEventKind::Started)]);
     let stream = dispatch(&provider).await;

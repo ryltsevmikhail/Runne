@@ -3,8 +3,8 @@ use runne_provider::{
 };
 
 use crate::{
-    OPENAI_MAX_SSE_FRAME_BYTES, OPENAI_MAX_TRANSPORT_CHUNKS, OpenAiSseDecoder, OpenAiStreamError,
-    OpenAiTransportResponse,
+    OPENAI_MAX_SSE_FRAME_BYTES, OPENAI_MAX_TRANSPORT_CHUNKS, OpenAiResponsesToolProfile,
+    OpenAiSseDecoder, OpenAiStreamError, OpenAiTransportResponse,
 };
 
 /// Decodes one bounded, already received `OpenAI` response without network access.
@@ -51,4 +51,26 @@ pub fn decode_transport_response(
             .map_err(|_| OpenAiStreamError::MalformedEvent)
     })
     .collect()
+}
+
+/// Decodes one bounded response using only the exact tool lifecycle enabled by a tool profile.
+///
+/// # Errors
+///
+/// Returns an error when the response is not a complete, supported, or correlated tool response.
+pub fn decode_tool_transport_response(
+    response: &OpenAiTransportResponse,
+    profile: &OpenAiResponsesToolProfile,
+) -> Result<Vec<ProviderStreamEvent>, OpenAiStreamError> {
+    if response.chunks().len() > OPENAI_MAX_TRANSPORT_CHUNKS {
+        return Err(OpenAiStreamError::StreamLimitExceeded);
+    }
+    if response.status() != 200 || response.content_type() != "text/event-stream" {
+        return Err(OpenAiStreamError::MalformedEvent);
+    }
+    let mut decoder = OpenAiSseDecoder::for_tool_profile(profile);
+    for chunk in response.chunks() {
+        decoder.push(chunk)?;
+    }
+    decoder.finish()
 }

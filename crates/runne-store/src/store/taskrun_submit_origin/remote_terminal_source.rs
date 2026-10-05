@@ -8,6 +8,8 @@ type BeginCommandReceiptRow = (Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>);
 
 #[path = "remote_terminal_source_applicability.rs"]
 mod applicability;
+#[path = "remote_terminal_source_runtime_claim.rs"]
+mod runtime_claim;
 #[path = "remote_terminal_source_support.rs"]
 mod support;
 pub(crate) use applicability::RemoteTerminalTaskRunApplicability;
@@ -45,7 +47,10 @@ pub(crate) fn verify_remote_terminal_taskrun_source(
 ) -> Result<VerifiedRemoteTerminalTaskRunSource, CommitError> {
     let invalid = || storage_failure(StorageFailureKind::IntegrityViolation);
     let (taskrun_bytes, attempt_bytes, provider_id, profile_id, profile_digest) =
-        support::load_remote_profile_identity(connection, dispatch_attempt_id)?;
+        crate::store::test_support_diagnostics::on_error(
+            "source.selected_profile",
+            support::load_remote_profile_identity(connection, dispatch_attempt_id),
+        )?;
     let taskrun_id =
         TaskRunId::from_bytes(taskrun_bytes.as_slice().try_into().map_err(|_| {
             storage_failure(runne_application::ports::StorageFailureKind::CorruptData)
@@ -54,12 +59,18 @@ pub(crate) fn verify_remote_terminal_taskrun_source(
         AttemptId::from_bytes(attempt_bytes.as_slice().try_into().map_err(|_| {
             storage_failure(runne_application::ports::StorageFailureKind::CorruptData)
         })?);
-    let taskrun =
+    let taskrun = crate::store::test_support_diagnostics::on_error(
+        "source.claim_source",
         crate::store::taskrun_claim::stream_validate::verify_stream(connection, taskrun_id, None)
-            .map_err(|_| storage_failure(StorageFailureKind::CorruptData))?;
-    let task = TaskRun::replay(&taskrun.events)
-        .map_err(|_| storage_failure(StorageFailureKind::CorruptData))?;
+            .map_err(|_| storage_failure(StorageFailureKind::CorruptData)),
+    )?;
+    let task = crate::store::test_support_diagnostics::on_error(
+        "source.claim_source",
+        TaskRun::replay(&taskrun.events)
+            .map_err(|_| storage_failure(StorageFailureKind::CorruptData)),
+    )?;
     if !task.attempt_history().contains(&attempt_id) {
+        crate::store::test_support_diagnostics::record("source.claim_source");
         return Err(invalid());
     }
     let started_versions: Vec<u64> = taskrun
@@ -72,11 +83,21 @@ pub(crate) fn verify_remote_terminal_taskrun_source(
         })
         .collect();
     let [started_version] = started_versions.as_slice() else {
+        crate::store::test_support_diagnostics::record("source.claim_source");
         return Err(invalid());
     };
-    let origin = super::verify_submitted_v2_origin_for_readiness(connection, taskrun_id)?
-        .ok_or_else(invalid)?;
-    support::verify_selected_profile(&origin, &provider_id, &profile_id, &profile_digest)?;
+    let origin = crate::store::test_support_diagnostics::on_error(
+        "source.claim_source",
+        super::verify_submitted_v2_origin_for_readiness(connection, taskrun_id),
+    )?
+    .ok_or_else(|| {
+        crate::store::test_support_diagnostics::record("source.claim_source");
+        invalid()
+    })?;
+    crate::store::test_support_diagnostics::on_error(
+        "source.selected_profile",
+        support::verify_selected_profile(&origin, &provider_id, &profile_id, &profile_digest),
+    )?;
     let start_index = usize::try_from(*started_version - 1)
         .map_err(|_| storage_failure(StorageFailureKind::CorruptData))?;
     let start_event = taskrun.events.get(start_index).ok_or_else(invalid)?;
@@ -106,22 +127,48 @@ pub(crate) fn verify_remote_terminal_taskrun_source(
             |row| row.get(0),
         )
         .map_err(|_| storage_failure(StorageFailureKind::CorruptData))?;
+    if start_event.actor() != &origin.actor {
+        let runtime_claim = crate::store::test_support_diagnostics::on_error(
+            "source.claim_actor",
+            runtime_claim::verify_runtime_claim_actor(
+                connection,
+                runtime_claim::RuntimeClaimContext {
+                    taskrun_id,
+                    attempt_id,
+                    started_version: *started_version,
+                    admitted: admitted_event,
+                    started: start_event,
+                    authority,
+                    profile_id: &profile_id,
+                },
+            ),
+        )?;
+        if !runtime_claim {
+            crate::store::test_support_diagnostics::record("source.claim_actor");
+            return Err(invalid());
+        }
+    }
     if admitted_event.sequence().checked_add(1) != Some(*started_version)
         || admitted_event.payload() != &TaskRunEvent::TaskRunAdmitted
         || admitted_event.command_id() != start_event.command_id()
         || admitted_event.idempotency_key() != start_event.idempotency_key()
         || admitted_event.actor() != start_event.actor()
-        || start_event.actor() != &origin.actor
         || claim_receipt_count != 1
     {
+        crate::store::test_support_diagnostics::record("source.claim_source");
         return Err(invalid());
     }
     let conversation_id = origin.conversation_id;
-    let conversation_stream =
+    let conversation_stream = crate::store::test_support_diagnostics::on_error(
+        "source.begin_source",
         crate::store::conversation::load_conversation_from_connection(connection, conversation_id)
-            .map_err(|_| storage_failure(StorageFailureKind::CorruptData))?;
-    let conversation = Conversation::replay(&conversation_stream.events)
-        .map_err(|_| storage_failure(StorageFailureKind::CorruptData))?;
+            .map_err(|_| storage_failure(StorageFailureKind::CorruptData)),
+    )?;
+    let conversation = crate::store::test_support_diagnostics::on_error(
+        "source.begin_source",
+        Conversation::replay(&conversation_stream.events)
+            .map_err(|_| storage_failure(StorageFailureKind::CorruptData)),
+    )?;
     let messages: Vec<_> = conversation_stream
         .events
         .iter()
@@ -137,9 +184,10 @@ pub(crate) fn verify_remote_terminal_taskrun_source(
         })
         .collect();
     let [message] = messages.as_slice() else {
+        crate::store::test_support_diagnostics::record("source.begin_source");
         return Err(invalid());
     };
-    let (begin_command_id, begin_key, scope_bytes, outcome, fingerprint): BeginCommandReceiptRow = connection
+    let begin_receipt: Result<BeginCommandReceiptRow, CommitError> = connection
         .query_row(
             "SELECT command_id,idempotency_key,idempotency_scope_bytes,command_outcome,fingerprint
                  FROM command_receipts WHERE command_id=?1",
@@ -154,126 +202,93 @@ pub(crate) fn verify_remote_terminal_taskrun_source(
                 ))
             },
         )
-        .map_err(|_| invalid())?;
+        .map_err(|_| invalid());
+    let (begin_command_id, begin_key, scope_bytes, outcome, fingerprint) =
+        crate::store::test_support_diagnostics::on_error("source.begin_source", begin_receipt)?;
     let begin_command_id = CommandId::from_bytes(
         begin_command_id
             .as_slice()
             .try_into()
             .map_err(|_| storage_failure(StorageFailureKind::CorruptData))?,
     );
-    let scope = IdempotencyScopeCodec
-        .decode(&scope_bytes)
-        .map_err(|_| storage_failure(StorageFailureKind::CorruptData))?;
-    let receipt = TextGenerationReceiptCodec
-        .decode(&outcome)
-        .map_err(|_| storage_failure(StorageFailureKind::CorruptData))?;
-    support::verify_begin_source(support::BeginSourceVerification {
-        scope: &scope,
-        receipt: &receipt,
-        origin: &origin,
-        taskrun_id,
-        attempt_id,
-        conversation_id,
-        message,
-        begin_key: &begin_key,
-        fingerprint: &fingerprint,
-        authority,
-        expected_actor: &origin.actor,
-    })?;
+    let scope = crate::store::test_support_diagnostics::on_error(
+        "source.begin_source",
+        IdempotencyScopeCodec
+            .decode(&scope_bytes)
+            .map_err(|_| storage_failure(StorageFailureKind::CorruptData)),
+    )?;
+    let receipt = crate::store::test_support_diagnostics::on_error(
+        "source.begin_source",
+        TextGenerationReceiptCodec
+            .decode(&outcome)
+            .map_err(|_| storage_failure(StorageFailureKind::CorruptData)),
+    )?;
+    crate::store::test_support_diagnostics::on_error(
+        "source.begin_source",
+        support::verify_begin_source(support::BeginSourceVerification {
+            scope: &scope,
+            receipt: &receipt,
+            origin: &origin,
+            taskrun_id,
+            attempt_id,
+            conversation_id,
+            message,
+            begin_key: &begin_key,
+            fingerprint: &fingerprint,
+            authority,
+            expected_actor: &origin.actor,
+        }),
+    )?;
     if receipt.taskrun_version < *started_version
         || (receipt.phase == TextGenerationPhase::Started
             && receipt.taskrun_version != *started_version)
     {
+        crate::store::test_support_diagnostics::record("source.begin_source");
         return Err(invalid());
     }
-    let lease =
+    let lease = crate::store::test_support_diagnostics::on_error(
+        "source.writer_lease",
         crate::conversation_writer_lease::load_writer_lease(connection, conversation_id.as_bytes())
-            .map_err(|_| storage_failure(StorageFailureKind::Unavailable))?
-            .ok_or_else(invalid)?;
+            .map_err(|_| storage_failure(StorageFailureKind::Unavailable)),
+    )?
+    .ok_or_else(|| {
+        crate::store::test_support_diagnostics::record("source.writer_lease");
+        invalid()
+    })?;
     let current_generation_active = conversation
         .active_generation()
         .is_some_and(|active| active.taskrun_id == taskrun_id && active.attempt_id == attempt_id);
-    let applicability = applicability::verify(
-        connection,
-        applicability::RemoteTaskRunApplicabilityFacts {
-            taskrun_id,
-            attempt_id,
-            version: taskrun.version,
-            state: task.state(),
-            active_attempt: task.active_attempt(),
-            events: &taskrun.events,
-            authority,
-            origin: &origin,
-        },
+    let applicability = crate::store::test_support_diagnostics::on_error(
+        "source.applicability",
+        applicability::verify(
+            connection,
+            applicability::RemoteTaskRunApplicabilityFacts {
+                taskrun_id,
+                attempt_id,
+                version: taskrun.version,
+                state: task.state(),
+                active_attempt: task.active_attempt(),
+                events: &taskrun.events,
+                authority,
+                origin: &origin,
+            },
+        ),
     )?;
-    let existing_pin: Option<support::WriterPin> = connection
-        .query_row(
-            "SELECT taskrun_id,taskrun_attempt_id,conversation_id,writer_owner_principal,writer_fencing_token,
-                    begin_command_id,generation_id,begin_event_digest,expected_taskrun_version
-             FROM provider_remote_terminal_settlements WHERE dispatch_attempt_id=?1",
-            [dispatch_attempt_id.as_slice()],
-            support::WriterPin::read,
-        )
-        .optional()
-        .map_err(|_| storage_failure(StorageFailureKind::CorruptData))?;
     let event_digest = *message.integrity_digest().as_bytes();
-    let expected_taskrun_version = if let Some(pin) = &existing_pin {
-        if pin.taskrun_id.as_slice() != taskrun_id.as_bytes()
-            || pin.taskrun_attempt_id.as_slice() != attempt_id.as_bytes()
-            || pin.conversation_id.as_slice() != conversation_id.as_bytes()
-            || pin.begin_command_id.as_slice() != begin_command_id.as_bytes()
-            || pin.generation_id.as_slice() != attempt_id.as_bytes()
-            || pin.begin_event_digest.as_slice() != event_digest
-            || pin.expected_taskrun_version <= 0
-            || u64::try_from(pin.expected_taskrun_version)
-                .ok()
-                .is_none_or(|version| version > taskrun.version)
-        {
-            return Err(invalid());
-        }
-        u64::try_from(pin.expected_taskrun_version)
-            .map_err(|_| storage_failure(StorageFailureKind::CorruptData))?
-    } else {
-        taskrun.version
-    };
-    let (writer_owner_principal, writer_fencing_token) = if let Some(pin) = existing_pin {
-        (
-            pin.writer_owner_principal,
-            u64::try_from(pin.writer_fencing_token)
-                .map_err(|_| storage_failure(StorageFailureKind::CorruptData))?,
-        )
-    } else {
-        (lease.owner_principal.clone(), lease.fencing_token)
-    };
-    let taskrun_is_current = taskrun.version == expected_taskrun_version
-        && taskrun.active_attempt == Some(attempt_id)
-        && matches!(
-            task.state(),
-            TaskRunState::Running | TaskRunState::Cancelling
-        );
-    let writer_is_current = lease.owner_principal == writer_owner_principal
-        && lease.fencing_token == writer_fencing_token
-        && writer_owner_principal == origin.principal_id.0;
-    Ok(VerifiedRemoteTerminalTaskRunSource {
+    support::finalize_remote_source(support::SourceFinalizationInput {
+        connection,
+        dispatch_attempt_id,
         taskrun_id,
-        taskrun_attempt_id: attempt_id,
+        attempt_id,
         conversation_id,
-        original_principal: origin.principal_id.0,
-        original_actor: origin.actor.as_str().to_owned(),
-        writer_owner_principal,
-        writer_fencing_token,
-        begin_command_id,
-        generation_id: *attempt_id.as_bytes(),
-        begin_event_digest: event_digest,
-        expected_taskrun_version,
-        current_taskrun_version: taskrun.version,
-        current_taskrun_state: task.state(),
+        taskrun_version: taskrun.version,
+        taskrun_active_attempt: taskrun.active_attempt,
+        taskrun_state: task.state(),
         current_generation_active,
-        writer_lease_current: writer_is_current,
-        publication_allowed: taskrun_is_current
-            && writer_is_current
-            && current_generation_active
-            && task.state() == TaskRunState::Running,
+        origin: &origin,
+        begin_command_id,
+        begin_event_digest: event_digest,
+        lease,
         applicability,
     })
 }

@@ -123,6 +123,18 @@ impl ProviderTerminalPersistence for SqliteProviderExecutionStore {
                         ],
                     )
                     .map_err(|_| ProviderExecutionError::TerminalConflict)?;
+                transaction
+                    .execute(
+                        "INSERT INTO provider_terminal_application_kinds(
+                            dispatch_attempt_id,outbox_id,application_kind
+                         ) VALUES (?1,?2,?3)",
+                        params![
+                            request.attempt_id().as_bytes().as_slice(),
+                            request.outbox_id().as_slice(),
+                            encode_application_kind(request.application_kind()),
+                        ],
+                    )
+                    .map_err(|_| ProviderExecutionError::TerminalConflict)?;
                 4_i64
             } else {
                 5_i64

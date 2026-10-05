@@ -17,6 +17,9 @@ pub struct AppCore {
     runtime_client: RwLock<Option<AuthenticatedRuntimeClient>>,
     runtime_connect: tokio::sync::Mutex<()>,
     runtime_operation: tokio::sync::Mutex<()>,
+    managed_intent_operation: tokio::sync::Mutex<()>,
+    managed_intent: Mutex<VecDeque<ManagedTaskRunIntent>>,
+    accepted_managed_tokens: Mutex<VecDeque<ManagedTaskRunIntent>>,
     mutation_gate_epoch: AtomicU64,
     #[cfg(any(test, feature = "test-support"))]
     mutation_test_hold_before_canonical: AtomicBool,

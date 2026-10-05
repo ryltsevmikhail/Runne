@@ -15,6 +15,12 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
 
 #[cfg(all(feature = "desktop-protected", target_os = "linux"))]
+#[path = "exec_taskrun_recovery/d2_failure_projection.rs"]
+mod d2_failure_projection;
+#[cfg(all(feature = "desktop-protected", target_os = "linux"))]
+#[path = "exec_taskrun_recovery/d2_projection.rs"]
+mod d2_projection;
+#[cfg(all(feature = "desktop-protected", target_os = "linux"))]
 #[path = "exec_taskrun_recovery/local.rs"]
 mod local;
 
@@ -205,5 +211,15 @@ fn finish_automatic_taskrun_service(
     worker
         .recover_pre_effect_cancellations()
         .map_err(|_| DaemonError::Bootstrap("settle cancelled pre-effect rejections".into()))?;
+    #[cfg(all(feature = "desktop-protected", target_os = "linux"))]
+    worker.recover_d2_terminal_projections().map_err(|stage| {
+        tracing::warn!(stage, "D2 terminal projection recovery failed");
+        DaemonError::Bootstrap("recover exact D2 terminal projections".into())
+    })?;
+    #[cfg(all(feature = "desktop-protected", target_os = "linux"))]
+    worker.recover_d2_failure_projections().map_err(|stage| {
+        tracing::warn!(stage, "D2 failure projection recovery failed");
+        DaemonError::Bootstrap("recover truthful D2 failure projections".into())
+    })?;
     Ok(worker)
 }

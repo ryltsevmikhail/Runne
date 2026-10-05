@@ -55,3 +55,5 @@ fn encode_digest(digest: [u8; 32]) -> String {
     }
     encoded
 }
+
+include!("tool_profile.rs");

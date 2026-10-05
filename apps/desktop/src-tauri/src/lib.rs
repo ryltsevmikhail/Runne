@@ -5,6 +5,8 @@ mod diagnostics_export;
 mod directory_selection;
 mod directory_selection_response;
 mod external_activation;
+#[cfg(all(target_os = "linux", feature = "test-support"))]
+mod gui_qualification;
 mod notifications;
 mod open_selected_workspace_request;
 mod operational_telemetry_command;
@@ -288,13 +290,4 @@ where
         Ok(RuntimeMode::Bundled)
     }
 }
-include!("lib_parts/commands.rs");
-include!("lib_parts/directory_selection_commands.rs");
-include!("lib_parts/settings_commands.rs");
-include!("lib_parts/workspace_file_commands.rs");
-include!("lib_parts/workspace_diff_commands.rs");
-include!("lib_parts/process_commands.rs");
-include!("lib_parts/editor_commands.rs");
-include!("lib_parts/prepared_commit.rs");
-include!("lib_parts/run.rs");
-include!("lib_parts/test_modules.rs");
+include!("lib_parts/modules.rs");

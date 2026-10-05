@@ -5,7 +5,7 @@ fn v40_conversation_context_scope_reopens_and_rejects_drift() {
     let connection = Connection::open(&path).unwrap();
     apply_migrations(&connection).unwrap();
     assert_eq!(schema_marker(&connection), CURRENT_SCHEMA_VERSION);
-    assert!(v63_matches(&connection, CURRENT_SCHEMA_VERSION).unwrap());
+    assert!(v64_matches(&connection, CURRENT_SCHEMA_VERSION).unwrap());
     // The CHECK contract only admits the two closed scope values.
     connection
         .execute(
@@ -32,6 +32,6 @@ fn v40_conversation_context_scope_reopens_and_rejects_drift() {
     drifted
         .execute_batch("DROP TABLE conversation_context_scope;")
         .unwrap();
-    assert!(!v63_matches(&drifted, CURRENT_SCHEMA_VERSION).unwrap());
+    assert!(!v64_matches(&drifted, CURRENT_SCHEMA_VERSION).unwrap());
     assert!(classify_schema_version(&drifted).is_err());
 }

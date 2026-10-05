@@ -72,6 +72,8 @@ pub(super) fn v44_matches(connection: &Connection, version: i64) -> SqliteResult
             | (62, 1, 62, 1953)
             | (63, 1, 62, 1997)
             | (63, 1, 63, 2016)
+            | (64, 1, 63, 2061)
+            | (64, 1, 64, 2080)
     ) {
         return Ok(false);
     }

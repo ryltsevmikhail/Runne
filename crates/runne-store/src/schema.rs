@@ -23,7 +23,7 @@ use sha2::{Digest, Sha256};
 use std::io::Read;
 
 /// Current schema version. Increment when adding new DDL migrations.
-pub const CURRENT_SCHEMA_VERSION: i64 = 63;
+pub const CURRENT_SCHEMA_VERSION: i64 = 64;
 
 /// Fail-closed reason returned before a file-backed database is made writable.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -161,6 +161,7 @@ include!("schema/migrations/v60_remote_artifact_cancel_closure.rs");
 include!("schema/migrations/v61_remote_terminal_application.rs");
 include!("schema/migrations/v62_remote_terminal_audit.rs");
 include!("schema/migrations/v63_provider_terminal_unknown.rs");
+include!("schema/migrations/v64_taskrun_tool_invocation.rs");
 #[cfg(feature = "test-support")]
 include!("schema/test_support_matcher_diagnosis.rs");
 mod project_workspace_backfill;
@@ -255,6 +256,7 @@ mod tests {
     include!("schema/tests/v59_remote_terminal_settlement.rs");
     include!("schema/tests/v60_remote_artifact_cancel_closure.rs");
     include!("schema/tests/v61_remote_terminal_application.rs");
+    include!("schema/tests/v64_tool_invocation.rs");
     include!("schema/tests/recovery_compatibility.rs");
     include!("schema/tests/recovery_compatibility_v24.rs");
     include!("schema/tests/credential_v24.rs");

@@ -51,6 +51,8 @@ pub(super) fn v42_structure_matches(
                 | (62, 1, 62, 1953)
                 | (63, 1, 62, 1997)
                 | (63, 1, 63, 2016)
+                | (64, 1, 63, 2061)
+                | (64, 1, 64, 2080)
         )
     } else {
         matches!(marker, (42, 1, 41, 884) | (42, 1, 42, 903))
@@ -173,6 +175,9 @@ pub(super) fn v42_structure_matches(
     }
     if marker.0 >= 63 {
         v63_add_schema_extensions(&mut tables, &mut triggers);
+    }
+    if marker.0 >= 64 {
+        v64_add_schema_extensions(&mut tables, &mut indexes, &mut triggers);
     }
     if marker.0 >= 47 {
         tables.push("text_only_taskrun_lineage");

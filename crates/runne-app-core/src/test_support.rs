@@ -38,6 +38,25 @@ pub fn open_anchored_external_local_core(
     ))
 }
 
+#[cfg(target_os = "linux")]
+#[doc(hidden)]
+pub fn open_anchored_external_local_core_with_persistent_fixture(
+    database_path: &Path,
+    anchor_directory: &Path,
+    profile: [u8; 32],
+) -> Result<AppCore, AppCoreError> {
+    let secure = Arc::new(
+        runne_secure_store::test_support::PersistentDeterministicSecureStore::open(
+            anchor_directory,
+            profile,
+        )
+        .map_err(|_| AppCoreError::MutationUnavailable)?,
+    );
+    let runtime_profile_path = runne_runtime_client::default_local_profile_path()
+        .map_err(|_| AppCoreError::RuntimeUnavailable)?;
+    open_anchored_external_local_core(database_path, runtime_profile_path, secure, profile)
+}
+
 /// Installs an unbound test reference after the caller has admitted its exact
 /// Project and Workspace through the runtime command path.
 ///
@@ -113,6 +132,71 @@ pub async fn promote_task_run_v2_for_test(
         .ok_or(AppCoreError::RuntimeIncompatible)?;
     core.promote_retention_baseline_v2_under_operation(&context, scope, &scope_key, None, baseline)
         .await
+}
+
+/// Seeds stable canonical Project, Workspace, and Conversation identities for a
+/// disposable Linux native desktop qualification fixture.
+#[cfg(target_os = "linux")]
+#[doc(hidden)]
+pub async fn ensure_managed_task_run_gui_workspace(
+    core: &AppCore,
+    project_text: &str,
+    workspace_text: &str,
+) -> Result<(), AppCoreError> {
+    let project_id =
+        CanonicalId::parse(project_text).map_err(|_| AppCoreError::ProjectUnavailable)?;
+    let workspace_id =
+        CanonicalId::parse(workspace_text).map_err(|_| AppCoreError::ProjectUnavailable)?;
+    if !core
+        .list_canonical_projects()
+        .await
+        .map_err(|error| {
+            eprintln!("gui-qualification seed_step=list_projects error={error}");
+            error
+        })?
+        .iter()
+        .any(|project| project.project_id == project_id.to_string())
+    {
+        eprintln!("gui-qualification seed_step=create_project");
+        core.create_runtime_project(project_id, "Linux GUI receipt fixture".to_owned())
+            .await
+            .map_err(|error| {
+                eprintln!("gui-qualification seed_step=create_project error={error}");
+                error
+            })?;
+    }
+    let details = core
+        .get_canonical_project(project_text)
+        .await
+        .map_err(|error| {
+            eprintln!("gui-qualification seed_step=get_project error={error}");
+            error
+        })?;
+    if !details
+        .workspaces
+        .iter()
+        .any(|workspace| workspace.workspace_id == workspace_id.to_string())
+    {
+        eprintln!("gui-qualification seed_step=create_workspace");
+        core.create_runtime_workspace(
+            project_id,
+            workspace_id,
+            "Linux GUI receipt fixture".to_owned(),
+        )
+        .await
+        .map_err(|error| {
+            eprintln!("gui-qualification seed_step=create_workspace error={error}");
+            error
+        })?;
+    }
+    eprintln!("gui-qualification seed_step=open_conversation");
+    core.open_workspace_conversation(workspace_text)
+        .await
+        .map_err(|error| {
+            eprintln!("gui-qualification seed_step=open_conversation error={error}");
+            error
+        })?;
+    Ok(())
 }
 
 /// Opens an anchored bundled core with one exact protected loopback runtime.

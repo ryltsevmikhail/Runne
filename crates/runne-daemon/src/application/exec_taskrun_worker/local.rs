@@ -19,7 +19,7 @@ mod helpers;
 #[path = "local/no_effect.rs"]
 mod no_effect;
 #[path = "local/run.rs"]
-mod run;
+pub(super) mod run;
 use helpers::*;
 #[cfg(feature = "test-support")]
 #[path = "local/diagnostic.rs"]

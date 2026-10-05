@@ -5,6 +5,7 @@ import runtimeEnglish from './english-runtime'
 import providerSurfaces from './provider-surfaces'
 import projectTrustControl from './project-trust-control-en'
 import taskRunEffects from './task-run-effects-en'
+import managedWorkflows from './managed-workflows-en'
 
 const english = {
   'settings.title': 'Settings',
@@ -287,6 +288,7 @@ const english = {
   ...providerSurfaces,
   ...projectTrustControl,
   ...taskRunEffects,
+  ...managedWorkflows,
 } as const
 
 export default english

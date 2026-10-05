@@ -14,6 +14,22 @@ pub(super) fn validate(
     dispatch_attempt_id: Option<[u8; 16]>,
     unknown: Option<ProviderUnknownTerminalCancellationEvidence>,
 ) -> Result<bool, CommitError> {
+    if let ProviderCancellationProof::D2ToolLoop(evidence) = payload.proof {
+        let exact: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM taskrun_claim_receipts c
+             JOIN taskrun_terminal_settlement_receipts s ON s.taskrun_id=c.taskrun_id
+              AND s.fence=c.fence AND s.attempt_id=c.attempt_id AND s.node_id=c.node_id AND s.node_epoch=c.node_epoch
+             WHERE c.taskrun_id=?1 AND c.attempt_id=?2 AND c.node_id=?3 AND c.node_epoch=?4
+              AND c.fence=?5 AND s.terminal_version=?6 AND s.terminal_event_id=(
+                SELECT event_id FROM events WHERE aggregate_type=1 AND aggregate_id=?1 AND sequence=?6))",
+            params![stored.taskrun_id.as_bytes(), stored.attempt_id.as_bytes(), evidence.node_id.as_slice(),
+                evidence.node_epoch as i64, evidence.fence as i64, stored.taskrun_version as i64],
+            |row| row.get(0),
+        ).map_err(|_| storage_failure(StorageFailureKind::IntegrityViolation))?;
+        return Ok(exact
+            && evidence.cancellation_taskrun_version.checked_add(1) == Some(stored.taskrun_version)
+            && super::super::super::terminal_cancellation_receipt::validate_terminal_cancellation_receipt(tx, stored).is_ok());
+    }
     if let Some(evidence) = terminal {
         let dispatch = dispatch_attempt_id
             .ok_or_else(|| storage_failure(StorageFailureKind::IntegrityViolation))?;

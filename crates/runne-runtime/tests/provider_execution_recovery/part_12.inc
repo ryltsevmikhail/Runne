@@ -32,7 +32,8 @@ impl SourcecraftVectorDatabase {
              INSERT INTO provider_encryption_nonces VALUES (X'{key}', 1, X'{journal_nonce}', 1, X'{attempt}', 0);
              INSERT INTO provider_encryption_nonces VALUES (X'{key}', 1, X'{outbox_nonce}', 2, X'{attempt}', NULL);
              INSERT INTO provider_stream_journal VALUES (X'{attempt}', 0, X'{key}', 1, X'{journal_nonce}', 2, X'{profile}', 8, 2, 0, X'{journal_cipher}', 78, X'{journal_digest}');
-             INSERT INTO provider_terminal_outbox VALUES (X'{outbox_id}', X'{attempt}', 9, 2, X'{key}', 1, X'{outbox_nonce}', 8, X'{profile}', X'{outbox_cipher}', 25, X'{outbox_digest}', X'{settlement}', 'sourcecraft-terminal', 1, NULL, 1, NULL);",
+             INSERT INTO provider_terminal_outbox VALUES (X'{outbox_id}', X'{attempt}', 9, 2, X'{key}', 1, X'{outbox_nonce}', 8, X'{profile}', X'{outbox_cipher}', 25, X'{outbox_digest}', X'{settlement}', 'sourcecraft-terminal', 1, NULL, 1, NULL);
+             INSERT INTO provider_terminal_application_kinds(dispatch_attempt_id,outbox_id,application_kind) VALUES (X'{attempt}', X'{outbox_id}', 1);",
             call = "0a".repeat(16), prepared = "0b".repeat(32), render = "0c".repeat(32),
             profile = "07".repeat(32), record = "0d".repeat(32), attempt = "05".repeat(16),
             permit = "0e".repeat(16), tokens = "0f".repeat(16), cost = "10".repeat(16),

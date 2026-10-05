@@ -21,8 +21,15 @@ pub(super) fn compose(
         let _ = prohibited_content;
         super::exec_taskrun_recovery::automatic_taskrun_service_with_root(
             super::exec_taskrun_worker::ProtectedTaskRunWorkerConfig {
-                store,
+                store: store.clone(),
                 taskruns: service,
+                #[cfg(target_os = "linux")]
+                tool_loop_service: super::tool_loop_service(
+                    store.clone(),
+                    RuntimeAuthorityId(hex::encode(authority_id)),
+                    provider.clone(),
+                    root_admission.clone(),
+                ),
                 text,
                 provider,
                 node_id: runne_application::ports::ExecutionNodeId(
@@ -30,6 +37,7 @@ pub(super) fn compose(
                 ),
                 epoch,
                 current_epoch,
+                #[cfg(target_os = "linux")]
                 root_admission,
                 #[cfg(target_os = "linux")]
                 node_lease_heartbeat: _node_lease_heartbeat,

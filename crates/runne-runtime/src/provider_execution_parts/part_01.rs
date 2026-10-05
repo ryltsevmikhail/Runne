@@ -17,8 +17,8 @@ pub use runne_application::provider::ProviderEventJournalContext;
 use runne_application::provider::{
     ProviderEncryptedPayload, ProviderExecutionError, ProviderExecutionStore,
     ProviderJournalAppendOutcome, ProviderJournalAppendRequest, ProviderJournalKeyBinding,
-    ProviderPollRequest, ProviderRecoveryObserver, ProviderTerminalCommitOutcome,
-    ProviderTerminalOutboxRecord, ProviderTerminalPricingBinding,
+    ProviderPollRequest, ProviderRecoveryObserver, ProviderTerminalApplicationKind,
+    ProviderTerminalCommitOutcome, ProviderTerminalOutboxRecord, ProviderTerminalPricingBinding,
 };
 use runne_domain::message::MessageText;
 use runne_provider::{
@@ -61,6 +61,7 @@ const MAX_PROVIDER_ASSEMBLED_OUTPUT_BYTES: usize = 4_194_288;
 /// ```
 #[derive(Debug, PartialEq, Eq)]
 pub struct ProviderTerminalCommitRequest {
+    application_kind: ProviderTerminalApplicationKind,
     outbox_id: [u8; 16],
     attempt_id: DispatchAttemptId,
     fencing_token: u64,
@@ -103,6 +104,7 @@ impl ProviderTerminalCommitRequest {
         application_idempotency_key: String,
     ) -> Self {
         Self {
+            application_kind: ProviderTerminalApplicationKind::TextGeneration,
             outbox_id,
             attempt_id,
             fencing_token,
@@ -126,6 +128,12 @@ impl ProviderTerminalCommitRequest {
     #[must_use]
     pub const fn outbox_id(&self) -> &[u8; 16] {
         &self.outbox_id
+    }
+
+    /// Returns the durable terminal payload consumer.
+    #[must_use]
+    pub const fn application_kind(&self) -> ProviderTerminalApplicationKind {
+        self.application_kind
     }
 
     /// Returns the durable provider attempt.

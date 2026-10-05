@@ -10,6 +10,33 @@ impl OpenAiTextProviderProfile {
     }
 }
 
+#[cfg(all(feature = "desktop-protected", target_os = "linux"))]
+pub(super) fn opt_in_tool_profile(
+    text_profile: &SharedTextProviderProfile,
+) -> Option<Arc<SharedTextProviderProfile>> {
+    #[cfg(not(all(target_os = "linux", feature = "desktop-protected")))]
+    {
+        let _ = text_profile;
+        return None;
+    }
+    #[cfg(all(target_os = "linux", feature = "desktop-protected"))]
+    {
+        let profile = OpenAiResponsesTextProfile::from_json(include_bytes!(
+            "../../../../docs/profiles/openai-responses-text-v1.json"
+        ))
+        .ok()?;
+        if text_profile.profile_id() != profile.profile_id()
+            || text_profile.profile_digest() != profile.profile_digest()
+        {
+            return None;
+        }
+        let tool_profile = runne_provider_openai::OpenAiResponsesToolProfile::new(profile).ok()?;
+        Some(Arc::new(SharedTextProviderProfile::new(Arc::new(
+            tool_profile,
+        ))))
+    }
+}
+
 impl ProviderTerminalPricing for OpenAiTextProviderProfile {
     fn price_terminal_usage(
         &self,

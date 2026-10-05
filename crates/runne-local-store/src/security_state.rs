@@ -111,11 +111,14 @@ impl MutationIdentity {
             expected_version, semantic_digest })
     }
 
-    pub(crate) fn semantic_digest(&self) -> [u8; 32] { self.semantic_digest }
-    pub(crate) fn idempotency_key(&self) -> &str { self.idempotency_key.as_str() }
+    #[must_use]
+    pub fn semantic_digest(&self) -> [u8; 32] { self.semantic_digest }
+    #[must_use]
+    pub fn idempotency_key(&self) -> &str { self.idempotency_key.as_str() }
     pub(crate) fn runtime(&self) -> [u8; 32] { self.runtime_authority_digest }
     pub(crate) fn principal(&self) -> [u8; 32] { self.principal_digest }
-    pub(crate) fn expected_version(&self) -> u64 { self.expected_version }
+    #[must_use]
+    pub fn expected_version(&self) -> u64 { self.expected_version }
     pub(crate) fn target(&self) -> &[u8] { self.target.canonical_id.bytes() }
     pub(crate) fn target_kind(&self) -> MutationTargetKind { self.target.kind }
     pub(crate) fn operation(&self) -> MutationOperation { self.operation }

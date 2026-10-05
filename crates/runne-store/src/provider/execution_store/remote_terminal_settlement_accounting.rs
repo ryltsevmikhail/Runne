@@ -141,6 +141,10 @@ fn settle_remote_terminal(
                 ],
             )
             .map_err(|_| ProviderExecutionError::TerminalConflict)?;
+        transaction.execute(
+            "INSERT INTO provider_terminal_application_kinds(dispatch_attempt_id,outbox_id,application_kind) VALUES(?1,?2,1)",
+            rusqlite::params![request.attempt_id().as_bytes().as_slice(), outbox_id.as_slice()],
+        ).map_err(|_| ProviderExecutionError::TerminalConflict)?;
     }
     release_reservations(
         transaction,

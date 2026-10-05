@@ -35,3 +35,4 @@ include!("provider_execution_recovery/part_20_source1_late_heads.inc");
 include!("provider_execution_recovery/part_21_source1_v62_upgrade.inc");
 include!("provider_execution_recovery/part_22_source1_tamper.inc");
 include!("provider_execution_recovery/part_23_source1_transplant.inc");
+include!("provider_execution_recovery/part_24_d2_poll_bound.inc");

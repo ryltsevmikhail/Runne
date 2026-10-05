@@ -135,6 +135,7 @@ impl StoreTransaction {
         super::terminal_occupation::verify_claimed_terminal_before_append(
             &transaction,
             &payload.receipt,
+            payload.expected_taskrun_version,
             &payload.taskrun_events[0],
         )?;
         append_conversation_event(

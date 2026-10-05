@@ -95,6 +95,9 @@ impl OpenAiResponsesTextRenderer {
         if call.required_capabilities() != [ProviderCapability::Streaming] {
             return Err(OpenAiRenderError::UnsupportedCapability);
         }
+        if !call.tool_declarations().is_empty() || !call.tool_results().is_empty() {
+            return Err(OpenAiRenderError::UnsupportedCapability);
+        }
         validate_extension(call.extension(), &self.profile)?;
         if call.max_output_tokens() > self.profile.max_output_tokens() {
             return Err(OpenAiRenderError::ContextLimitExceeded);
