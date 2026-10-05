@@ -70,15 +70,14 @@ pub(crate) async fn before_receipt(
         .await
         .expect("stable uncertain D2 task");
     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-    assert_eq!(
-        client
-            .get_task_run(task)
-            .await
-            .expect("recheck first reopen")
-            .stream_version(),
+    recheck_same_failed_head(
+        &client,
+        &mut reopened,
+        task,
         version.stream_version(),
-        "first reopen neither retried nor continued the uncertain invocation"
-    );
+        "first reopen neither retried nor continued the uncertain invocation",
+    )
+    .await;
 
     kill_supervised_daemon(&mut reopened);
     let (mut reopened_again, client_again) =
@@ -102,16 +101,73 @@ pub(crate) async fn before_receipt(
     super::super::faults::assert_failure_projection(database, task);
     assert_proved_empty_uncertain(database, task);
     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-    assert_eq!(
-        client_again
-            .get_task_run(task)
-            .await
-            .expect("recheck second reopen")
-            .stream_version(),
+    recheck_same_failed_head(
+        &client_again,
+        &mut reopened_again,
+        task,
         version.stream_version(),
-        "second reopen did not duplicate progress"
-    );
+        "second reopen did not duplicate progress",
+    )
+    .await;
     reopened_again.stop().expect("stop second D2 crash reopen");
+}
+
+async fn recheck_same_failed_head(
+    client: &runne_runtime_client::AuthenticatedRuntimeClient,
+    supervisor: &mut runne_platform_desktop::ProtectedBundledRuntimeSupervisor,
+    task: runne_runtime_client::CanonicalId,
+    expected_version: u64,
+    assertion: &str,
+) {
+    use runne_runtime_client::RuntimeApiErrorKind;
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
+    let mut transport_unavailable = 0u32;
+    loop {
+        let response = tokio::time::timeout_at(deadline, client.get_task_run(task))
+            .await
+            .unwrap_or_else(|_| {
+                let status = supervisor
+                    .test_wait_for_exit(std::time::Duration::ZERO)
+                    .expect("poll exact owned daemon after same-head GET deadline");
+                panic!("same-head GET exceeded 5-second deadline; owned daemon status={status:?}");
+            });
+        match response {
+            Ok(snapshot) => {
+                assert_eq!(snapshot.state(), runne_runtime_client::TaskRunState::Failed);
+                assert_eq!(snapshot.stream_version(), expected_version, "{assertion}");
+                if transport_unavailable > 0 {
+                    eprintln!(
+                        "INFO: same-head read recovered after {transport_unavailable} read-only transport-unavailable response(s)"
+                    );
+                }
+                return;
+            }
+            Err(error)
+                if error.kind() == RuntimeApiErrorKind::Unavailable
+                    && error.request_id().is_none() =>
+            {
+                transport_unavailable = transport_unavailable.saturating_add(1);
+                let status = supervisor
+                    .test_wait_for_exit(std::time::Duration::ZERO)
+                    .expect("poll exact owned daemon after transport-unavailable GET");
+                assert_eq!(
+                    status,
+                    runne_platform_desktop::BundledRuntimeProcessStatus::Running,
+                    "daemon process exited during read-only same-head check"
+                );
+                assert!(
+                    tokio::time::Instant::now() < deadline,
+                    "same-head GET remained transport-unavailable for 5 seconds while the owned daemon stayed running"
+                );
+                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            }
+            Err(error) => panic!(
+                "same-head GET failed with non-retryable runtime API error: kind={:?}, request_id={:?}",
+                error.kind(),
+                error.request_id()
+            ),
+        }
+    }
 }
 
 fn assert_proved_empty_uncertain(
