@@ -84,7 +84,9 @@ test('Phase 3 routes remain fail-closed while workspace chat remains available',
   await installDesktopAdapter(page)
   await page.goto('/task-runs')
   await expect(page.getByRole('heading', { name: 'Task runs', exact: true })).toBeVisible()
-  await expect(page.locator('[data-capability="task-run-inventory"]')).toBeVisible()
+  await expect(page.locator('.task-run-inventory-page').getByRole('status')).toHaveText('Task run inventory is unavailable from the runtime.')
+  await expect(page.locator('.task-run-tree')).toHaveCount(0)
+  await expect(page.getByRole('link', { name: /Open task run/ })).toHaveCount(0)
   await expect(page.locator('[data-inventory-control]')).toHaveCount(0)
 
   await page.goto('/recovery')
