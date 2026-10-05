@@ -12,6 +12,9 @@ use runne_domain::{
 #[cfg(test)]
 #[path = "d2_failure_projection/authority_tests.rs"]
 mod authority_tests;
+#[cfg(test)]
+#[path = "d2_failure_projection/lease_tests.rs"]
+mod lease_tests;
 #[path = "d2_failure_projection/restart.rs"]
 mod restart;
 

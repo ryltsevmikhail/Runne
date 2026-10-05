@@ -62,7 +62,8 @@ fn audit_identifier(path: &str, tokens: &[Token], index: usize) -> Result<(), St
     }
     if (name == "Box" && follows_dyn_error(tokens, index))
         || (name == "to_string"
-            && !policy_uuid::is_allowed_to_string_projection(path, tokens, index))
+            && !policy_uuid::is_allowed_to_string_projection(path, tokens, index)
+            && !policy_composition::is_d2_provider_identity_projection(path, tokens, index))
         || (name == "macro_rules" && punct(tokens, index + 1, '!'))
     {
         return reject(index, "dynamic error projection or forbidden macro");

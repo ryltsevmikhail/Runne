@@ -241,7 +241,7 @@ fn d2_pre_admission_cancel_projection_replays_after_two_validated_reopens() {
     );
     assert_eq!(
         reopened_again_text
-            .finish_text(&fixture.generation_context, input)
+            .finish_text(&fixture.generation_context, input.clone())
             .unwrap(),
         rejected
     );
@@ -267,5 +267,24 @@ fn d2_pre_admission_cancel_projection_replays_after_two_validated_reopens() {
             .unwrap()
             .current_version,
         rejected.conversation_version
+    );
+    let corruption = fixture.database.connection();
+    corruption
+        .execute_batch("DROP TRIGGER taskrun_claim_receipts_immutable;")
+        .unwrap();
+    corruption
+        .execute(
+            "UPDATE taskrun_claim_receipts SET node_epoch=node_epoch+1
+             WHERE taskrun_id=?1 AND attempt_id=?2",
+            rusqlite::params![
+                fixture.taskrun_id.as_bytes(),
+                fixture.assignment.attempt_id.as_bytes(),
+            ],
+        )
+        .unwrap();
+    assert!(
+        reopened_again_text
+            .finish_text(&fixture.generation_context, input)
+            .is_err()
     );
 }

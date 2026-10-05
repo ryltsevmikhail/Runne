@@ -12,6 +12,8 @@ include!("linux_enrollment_approval.rs");
 #[cfg(target_os = "linux")]
 include!("profile_directory_linux.rs");
 
+include!("managed_task_run_handler.rs");
+
 fn handle_window_event(window: &tauri::Window, event: &WindowEvent) {
     match event {
         WindowEvent::CloseRequested { api, .. } => {

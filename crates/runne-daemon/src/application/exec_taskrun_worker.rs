@@ -53,6 +53,22 @@ pub(crate) struct ProtectedTaskRunWorkerConfig {
     pub(crate) node_lease_heartbeat: Arc<dyn Fn() -> Result<(), ()> + Send + Sync>,
 }
 
+#[cfg(all(test, feature = "desktop-protected", target_os = "linux"))]
+pub(in crate::application) fn provider_only_test_lease_heartbeat(
+    store: StoreTransaction,
+    node_id: ExecutionNodeId,
+    epoch: u64,
+) -> Arc<dyn Fn() -> Result<(), ()> + Send + Sync> {
+    Arc::new(move || {
+        let node_id = uuid::Uuid::parse_str(&node_id.0)
+            .map_err(|_| ())?
+            .into_bytes();
+        store
+            .heartbeat_local_linux_node(node_id, epoch, 300)
+            .map_err(|_| ())
+    })
+}
+
 impl DaemonAutomaticTaskRuns {
     #[cfg(any(test, not(feature = "desktop-protected")))]
     pub(crate) fn new(
@@ -134,6 +150,8 @@ impl DaemonAutomaticTaskRuns {
             epoch,
             current_epoch,
         );
+        worker.node_lease_heartbeat =
+            provider_only_test_lease_heartbeat(worker.store.clone(), worker.node_id.clone(), epoch);
         worker.provider_only_test_fixture = true;
         worker
     }

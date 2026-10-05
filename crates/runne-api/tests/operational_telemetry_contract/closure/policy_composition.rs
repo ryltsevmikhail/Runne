@@ -1,12 +1,26 @@
 use super::lexer::Token;
 
+#[path = "policy_composition/d2_provider_identity.rs"]
+mod d2_provider_identity;
+
+pub(super) fn is_d2_provider_identity_projection(
+    path: &str,
+    tokens: &[Token],
+    index: usize,
+) -> bool {
+    d2_provider_identity::is_d2_provider_identity_projection(path, tokens, index)
+}
+
+pub(super) fn is_d2_provider_id_input(path: &str, tokens: &[Token]) -> bool {
+    d2_provider_identity::is_d2_provider_id_input(path, tokens)
+}
+
 const ENROLLMENT: &str = "crates/runne-daemon/src/application/http_startup/enrollment.rs";
 const PROFILE_MODELS: &str = "crates/runne-daemon/src/application/http_startup/profile_models.rs";
 const SECONDARY_BACKGROUND: &str =
     "crates/runne-daemon/src/canonical_provider/composition/secondary_background.rs";
 const SECONDARY_METADATA: &str =
     "crates/runne-daemon/src/canonical_provider/composition/secondary_effects_metadata.rs";
-
 /// Allows only the provider-ID string in the exact enrollment control list.
 pub(super) fn is_exact_enrollment_control_list(path: &str, tokens: &[Token], index: usize) -> bool {
     path == ENROLLMENT
