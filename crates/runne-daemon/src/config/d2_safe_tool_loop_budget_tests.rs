@@ -40,6 +40,7 @@ fn d2_tool_grant_rejects_zero_or_unknown_budget_fields() {
     .is_err());
 }
 
+#[cfg(all(feature = "desktop-protected", target_os = "linux"))]
 #[test]
 fn protected_d2_copy_imports_only_budget_and_preserves_absent_digest() {
     let dir = tempfile::tempdir().unwrap();
