@@ -43,7 +43,7 @@ fn setup_app(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     };
     #[cfg(all(target_os = "linux", feature = "test-support"))]
     let core = Arc::new(if let Some(control) = gui_qualification.as_ref() {
-        tauri::async_runtime::block_on(control.open_core(&profile_directory))?
+        control.open_core(&profile_directory)?
     } else {
         AppCore::open_production(&profile_directory.join("profile.sqlite3"), runtime_mode)?
     });
@@ -128,7 +128,8 @@ fn install_runtime_lifecycle(
     profile_directory: &std::path::Path,
     runtime_mode: RuntimeMode,
     selection: &provider_selection::ProviderSelection,
-) -> Result<Option<Arc<crate::bundled_runtime::BundledRuntimeController>>, Box<dyn std::error::Error>> {
+) -> Result<Option<Arc<crate::bundled_runtime::BundledRuntimeController>>, Box<dyn std::error::Error>>
+{
     let mut monitor = None;
     let lifecycle = match runtime_mode {
         RuntimeMode::ExternalLocal => RuntimeLifecycleManager::external(),

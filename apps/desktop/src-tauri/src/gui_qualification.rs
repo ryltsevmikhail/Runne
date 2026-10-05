@@ -9,8 +9,15 @@ use runne_app_core::{AppCore, ManagedTaskRunRecovery, ManagedTaskRunStart};
 use serde_json::json;
 use tauri::Manager;
 
+#[path = "gui_qualification_connect.rs"]
+mod connect;
+#[path = "gui_qualification_page_script.rs"]
+mod page_script;
+
 const QUALIFICATION_PROFILE: [u8; 32] = [0xD2; 32];
 const PREVIOUS_TOKEN_SENTINEL: &str = "__d2_gui_qualification_previous_token__";
+const DRAFT_PROBE_TOKEN: &str = "018f2e3a-7000-7000-8000-000000000299";
+const DRAFT_PROMPT: &str = "DX1 protected draft reload qualification prompt";
 
 /// Closed, test-support-only configuration for the native lost-ACK scenario.
 #[derive(Clone)]
@@ -38,22 +45,27 @@ impl GuiQualificationControl {
         }
         let phase =
             std::env::var("RUNNE_D2_GUI_FIXTURE_PHASE").map_err(|_| "fixture phase missing")?;
-        if !["lost-ack", "recover", "fresh"].contains(&phase.as_str()) {
+        if !["draft-save", "draft-reload", "lost-ack", "recover", "fresh"].contains(&phase.as_str())
+        {
             return Err("fixture phase invalid".to_owned());
         }
         let project_id = canonical_id("RUNNE_D2_GUI_PROJECT_ID")?;
         let workspace_id = canonical_id("RUNNE_D2_GUI_WORKSPACE_ID")?;
         fs::create_dir_all(root.join("markers"))
             .map_err(|_| "fixture marker directory unavailable")?;
-        Ok(Self {
+        let control = Self {
             root,
             phase,
             project_id,
             workspace_id,
-        })
+        };
+        if !control.root.join("start-handler-count").exists() {
+            control.write_secret("start-handler-count", b"0")?;
+        }
+        Ok(control)
     }
 
-    pub(crate) async fn open_core(&self, profile_directory: &Path) -> Result<AppCore, String> {
+    pub(crate) fn open_core(&self, profile_directory: &Path) -> Result<AppCore, String> {
         if !profile_directory.starts_with(&self.root) {
             return Err("Tauri profile escaped fixture root".to_owned());
         }
@@ -62,24 +74,6 @@ impl GuiQualificationControl {
             &profile_directory.join("secure-anchor"),
             QUALIFICATION_PROFILE,
         ).map_err(|_| "anchored fixture AppCore unavailable")?;
-        core.connect_runtime()
-            .await
-            .map_err(|_| "fixture daemon connection unavailable")?;
-        runne_app_core::test_support::ensure_managed_task_run_gui_workspace(
-            &core,
-            &self.project_id,
-            &self.workspace_id,
-        )
-        .await
-        .map_err(|error| format!("canonical GUI workspace fixture unavailable: {error}"))?;
-        self.write_marker(
-            "gui-ready.json",
-            &json!({
-                "phase": self.phase,
-                "workspaceId": self.workspace_id,
-                "window": "native-tauri-webview",
-            }),
-        )?;
         Ok(core)
     }
 
@@ -137,6 +131,27 @@ impl GuiQualificationControl {
         requested_token: &str,
         result: &ManagedTaskRunRecovery,
     ) -> Result<(), String> {
+        if self.phase == "recover" && requested_token == PREVIOUS_TOKEN_SENTINEL {
+            return self.write_marker(
+                "recovered-current-rendered.json",
+                &json!({
+                    "phase": self.phase,
+                    "status": result.status,
+                    "taskRunId": result.task_run_id,
+                    "checkpoint": "rendered-accepted-task-run",
+                }),
+            );
+        }
+        if self.phase == "draft-save" && requested_token == DRAFT_PROBE_TOKEN {
+            return self
+                .write_draft_marker(core, "draft-saved.json", false)
+                .await;
+        }
+        if self.phase == "draft-reload" && requested_token == DRAFT_PROBE_TOKEN {
+            return self
+                .write_draft_marker(core, "draft-restored.json", true)
+                .await;
+        }
         let name = if requested_token == PREVIOUS_TOKEN_SENTINEL {
             "recovered-original.json"
         } else {
@@ -175,26 +190,38 @@ impl GuiQualificationControl {
     }
 
     pub(crate) fn page_script(&self) -> String {
-        let workspace = serde_json::to_string(&self.workspace_id).expect("Workspace ID JSON");
-        let prompt =
-            serde_json::to_string("native lost-ack GUI receipt fixture").expect("prompt JSON");
-        let phase = serde_json::to_string(&self.phase).expect("phase JSON");
-        format!(
-            r#"(() => {{
-          const workspace = {workspace}; const phase = {phase}; const prompt = {prompt};
-          history.replaceState(null, '', '/workspaces/' + workspace);
-          window.dispatchEvent(new PopStateEvent('popstate'));
-          const wait = (test, done, count = 0) => {{ if (test()) return done(); if (count > 240) return; setTimeout(() => wait(test, done, count + 1), 250); }};
-          const form = () => document.querySelector('.task-composer');
-          const fillPrompt = () => {{ const area = document.querySelector('#managed-task-prompt'); if (!area || area.disabled) return false; const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set; setter.call(area, prompt); area.dispatchEvent(new Event('input', {{ bubbles: true }})); return true; }};
-          const submit = () => {{ const button = form()?.querySelector('button[type="submit"]'); if (button && !button.disabled) button.click(); }};
-          const fillAndSubmit = () => wait(() => fillPrompt() && !form()?.querySelector('button[type="submit"]')?.disabled, submit);
-          if (phase === 'lost-ack') wait(() => Boolean(form()), fillAndSubmit);
-          if (phase === 'fresh') wait(() => [...document.querySelectorAll('.task-composer button')].some(b => /Start a new task|Создать новую задачу/i.test(b.textContent || '')), () => {{
-            const next = [...document.querySelectorAll('.task-composer button')].find(b => /Start a new task|Создать новую задачу/i.test(b.textContent || '')); next.click(); fillAndSubmit();
-            wait(() => location.pathname.startsWith('/task-runs/'), () => {{ const bridge = window.__TAURI_INTERNALS__; bridge?.invoke?.('recover_managed_task_run', {{ recoveryToken: '__d2_gui_qualification_previous_token__' }}); }});
-          }});
-        }})();"#
+        page_script::build(&self.phase, &self.workspace_id)
+    }
+
+    async fn write_draft_marker(
+        &self,
+        core: &AppCore,
+        marker: &str,
+        restored: bool,
+    ) -> Result<(), String> {
+        let draft = core
+            .load_managed_task_draft(&self.project_id, &self.workspace_id)
+            .await
+            .map_err(|_| "protected GUI draft unavailable")?;
+        let draft_matches = draft.prompt.as_deref() == Some(DRAFT_PROMPT);
+        if !draft_matches || draft.revision == 0 {
+            return Err("protected GUI draft was not durably saved".to_owned());
+        }
+        let inventory = core
+            .list_managed_task_runs()
+            .await
+            .map_err(|_| "TaskRun inventory unavailable")?;
+        let start_call_count = self.read_start_call_count()?;
+        self.write_marker(
+            marker,
+            &json!({
+                "phase": self.phase,
+                "draftMatches": draft_matches,
+                "draftRevision": draft.revision,
+                "taskRunCount": inventory.task_runs.len(),
+                "startHandlerCalls": start_call_count,
+                "restored": restored,
+            }),
         )
     }
 

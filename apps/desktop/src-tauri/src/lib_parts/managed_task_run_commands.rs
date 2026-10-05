@@ -14,6 +14,66 @@ async fn prepare_managed_task_run(
 }
 
 #[tauri::command]
+async fn load_managed_task_draft(
+    state: State<'_, Arc<AppCore>>,
+    project_id: String,
+    workspace_id: String,
+) -> Result<runne_app_core::ManagedTaskDraft, IpcError> {
+    state
+        .load_managed_task_draft(&project_id, &workspace_id)
+        .await
+        .map_err(|_| IpcError {
+            code: "managed_task_draft_unavailable",
+        })
+}
+
+#[tauri::command]
+async fn save_managed_task_draft(
+    state: State<'_, Arc<AppCore>>,
+    project_id: String,
+    workspace_id: String,
+    scope_token: String,
+    expected_revision: u64,
+    prompt: String,
+) -> Result<runne_app_core::ManagedTaskDraft, IpcError> {
+    state
+        .save_managed_task_draft(
+            &project_id,
+            &workspace_id,
+            &scope_token,
+            expected_revision,
+            &prompt,
+        )
+        .await
+        .map_err(|error| map_managed_task_draft_error(&error))
+}
+
+#[tauri::command]
+async fn clear_managed_task_draft(
+    state: State<'_, Arc<AppCore>>,
+    project_id: String,
+    workspace_id: String,
+    scope_token: String,
+    expected_revision: u64,
+) -> Result<runne_app_core::ManagedTaskDraft, IpcError> {
+    state
+        .clear_managed_task_draft(&project_id, &workspace_id, &scope_token, expected_revision)
+        .await
+        .map_err(|error| map_managed_task_draft_error(&error))
+}
+
+const fn map_managed_task_draft_error(error: &AppCoreError) -> IpcError {
+    IpcError {
+        code: match error {
+            AppCoreError::ManagedDraftConflict => "managed_task_draft_conflict",
+            AppCoreError::ManagedDraftScopeChanged => "managed_task_draft_scope_changed",
+            AppCoreError::ManagedDraftCapacity => "managed_task_draft_capacity",
+            _ => "managed_task_draft_unavailable",
+        },
+    }
+}
+
+#[tauri::command]
 #[allow(clippy::needless_pass_by_value)]
 async fn start_managed_task_run(
     app: tauri::AppHandle,

@@ -1,7 +1,6 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { describe, expect, it } from 'vitest'
-import { clearDraft } from '../model/pending-run'
 import TaskComposer from './TaskComposer.vue'
 
 const projectId = '018f2e3a-7000-7000-8000-000000000213'
@@ -45,7 +44,7 @@ async function mountComposer(overrides: Record<string, unknown>) {
 
 describe('managed TaskComposer cross-window identity', () => {
   it('does not let a stale accepted window clear a sibling window recovery token', async () => {
-    storage.clear(); clearDraft(workspaceId)
+    storage.clear()
     const first = await mountComposer({
       prepare: async () => preflight(firstToken),
       start: async () => ({ status: 'accepted', taskRunId: firstRunId, streamVersion: 2, recoveryToken: firstToken }),
@@ -70,6 +69,6 @@ describe('managed TaskComposer cross-window identity', () => {
     expect(storage.getItem(key)).toBe(secondPending)
     expect(first.wrapper.text()).toContain('The start result is uncertain')
     expect(first.wrapper.text()).not.toContain('This task was accepted')
-    first.wrapper.unmount(); second.wrapper.unmount(); clearDraft(workspaceId)
+    first.wrapper.unmount(); second.wrapper.unmount()
   })
 })

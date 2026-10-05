@@ -25,7 +25,15 @@ pub struct ManagedTaskRunPreflight {
     pub start_unavailable_reason: Option<&'static str>,
     pub recovery_token: Option<String>,
     pub authority: ManagedTaskRunAuthority,
-    pub draft_policy: &'static str,
+    pub draft_policy: ManagedTaskDraftPolicy,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ManagedTaskDraftPolicy {
+    ProtectedRestart,
+    MemoryOnly,
+    Unavailable,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]

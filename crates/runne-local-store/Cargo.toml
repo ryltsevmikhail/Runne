@@ -17,6 +17,9 @@ zeroize.workspace = true
 [target.'cfg(windows)'.dependencies]
 runne-windows-native-handle = { path = "../runne-windows-native-handle" }
 
+[target.'cfg(unix)'.dependencies]
+nix = { version = "=0.31.3", default-features = false, features = ["user"] }
+
 [features]
 test-support = ["runne-secure-store/test-support"]
 

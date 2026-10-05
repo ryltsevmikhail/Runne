@@ -1,10 +1,13 @@
 #[tauri::command]
 #[allow(clippy::needless_pass_by_value)]
 async fn connect_runtime(
+    app: tauri::AppHandle,
     state: State<'_, Arc<AppCore>>,
     lifecycle: State<'_, RuntimeLifecycleManager>,
     updates: State<'_, crate::UpdateStatusStore>,
 ) -> Result<RuntimeAvailability, IpcRuntimeError> {
+    #[cfg(not(all(target_os = "linux", feature = "test-support")))]
+    let _ = app;
     if let Err(error) = require_runtime_admission(&lifecycle) {
         crate::runtime_status_qualification::record(
             crate::runtime_status_qualification::Operation::Connect,
@@ -50,8 +53,24 @@ async fn connect_runtime(
     );
     #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
     if availability == RuntimeAvailability::Live {
-        crate::provider_credential_enrollment::reconcile_startup(&lifecycle, &updates).await
-            .map_err(|()| IpcRuntimeError { code: "runtime_credential_cleanup_incomplete", disposition: "terminal" })?;
+        crate::provider_credential_enrollment::reconcile_startup(&lifecycle, &updates)
+            .await
+            .map_err(|()| IpcRuntimeError {
+                code: "runtime_credential_cleanup_incomplete",
+                disposition: "terminal",
+            })?;
+    }
+    #[cfg(all(target_os = "linux", feature = "test-support"))]
+    if availability == RuntimeAvailability::Live
+        && let Some(control) = app.try_state::<crate::gui_qualification::GuiQualificationControl>()
+    {
+        control
+            .after_runtime_connected(&state)
+            .await
+            .map_err(|_| IpcRuntimeError {
+                code: "runtime_connection_unavailable",
+                disposition: "terminal",
+            })?;
     }
     // An explicit quit during the await must stay terminal even if the
     // handshake itself succeeded.
@@ -67,7 +86,12 @@ async fn connect_runtime(
             disposition: "terminal",
         });
     }
-    let terminal = matches!(availability, RuntimeAvailability::Incompatible | RuntimeAvailability::Revoked | RuntimeAvailability::Fatal);
+    let terminal = matches!(
+        availability,
+        RuntimeAvailability::Incompatible
+            | RuntimeAvailability::Revoked
+            | RuntimeAvailability::Fatal
+    );
     if availability == RuntimeAvailability::Live || terminal {
         let _ = updates.complete_health_if_pending(availability == RuntimeAvailability::Live);
     }

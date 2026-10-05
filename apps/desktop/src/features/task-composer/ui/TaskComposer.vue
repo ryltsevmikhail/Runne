@@ -1,14 +1,12 @@
 <script setup lang="ts">
+import { computed } from 'vue'
+import { RouterLink } from 'vue-router'
 import { GcButton } from '@runne/product/shared/ui'
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import { RouterLink, useRouter } from 'vue-router'
-import { prepareManagedTaskRun, recoverManagedTaskRun, startManagedTaskRun } from '@/entities/task-run'
-import type { ManagedTaskRunPreflight } from '@/entities/task-run'
 import { translate } from '@/shared/i18n'
-import { clearDraft, clearPendingRun, draftFor, loadPendingRun, savePendingRun, setDraft } from '../model/pending-run'
-import type { PendingRunBinding } from '../model/pending-run'
+import { useTaskComposer } from '../model/use-task-composer'
+import type { DraftApi } from '../model/draft-session'
+import { prepareManagedTaskRun, recoverManagedTaskRun, startManagedTaskRun } from '@/entities/task-run/api/managed-task-run'
 
-const MAX_PROMPT_BYTES = 64 * 1024
 const props = withDefaults(defineProps<{
   projectId: string
   workspaceId: string
@@ -17,229 +15,43 @@ const props = withDefaults(defineProps<{
   start?: typeof startManagedTaskRun | undefined
   recover?: typeof recoverManagedTaskRun | undefined
   storage?: Storage | undefined
+  draftApi?: DraftApi | undefined
 }>(), { disabled: false })
-const router = useRouter()
-const prompt = ref(draftFor(props.workspaceId))
-const preflight = ref<ManagedTaskRunPreflight | null>(null)
-const status = ref<'waiting' | 'preparing' | 'ready' | 'unavailable' | 'starting' | 'uncertain' | 'accepted'>('waiting')
-const recoveryMessage = ref<'not_committed' | 'uncertain' | 'unavailable' | null>(null)
-const storageUnavailable = ref(false)
-const operationFailed = ref(false)
-const scopeOperation = ref(0)
-const pending = ref<PendingRunBinding | null>(null)
-const localSubmissionToken = ref<string | null>(null)
-const promptTooLong = computed(() => new TextEncoder().encode(prompt.value).length > MAX_PROMPT_BYTES)
-const submitDisabled = computed(() => props.disabled || status.value !== 'ready' || prompt.value.trim().length === 0 || promptTooLong.value)
-const busy = ref(false)
-
-watch(() => props.workspaceId, (workspaceId, previous) => {
-  setDraft(previous, prompt.value)
-  prompt.value = draftFor(workspaceId)
-}, { flush: 'sync' })
-watch(prompt, value => {
-  if (!props.workspaceId) return
-  setDraft(props.workspaceId, value)
-}, { flush: 'sync' })
-watch([() => props.projectId, () => props.workspaceId, () => props.disabled], () => { void refreshScope() }, { immediate: true })
-function onStorage(event: StorageEvent) {
-  if (event.key === `runne:managed-task-run:${props.workspaceId}`) void refreshScope()
+const {
+  draft, status, recoveryMessage, recoveryStorageUnavailable, operationFailed, pending, busy,
+  draftCleanupReady, draftVisible, promptTooLong, submitDisabled, textareaDisabled, setPrompt, reconcileDraft,
+  submitPrompt, checkStatus, startAnotherTask, retryDraftCleanup,
+} = useTaskComposer(props)
+function retryDraftSave(): void { void draft.retry().catch(() => undefined) }
+const policyCopy = computed(() => {
+  if (draft.view.policy === 'protected_restart') return translate('taskComposer.draftPolicyProtected')
+  if (draft.view.policy === 'memory_only') return translate('taskComposer.draftPolicyMemory')
+  if (draft.view.policy === 'unknown') return translate('taskComposer.draftPolicyPending')
+  return translate('taskComposer.draftPolicyUnavailable')
+})
+function onPromptInput(event: Event): void {
+  const target = event.currentTarget
+  if (target instanceof HTMLTextAreaElement) setPrompt(target.value)
 }
-if (typeof window !== 'undefined') window.addEventListener('storage', onStorage)
-
-function isCurrent(operation: number, projectId: string, workspaceId: string): boolean {
-  return operation === scopeOperation.value && props.projectId === projectId && props.workspaceId === workspaceId && !props.disabled
-}
-function store(): Storage { return props.storage ?? localStorage }
-
-async function refreshScope() {
-  const operation = ++scopeOperation.value
-  const projectId = props.projectId
-  const workspaceId = props.workspaceId
-  preflight.value = null
-  pending.value = null
-  busy.value = false
-  operationFailed.value = false
-  recoveryMessage.value = null
-  if (props.disabled) { status.value = 'waiting'; return }
-  if (!projectId || !workspaceId) { status.value = 'unavailable'; return }
-  let saved
-  try { saved = loadPendingRun(workspaceId, store()) }
-  catch { storageUnavailable.value = true; status.value = 'uncertain'; return }
-  if (saved.status === 'corrupt') { status.value = 'uncertain'; recoveryMessage.value = 'unavailable'; return }
-  if (saved.status === 'pending') {
-    if (saved.binding.projectId !== projectId) { status.value = 'uncertain'; recoveryMessage.value = 'unavailable'; return }
-    pending.value = saved.binding
-    if (saved.binding.acceptedTaskRunId !== undefined) {
-      if (saved.binding.navigated === true) {
-        status.value = 'accepted'
-        return
-      }
-      else { await openAccepted(operation, projectId, workspaceId, saved.binding, saved.binding.acceptedTaskRunId); return }
-    } else {
-      status.value = 'uncertain'
-      await reconcile(operation, projectId, workspaceId, saved.binding)
-      return
-    }
-  }
-  status.value = 'preparing'
-  try {
-    const next = await (props.prepare ?? prepareManagedTaskRun)(projectId, workspaceId)
-    if (!isCurrent(operation, projectId, workspaceId)) return
-    if (next.projectId !== projectId || next.workspaceId !== workspaceId) throw new Error('Scope mismatch')
-    preflight.value = next
-    status.value = next.status === 'ready' && next.canStart && next.generation !== null && next.conversationId !== null && next.recoveryToken !== null ? 'ready' : 'unavailable'
-  } catch {
-    if (isCurrent(operation, projectId, workspaceId)) status.value = 'unavailable'
-  }
-}
-
-async function reconcile(operation: number, projectId: string, workspaceId: string, binding: PendingRunBinding) {
-  if (!isCurrent(operation, projectId, workspaceId)) return
-  try {
-    const result = await (props.recover ?? recoverManagedTaskRun)(binding.recoveryToken)
-    if (operation !== scopeOperation.value || props.workspaceId !== workspaceId || props.projectId !== projectId) return
-    if (result.status === 'accepted' && (result.workspaceId !== binding.workspaceId || result.conversationId !== binding.conversationId)) {
-      recoveryMessage.value = 'unavailable'
-      return
-    }
-    recoveryMessage.value = result.status === 'accepted' ? null : result.status
-    if (result.status === 'accepted') await openAccepted(operation, projectId, workspaceId, binding, result.taskRunId)
-  } catch {
-    if (operation === scopeOperation.value) recoveryMessage.value = 'unavailable'
-  }
-}
-
-async function checkStatus() {
-  const binding = pending.value
-  if (binding === null || busy.value || props.disabled) return
-  const operation = scopeOperation.value
-  busy.value = true
-  try { await reconcile(operation, props.projectId, props.workspaceId, binding) }
-  finally { if (operation === scopeOperation.value) busy.value = false }
-}
-
-async function startAnotherTask() {
-  if (status.value !== 'accepted' || busy.value || props.disabled) return
-  const accepted = pending.value
-  if (accepted?.acceptedTaskRunId === undefined) return
-  let saved
-  try { saved = loadPendingRun(props.workspaceId, store()) }
-  catch { storageUnavailable.value = true; return }
-  if (saved.status === 'pending' && (!sameIntent(saved.binding, accepted)
-    || (saved.binding.acceptedTaskRunId !== undefined && saved.binding.acceptedTaskRunId !== accepted.acceptedTaskRunId))) {
-    await refreshScope()
-    return
-  }
-  if (saved.status === 'corrupt') { await refreshScope(); return }
-  try { clearPendingRun(props.workspaceId, store()) }
-  catch { storageUnavailable.value = true; return }
-  pending.value = null
-  localSubmissionToken.value = null
-  await refreshScope()
-}
-
-async function submitPrompt() {
-  const authority = preflight.value
-  if (submitDisabled.value || busy.value || authority === null || authority.conversationId === null || authority.recoveryToken === null || authority.generation === null) return
-  const projectId = props.projectId
-  const workspaceId = props.workspaceId
-  const operation = scopeOperation.value
-  let saved
-  try { saved = loadPendingRun(workspaceId, store()) }
-  catch { storageUnavailable.value = true; return }
-  if (saved.status === 'corrupt') {
-    pending.value = null
-    recoveryMessage.value = 'unavailable'
-    status.value = 'uncertain'
-    return
-  }
-  if (saved.status === 'pending') {
-    pending.value = saved.binding
-    if (saved.binding.acceptedTaskRunId !== undefined) {
-      if (saved.binding.navigated === true) {
-        status.value = 'accepted'
-      } else await openAccepted(operation, projectId, workspaceId, saved.binding, saved.binding.acceptedTaskRunId)
-      return
-    }
-    recoveryMessage.value = 'uncertain'
-    status.value = 'uncertain'
-    await reconcile(operation, projectId, workspaceId, saved.binding)
-    return
-  }
-  const binding: PendingRunBinding = { recoveryToken: authority.recoveryToken, projectId, workspaceId, conversationId: authority.conversationId }
-  try { savePendingRun(binding, store()) }
-  catch { storageUnavailable.value = true; return }
-  pending.value = binding
-  localSubmissionToken.value = authority.recoveryToken
-  status.value = 'starting'
-  operationFailed.value = false
-  busy.value = true
-  try {
-    const ack = await (props.start ?? startManagedTaskRun)({
-      workspaceId, conversationId: authority.conversationId, prompt: prompt.value,
-      generation: authority.generation, recoveryToken: authority.recoveryToken,
-    })
-    if (ack.status === 'accepted') await openAccepted(operation, projectId, workspaceId, binding, ack.taskRunId)
-    else {
-      if (isCurrent(operation, projectId, workspaceId)) {
-        status.value = 'uncertain'
-        operationFailed.value = true
-      }
-      await reconcile(operation, projectId, workspaceId, binding)
-    }
-  } catch {
-    if (operation === scopeOperation.value && props.workspaceId === workspaceId && props.projectId === projectId) {
-      operationFailed.value = true
-      status.value = 'uncertain'
-    }
-    await reconcile(operation, projectId, workspaceId, binding)
-  } finally { if (operation === scopeOperation.value) busy.value = false }
-}
-
-async function openAccepted(operation: number, projectId: string, workspaceId: string, binding: PendingRunBinding, taskRunId: string) {
-  const accepted = { ...binding, acceptedTaskRunId: taskRunId, navigated: false }
-  if (!isCurrent(operation, projectId, workspaceId)) return
-  let canPersist = true
-  try {
-    const saved = loadPendingRun(workspaceId, store())
-    if (saved.status !== 'pending' || !sameIntent(saved.binding, binding)
-      || (saved.binding.acceptedTaskRunId !== undefined && saved.binding.acceptedTaskRunId !== taskRunId)) return
-    savePendingRun(accepted, store())
-  } catch { storageUnavailable.value = true; canPersist = false }
-  pending.value = accepted
-  if (!isCurrent(operation, projectId, workspaceId)) return
-  const ownsSubmission = localSubmissionToken.value === binding.recoveryToken
-  if (ownsSubmission) {
-    clearDraft(workspaceId)
-    prompt.value = ''
-  }
-  status.value = 'accepted'
-  if (!canPersist) storageUnavailable.value = true
-  if (!ownsSubmission && prompt.value.length > 0) return
-  try {
-    await router.push({ name: 'task-run', params: { taskRunId } })
-    if (router.currentRoute.value.params.taskRunId === taskRunId) {
-      const current = loadPendingRun(workspaceId, store())
-      if (current.status === 'pending' && sameIntent(current.binding, binding)
-        && current.binding.acceptedTaskRunId === taskRunId) savePendingRun({ ...accepted, navigated: true }, store())
-    }
-  } catch { /* The accepted identity and explicit timeline link remain visible. */ }
-}
-
-function sameIntent(left: PendingRunBinding, right: PendingRunBinding): boolean {
-  return left.recoveryToken === right.recoveryToken && left.projectId === right.projectId
-    && left.workspaceId === right.workspaceId && left.conversationId === right.conversationId
-}
-
-onBeforeUnmount(() => { scopeOperation.value += 1; if (typeof window !== 'undefined') window.removeEventListener('storage', onStorage); setDraft(props.workspaceId, prompt.value) })
 </script>
 
 <template>
   <form class="task-composer" aria-labelledby="task-composer-title" @submit.prevent="submitPrompt">
     <h2 id="task-composer-title">{{ translate('taskComposer.title') }}</h2>
     <label for="managed-task-prompt">{{ translate('taskComposer.promptLabel') }}</label>
-    <textarea id="managed-task-prompt" v-model="prompt" :disabled="disabled || status === 'starting' || status === 'uncertain' || status === 'accepted'" :placeholder="translate('taskComposer.placeholder')" rows="3" />
-    <small>{{ translate('taskComposer.draftPolicy') }}</small>
+    <textarea id="managed-task-prompt" :value="draftVisible ? draft.view.prompt : ''" :disabled="textareaDisabled" :placeholder="translate('taskComposer.placeholder')" rows="3" @input="onPromptInput" />
+    <small v-if="draftVisible">{{ policyCopy }}</small>
+    <p v-if="draftVisible && draft.view.policy !== 'unknown' && draft.view.status === 'loading'" role="status">{{ translate('taskComposer.draftLoading') }}</p>
+    <p v-else-if="draftVisible && draft.view.policy !== 'unknown' && draft.view.status === 'saving'" role="status">{{ translate('taskComposer.draftSaving') }}</p>
+    <p v-else-if="draftVisible && draft.view.policy !== 'unknown' && draft.view.status === 'saved'" role="status">{{ translate('taskComposer.draftSaved') }}</p>
+    <p v-else-if="draftVisible && draft.view.policy === 'memory_only' && draft.view.status === 'memory'" role="status">{{ translate('taskComposer.draftInMemory') }}</p>
+    <p v-else-if="draftVisible && draft.view.policy !== 'unknown' && draft.view.status === 'unsaved'" role="status">{{ translate('taskComposer.draftUnsaved') }}</p>
+    <p v-if="draftVisible && draft.view.policy !== 'unknown' && draft.view.status === 'error' && draft.view.error === 'capacity'" role="alert">{{ translate('taskComposer.draftCapacity') }}</p>
+    <p v-else-if="draftVisible && draft.view.policy !== 'unknown' && (draft.view.status === 'error' || draft.view.status === 'unavailable')" role="alert">{{ translate('taskComposer.draftSaveFailed') }}</p>
+    <p v-else-if="draftVisible && draft.view.policy !== 'unknown' && draft.view.status === 'conflict'" role="alert">{{ translate('taskComposer.draftConflict') }}</p>
+    <GcButton v-if="draftVisible && draft.view.policy !== 'unknown' && draft.view.status === 'conflict'" type="button" :disabled="busy" @click="reconcileDraft('keep_local')">{{ translate('taskComposer.draftKeepLocal') }}</GcButton>
+    <GcButton v-if="draftVisible && draft.view.policy !== 'unknown' && draft.view.status === 'conflict'" type="button" :disabled="busy" @click="reconcileDraft('use_saved')">{{ translate('taskComposer.draftUseSaved') }}</GcButton>
+    <GcButton v-if="draftVisible && draft.view.policy !== 'unknown' && draft.view.status === 'error' && !(status === 'accepted' && !draftCleanupReady)" type="button" :disabled="busy" @click="retryDraftSave">{{ translate('taskComposer.draftRetry') }}</GcButton>
     <dl class="task-composer__authority" aria-label="Effective runtime authority">
       <div><dt>{{ translate('taskComposer.provider') }}</dt><dd>{{ translate('taskComposer.valueUnavailable') }}</dd></div>
       <div><dt>{{ translate('taskComposer.model') }}</dt><dd>{{ translate('taskComposer.valueUnavailable') }}</dd></div>
@@ -251,11 +63,14 @@ onBeforeUnmount(() => { scopeOperation.value += 1; if (typeof window !== 'undefi
     <p v-else-if="status === 'unavailable'" role="status">{{ translate('taskComposer.startUnavailable') }}</p>
     <p v-else-if="status === 'uncertain'" role="alert">{{ translate('taskComposer.uncertain') }} {{ recoveryMessage === 'uncertain' ? translate('taskComposer.pending') : '' }}</p>
     <p v-else-if="status === 'accepted'" role="status">{{ translate('taskComposer.accepted') }}</p>
+    <p v-if="status === 'accepted' && recoveryMessage === 'newer_draft'" role="status">{{ translate('taskComposer.draftNewerPreserved') }}</p>
+    <p v-if="status === 'accepted' && !draftCleanupReady" role="alert">{{ translate('taskComposer.draftCleanupPending') }}</p>
     <RouterLink v-if="status === 'accepted' && pending?.acceptedTaskRunId" :to="{ name: 'task-run', params: { taskRunId: pending.acceptedTaskRunId } }">{{ translate('taskComposer.openAccepted') }}</RouterLink>
-    <p v-if="storageUnavailable" role="alert">{{ translate('taskComposer.storageUnavailable') }}</p>
+    <p v-if="recoveryStorageUnavailable" role="alert">{{ translate('taskComposer.storageUnavailable') }}</p>
     <p v-if="operationFailed" role="alert">{{ translate('taskComposer.failed') }}</p>
-    <p v-if="promptTooLong" role="alert">{{ translate('taskComposer.promptTooLong') }}</p>
-    <GcButton v-if="status === 'accepted' && !disabled" type="button" @click="startAnotherTask">{{ translate('taskComposer.newTask') }}</GcButton>
+    <p v-if="draftVisible && promptTooLong" role="alert">{{ translate('taskComposer.promptTooLong') }}</p>
+    <GcButton v-if="status === 'accepted' && !draftCleanupReady && !disabled" type="button" :disabled="busy" @click="retryDraftCleanup">{{ translate('taskComposer.draftRetryCleanup') }}</GcButton>
+    <GcButton v-else-if="status === 'accepted' && draftCleanupReady && !disabled" type="button" @click="startAnotherTask">{{ translate('taskComposer.newTask') }}</GcButton>
     <GcButton v-else-if="status === 'uncertain' && !disabled" type="button" :disabled="busy" @click="checkStatus">{{ translate('taskComposer.checkStatus') }}</GcButton>
     <GcButton v-else type="submit" :disabled="submitDisabled" @click="submitPrompt">{{ status === 'starting' ? translate('taskComposer.starting') : translate('taskComposer.start') }}</GcButton>
   </form>

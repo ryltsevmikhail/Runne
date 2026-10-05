@@ -1,4 +1,5 @@
 import { invoke as tauriInvoke } from '@tauri-apps/api/core'
+import type { ManagedTaskDraftPolicy } from './managed-task-draft'
 
 type UnavailableProjection = { readonly status: 'unavailable', readonly reason: 'runtime_projection_missing' }
 export interface EffectiveTaskAuthority {
@@ -15,7 +16,7 @@ export interface ManagedTaskRunPreflight {
   readonly canStart: boolean
   readonly startUnavailableReason: string | null
   readonly authority: EffectiveTaskAuthority
-  readonly draftPolicy: 'memory_only'
+  readonly draftPolicy: ManagedTaskDraftPolicy
   readonly recoveryToken: string | null
 }
 export type ManagedTaskRunAck =
@@ -102,7 +103,7 @@ function isPreflight(value: unknown): value is ManagedTaskRunPreflight {
     && (value.generation === null || positive(value.generation)) && value.conversationId === null && value.recoveryToken === null
   return (ready || unavailable) && id.test(String(value.projectId)) && id.test(String(value.workspaceId))
     && isEffectiveAuthority(value.authority)
-    && value.draftPolicy === 'memory_only'
+    && ['protected_restart', 'memory_only', 'unavailable'].includes(String(value.draftPolicy))
 }
 function isAck(value: unknown): value is ManagedTaskRunAck {
   if (!record(value) || !exact(value, ['status', 'taskRunId', 'streamVersion', 'recoveryToken']) || !id.test(String(value.recoveryToken))) return false

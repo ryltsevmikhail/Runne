@@ -79,6 +79,18 @@ impl AppCore {
             }
         }
         let can_start = reason.is_none();
+        #[cfg(target_os = "linux")]
+        let draft_policy = if self
+            .load_managed_task_draft(&project.to_string(), &workspace.workspace_id)
+            .await
+            .is_ok()
+        {
+            ManagedTaskDraftPolicy::ProtectedRestart
+        } else {
+            ManagedTaskDraftPolicy::Unavailable
+        };
+        #[cfg(not(target_os = "linux"))]
+        let draft_policy = ManagedTaskDraftPolicy::MemoryOnly;
         Ok(ManagedTaskRunPreflight {
             status: if can_start { "ready" } else { "unavailable" },
             generation,
@@ -93,7 +105,7 @@ impl AppCore {
                 model: unavailable_managed_field(),
                 policy: unavailable_managed_field(),
             },
-            draft_policy: "memory_only",
+            draft_policy,
         })
     }
 

@@ -30,6 +30,15 @@ describe('managed TaskRun public DTOs', () => {
     await expect(prepareManagedTaskRun(projectId, workspaceId, async () => ({ ...preflight, effectiveAuthority: { ...authority, model: { ...authority.model, privateModelId: 'secret' } } }))).rejects.toThrow('Invalid managed TaskRun preflight')
   })
 
+  it('accepts only the explicit protected, memory-only, or unavailable draft policies', async () => {
+    for (const draftPolicy of ['protected_restart', 'memory_only', 'unavailable'] as const) {
+      await expect(prepareManagedTaskRun(projectId, workspaceId, async () => ({ ...preflight, draftPolicy })))
+        .resolves.toMatchObject({ draftPolicy })
+    }
+    await expect(prepareManagedTaskRun(projectId, workspaceId, async () => ({ ...preflight, draftPolicy: 'unknown' })))
+      .rejects.toThrow('Invalid managed TaskRun preflight')
+  })
+
   it('sends one typed start request and rejects a noncanonical acknowledgement version', async () => {
     const request = { workspaceId, conversationId, prompt: 'Build a feature', generation: 4, recoveryToken }
     const ack = { status: 'accepted', taskRunId, streamVersion: 2, recoveryToken }

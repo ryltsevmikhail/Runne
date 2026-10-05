@@ -35,6 +35,10 @@ async fn managed_public_prepare_start_and_duplicate_return_one_canonical_task_ru
     assert_eq!(prepared.authority.provider.status, "unavailable");
     assert_eq!(prepared.authority.model.status, "unavailable");
     assert_eq!(prepared.authority.policy.status, "unavailable");
+    assert_eq!(
+        prepared.draft_policy,
+        ManagedTaskDraftPolicy::ProtectedRestart
+    );
     let token = prepared
         .recovery_token
         .clone()
@@ -192,6 +196,75 @@ async fn managed_preflight_with_missing_submit_capability_stays_unavailable() {
         preflight.start_unavailable_reason,
         Some("submit_capability_missing")
     );
+    assert_eq!(
+        preflight.draft_policy,
+        ManagedTaskDraftPolicy::ProtectedRestart
+    );
     assert!(preflight.recovery_token.is_none());
     assert_eq!(submissions.load(Ordering::SeqCst), 0);
 }
+
+async fn managed_revocation_fixture(profile: u8) -> (tempfile::TempDir, AppCore, Arc<AtomicUsize>) {
+    let submissions = Arc::new(AtomicUsize::new(0));
+    let origin = managed_api_server(ManagedApiMock {
+        submissions: submissions.clone(),
+        task_run_ids: Arc::default(),
+        fail_approvals: false,
+        task_runs: json!([]),
+        approvals: json!([]),
+    })
+    .await;
+    let directory = tempfile::tempdir().unwrap();
+    let profile = [profile; 32];
+    let secure: Arc<dyn SecureStore> =
+        Arc::new(runne_secure_store::test_support::DeterministicSecureStore::new(profile));
+    let session = mutation_test_client("managed-authority", "managed-lineage", 1)
+        .session_info()
+        .clone();
+    let client = runne_runtime_client::mock_authenticated_runtime_client(&origin, session).unwrap();
+    let core = AppCore::open_with_test_runtime_secure(
+        &directory.path().join("profile.sqlite3"),
+        client,
+        secure,
+        profile,
+    )
+    .unwrap();
+    bind_workspace_conversation(&core, WORKSPACE);
+    (directory, core, submissions)
+}
+
+#[tokio::test]
+async fn managed_preflight_after_runtime_revocation_has_no_recovery_token() {
+    let (_directory, core, submissions) = managed_revocation_fixture(0x54).await;
+    core.set_runtime_availability(RuntimeAvailability::Revoked)
+        .unwrap();
+
+    let prepared = core.prepare_managed_task_run(PROJECT, WORKSPACE).await;
+    assert!(matches!(prepared, Err(AppCoreError::RuntimeUnavailable)));
+    assert_eq!(submissions.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn managed_start_after_runtime_revocation_does_not_submit() {
+    let (_directory, core, submissions) = managed_revocation_fixture(0x55).await;
+    let prepared = core
+        .prepare_managed_task_run(PROJECT, WORKSPACE)
+        .await
+        .unwrap();
+    assert!(prepared.can_start, "preflight: {prepared:?}");
+    let token = prepared.recovery_token.unwrap();
+    let conversation = prepared.conversation_id.unwrap();
+    let generation = prepared.generation.unwrap();
+    core.set_runtime_availability(RuntimeAvailability::Revoked)
+        .unwrap();
+
+    assert!(matches!(
+        core.start_managed_task_run(WORKSPACE, &conversation, "task".into(), generation, &token)
+            .await,
+        Err(AppCoreError::RuntimeUnavailable)
+    ));
+    assert_eq!(submissions.load(Ordering::SeqCst), 0);
+}
+
+#[cfg(target_os = "linux")]
+include!("managed_task_draft_tests.rs");

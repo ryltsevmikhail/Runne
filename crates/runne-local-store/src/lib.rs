@@ -20,6 +20,8 @@ include!("replay_validation.rs");
 include!("replay_hash.rs");
 include!("anchor.rs");
 include!("security_state.rs");
+mod protected_draft;
+pub use protected_draft::{ProtectedDraft, ProtectedDraftError, ProtectedDraftScope};
 #[allow(clippy::doc_markdown, clippy::format_collect)]
 mod security_commit;
 #[allow(clippy::format_collect)]

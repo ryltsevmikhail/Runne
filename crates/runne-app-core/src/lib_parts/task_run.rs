@@ -171,3 +171,4 @@ include!("task_run/managed_recovery.rs");
 include!("task_run/managed_intent.rs");
 include!("task_run/managed_inventory.rs");
 include!("task_run/managed_attention_effects.rs");
+include!("task_run/managed_draft.rs");

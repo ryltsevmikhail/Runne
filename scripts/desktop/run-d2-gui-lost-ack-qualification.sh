@@ -15,9 +15,38 @@ mkdir -m 700 -p "$root/config/runne-daemon" "$root/runtime/runne-daemon"
 sha256sum \
   "$app" "$daemon" "$base/apps/desktop/dist/index.html" \
   "$base/apps/desktop/src-tauri/src/gui_qualification.rs" \
+  "$base/apps/desktop/src-tauri/src/gui_qualification_connect.rs" \
+  "$base/apps/desktop/src-tauri/src/gui_qualification_page_script.rs" \
   "$base/apps/desktop/src-tauri/src/lib_parts/managed_task_run_commands.rs" \
+  "$base/apps/desktop/src-tauri/src/lib_parts/managed_task_run_handler.rs" \
   "$base/apps/desktop/src-tauri/src/lib_parts/run.rs" \
+  "$base/apps/desktop/src-tauri/src/lib_parts/runtime_connect.rs" \
   "$base/apps/desktop/src-tauri/src/lib_parts/setup_app.rs" \
+  "$base/apps/desktop/src/features/task-composer/ui/TaskComposer.vue" \
+  "$base/apps/desktop/src/features/task-composer/model/use-task-composer.ts" \
+  "$base/apps/desktop/src/features/task-composer/model/task-composer-scope.ts" \
+  "$base/apps/desktop/src/features/task-composer/model/draft-session.ts" \
+  "$base/apps/desktop/src/features/task-composer/model/draft-session-write.ts" \
+  "$base/apps/desktop/src/features/task-composer/model/draft-session-verify.ts" \
+  "$base/apps/desktop/src/features/task-composer/model/draft-session-reconcile.ts" \
+  "$base/apps/desktop/src/features/task-composer/model/draft-session-cleanup.ts" \
+  "$base/apps/desktop/src/features/task-composer/model/draft-session-contract.ts" \
+  "$base/apps/desktop/src/features/task-composer/model/pending-run.ts" \
+  "$base/apps/desktop/src/entities/task-run/api/managed-task-draft.ts" \
+  "$base/apps/desktop/src/entities/task-run/api/managed-task-run.ts" \
+  "$base/apps/desktop/src/shared/i18n/managed-workflows-en.ts" \
+  "$base/apps/desktop/src/shared/i18n/managed-workflows-ru.ts" \
+  "$base/crates/runne-app-core/src/lib_parts/task_run/managed_draft.rs" \
+  "$base/crates/runne-app-core/src/lib_parts/task_run/managed.rs" \
+  "$base/crates/runne-app-core/src/lib_parts/task_run/managed_types.rs" \
+  "$base/crates/runne-app-core/src/lib_parts/task_run.rs" \
+  "$base/crates/runne-local-store/src/lib.rs" \
+  "$base/crates/runne-local-store/Cargo.toml" \
+  "$base/crates/runne-local-store/src/protected_draft.rs" \
+  "$base/crates/runne-local-store/src/protected_draft/schema.rs" \
+  "$base/crates/runne-local-store/src/protected_draft/operations.rs" \
+  "$base/crates/runne-local-store/src/protected_draft/crypto.rs" \
+  "$base/crates/runne-local-store/src/protected_draft/types.rs" \
   "$base/crates/runne-app-core/src/test_support.rs" \
   "$base/crates/runne-secure-store/src/test_support/persistent_test_secure_store.rs" \
   "$base/crates/runne-secure-store/src/test_support/persistent_test_secure_store/codec.rs" \
@@ -136,6 +165,25 @@ wait_marker() {
   echo "missing native GUI marker: $path" >&2
   return 1
 }
+launch_gui draft-save
+wait_marker draft-saved.json
+test "$(jq -r .draftMatches "$root/markers/draft-saved.json")" = true
+test "$(jq -r .draftRevision "$root/markers/draft-saved.json")" -ge 1
+test "$(jq -r .taskRunCount "$root/markers/draft-saved.json")" = 0
+test "$(jq -r .startHandlerCalls "$root/markers/draft-saved.json")" = 0
+grim "$root/markers/draft-saved-native-window.png"
+stop_owned_process "$active_gui_pid" TERM GUI-draft-save
+active_gui_pid=
+launch_gui draft-reload
+wait_marker draft-restored.json
+test "$(jq -r .draftMatches "$root/markers/draft-restored.json")" = true
+test "$(jq -r .restored "$root/markers/draft-restored.json")" = true
+test "$(jq -r .draftRevision "$root/markers/draft-restored.json")" -ge 1
+test "$(jq -r .taskRunCount "$root/markers/draft-restored.json")" = 0
+test "$(jq -r .startHandlerCalls "$root/markers/draft-restored.json")" = 0
+grim "$root/markers/draft-restored-native-window.png"
+stop_owned_process "$active_gui_pid" TERM GUI-draft-reload
+active_gui_pid=
 launch_gui lost-ack
 wait_marker accepted-lost-ack.json
 sleep 2
@@ -145,6 +193,10 @@ active_gui_pid=
 launch_gui recover
 wait_marker recovered-current.json
 cp "$root/markers/recovered-current.json" "$root/markers/recovered-before-fresh.json"
+wait_marker recovered-current-rendered.json
+test "$(jq -r .checkpoint "$root/markers/recovered-current-rendered.json")" = rendered-accepted-task-run
+test "$(jq -r .status "$root/markers/recovered-current-rendered.json")" = accepted
+test "$(jq -r .taskRunId "$root/markers/recovered-current-rendered.json")" = "$(jq -r .taskRunId "$root/markers/recovered-before-fresh.json")"
 stop_owned_process "$active_gui_pid" TERM GUI-recover
 active_gui_pid=
 launch_gui fresh
@@ -169,6 +221,6 @@ stop_owned_process "$active_gui_pid" TERM GUI-fresh
 active_gui_pid=
 jq -n --arg app "$(basename "$app")" --arg daemon "$(basename "$daemon")" \
   --arg first "$first" --arg fresh "$fresh" --arg old_replay "$old_replay" \
-  '{result:"PASS",scope:"native Tauri/WebView + real local daemon; fixture SecureStore; no provider call qualification",app:$app,daemon:$daemon,secure_store:"persistent deterministic test fixture",provider:"no external/paid provider call",first_task_run:$first,fresh_task_run:$fresh,old_token_replay:$old_replay}' \
+  '{result:"PASS",scope:"native Tauri/WebView + real local daemon; fixture SecureStore; no provider call qualification",app:$app,daemon:$daemon,secure_store:"persistent deterministic test fixture",provider:"no external/paid provider call",draft_saved:true,draft_restored:true,first_task_run:$first,fresh_task_run:$fresh,old_token_replay:$old_replay}' \
   >"$root/qualification-result.json"
 echo "PASS: $root/qualification-result.json"

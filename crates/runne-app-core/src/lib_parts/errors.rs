@@ -46,6 +46,12 @@ pub enum AppCoreError {
     MutationUnavailable,
     #[error("mutation request is invalid")]
     InvalidMutation,
+    #[error("managed task draft changed in another window")]
+    ManagedDraftConflict,
+    #[error("managed task draft belongs to a different runtime scope")]
+    ManagedDraftScopeChanged,
+    #[error("managed task draft capacity reached")]
+    ManagedDraftCapacity,
     #[error("generation provider output was rejected")]
     GenerationRejected,
     #[error("generation outcome is unknown; inspect task history before retrying")]

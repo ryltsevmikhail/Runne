@@ -2,7 +2,6 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ManagedTaskRunPreflight } from '@/entities/task-run'
-import { clearDraft } from '../model/pending-run'
 import TaskComposer from './TaskComposer.vue'
 
 const projectId = '018f2e3a-7000-7000-8000-000000000213'
@@ -58,7 +57,7 @@ async function render(overrides: Record<string, unknown> = {}) {
   return { wrapper, router }
 }
 
-beforeEach(() => { storage.clear(); clearDraft(workspaceId) })
+beforeEach(() => { storage.clear() })
 afterEach(() => { for (const wrapper of mounted.splice(0)) wrapper.unmount() })
 
 describe('managed TaskComposer', () => {
@@ -67,6 +66,8 @@ describe('managed TaskComposer', () => {
     const { wrapper, router } = await render({ start })
     expect(wrapper.get('.task-composer__authority').text()).toBe('ProviderUnavailableModelUnavailablePolicyUnavailable')
     expect(wrapper.text()).toContain('Effective provider, model, and policy details are unavailable')
+    expect(wrapper.text()).toContain('Draft held in memory; this status does not confirm restart recovery.')
+    expect(wrapper.text()).not.toContain('Draft saved.')
     await wrapper.get('textarea').setValue('Do useful work')
     await wrapper.get('button[type="submit"]').trigger('click'); await flushPromises()
     expect(start).toHaveBeenCalledTimes(1)
@@ -154,7 +155,7 @@ describe('managed TaskComposer', () => {
     expect(recover).toHaveBeenCalledWith(recoveryToken)
     expect(start).not.toHaveBeenCalled()
     expect(router.currentRoute.value.params.taskRunId).toBe(taskRunId)
-    expect(wrapper.text()).not.toContain('Draft')
+    expect(wrapper.text()).not.toContain('Private draft')
   })
 
   it('keeps only an in-memory unsubmitted draft and clears it on a simulated full reload', async () => {
@@ -163,7 +164,6 @@ describe('managed TaskComposer', () => {
     expect(first.wrapper.text()).toContain('Unsubmitted task text stays in memory')
     expect(storage.getItem(`runne:managed-task-run:${workspaceId}`)).toBeNull()
     first.wrapper.unmount()
-    clearDraft(workspaceId)
     const reloaded = await render({ preserveStorage: true })
     expect((reloaded.wrapper.get('textarea').element as HTMLTextAreaElement).value).toBe('')
   })
