@@ -4,6 +4,9 @@ use std::sync::{
 };
 use std::time::{Duration, Instant};
 
+#[path = "round3_tests/manifest_check.rs"]
+mod manifest_check;
+
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 use super::LivePostFenceAdmission;
 use super::post_fence::spawn_pre_fence_enrollment_owner;
@@ -279,22 +282,4 @@ fn fill_registry(registry: &CredentialIntentRegistry) {
             .issue("occupied", 1, pair_request(), [8; 32], now)
             .expect("fill registry");
     }
-}
-
-#[test]
-fn platform_enrollment_fixtures_are_dev_only_dependencies() {
-    let manifest = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml"))
-        .expect("desktop manifest");
-    let production = manifest
-        .split("[dev-dependencies]")
-        .next()
-        .expect("production dependency sections");
-    assert!(!production.contains("runne-platform-desktop/test-support"));
-    assert!(!production.contains("features = [\"test-support\"]"));
-    let dev = manifest
-        .split("[dev-dependencies]")
-        .nth(1)
-        .expect("dev dependencies");
-    assert!(dev.contains("runne-platform-desktop"));
-    assert!(dev.contains("\"test-support\""));
 }

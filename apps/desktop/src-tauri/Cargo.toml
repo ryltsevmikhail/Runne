@@ -57,6 +57,7 @@ runne-native-qualification = { path = "../../../crates/runne-native-qualificatio
 tempfile = "=3.27.0"
 tokio = { workspace = true, features = ["test-util"] }
 runne-platform-desktop = { path = "../../../crates/runne-platform-desktop", features = ["protected-channel-integration", "test-support"] }
+toml = "0.8"
 
 [lints.rust]
 unsafe_code = "deny"
