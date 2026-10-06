@@ -50,7 +50,7 @@ class CheckDepsTests(unittest.TestCase):
         self.assertEqual(
             checker.POLICIES["runne-platform"],
             {"runne-application", "runne-platform-ports", "libc",
-             "rustix", "thiserror", "uuid"},
+             "rustix", "sha2", "thiserror", "uuid"},
         )
 
     def test_project_owner_authority_dependencies_are_exact_and_isolated(self) -> None:
