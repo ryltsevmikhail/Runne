@@ -27,6 +27,7 @@ export default tseslint.config(
       'outputs/**',
       'apps/**/src-tauri/gen/**',
       'scripts/**/*.py',
+      '.zcode/**',
     ],
   },
   js.configs.recommended,
