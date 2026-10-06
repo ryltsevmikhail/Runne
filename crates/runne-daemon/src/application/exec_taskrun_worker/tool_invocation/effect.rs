@@ -9,6 +9,8 @@ use runne_store::store::taskrun_tool_invocation::ToolInvocationBindingV1;
 use sha2::{Digest, Sha256};
 use std::sync::atomic::Ordering;
 
+use crate::application::exec_taskrun_worker::local::run::test_barrier;
+
 #[path = "effect/audit.rs"]
 mod audit;
 #[path = "effect/finish.rs"]
@@ -17,22 +19,6 @@ mod finish;
 mod launch;
 
 impl super::super::DaemonAutomaticTaskRuns {
-    pub(in crate::application::exec_taskrun_worker) fn preflight_d2_tool_helper(
-        &self,
-        workspace_id: runne_domain::id::WorkspaceId,
-    ) -> Result<(), ()> {
-        use crate::application::exec_taskrun_worker::local::run::tool_executor;
-        self.root_admission
-            .with_local_command_root(workspace_id, |root, _, _, _, _, _| {
-                let files = root
-                    .open_linux_command_workspace(std::path::Path::new("."))
-                    .map_err(|_| runne_platform_desktop::RootHandleBrokerError::Unavailable)?;
-                tool_executor::preflight_helper(&files)
-                    .map_err(|_| runne_platform_desktop::RootHandleBrokerError::Rejected)
-            })
-            .map_err(|_| ())
-    }
-
     pub(super) fn execute_approved_tool_effect(
         &self,
         context: &ApplicationCommandContext,
@@ -159,12 +145,11 @@ impl super::super::DaemonAutomaticTaskRuns {
             })
             .map_err(|_| ())?;
         super::super::provider::d2_stage("effect_trust_lease");
-        if prepared.requires_human {
-            crate::application::exec_taskrun_worker::local::run::test_barrier::pause_at(
-                crate::application::exec_taskrun_worker::local::run::test_barrier::Point::AfterApprovalBeforeLease,
-            )
-            .map_err(|_| ())?;
-        }
+        test_barrier::pause_at_for_human(
+            test_barrier::Point::AfterApprovalBeforeLease,
+            prepared.requires_human,
+        )
+        .map_err(|_| ())?;
         let trust_lease = self
             .root_admission
             .acquire_local_command_effect_lease(workspace_id, trust)
@@ -191,12 +176,11 @@ impl super::super::DaemonAutomaticTaskRuns {
         {
             return Err(());
         }
-        if prepared.requires_human {
-            crate::application::exec_taskrun_worker::local::run::test_barrier::pause_at(
-                crate::application::exec_taskrun_worker::local::run::test_barrier::Point::AfterClaimBeforeArea,
-            )
-            .map_err(|_| ())?;
-        }
+        test_barrier::pause_at_for_human(
+            test_barrier::Point::AfterClaimBeforeArea,
+            prepared.requires_human,
+        )
+        .map_err(|_| ())?;
         super::super::provider::d2_stage("effect_area_create");
         let area_root = LinuxManagedAreaRoot::open_current_cgroup().map_err(|_| ())?;
         let area = executor::new_area(

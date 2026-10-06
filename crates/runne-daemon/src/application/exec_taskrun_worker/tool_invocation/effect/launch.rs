@@ -6,6 +6,21 @@ use runne_platform::process_managed_area::LinuxManagedArea;
 use runne_platform_desktop::LinuxCommandWorkspaceFiles;
 
 impl crate::application::exec_taskrun_worker::DaemonAutomaticTaskRuns {
+    pub(in crate::application::exec_taskrun_worker) fn preflight_d2_tool_helper(
+        &self,
+        workspace_id: runne_domain::id::WorkspaceId,
+    ) -> Result<(), ()> {
+        self.root_admission
+            .with_local_command_root(workspace_id, |root, _, _, _, _, _| {
+                let files = root
+                    .open_linux_command_workspace(std::path::Path::new("."))
+                    .map_err(|_| runne_platform_desktop::RootHandleBrokerError::Unavailable)?;
+                executor::preflight_helper(&files)
+                    .map_err(|_| runne_platform_desktop::RootHandleBrokerError::Rejected)
+            })
+            .map_err(|_| ())
+    }
+
     // Keep helper, area, target and approval bindings explicit at the GO boundary.
     #[allow(clippy::too_many_arguments)]
     pub(super) fn run_d2_tool_helper(

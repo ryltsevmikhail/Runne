@@ -70,6 +70,19 @@ pub(in crate::application::exec_taskrun_worker) fn pause_at(point: Point) -> Res
     pause_at_test_support(point)
 }
 
+/// D2 kill-stage barrier for the invocation flow: auto-admitted reads must not
+/// stop at stages that model a human-approved operation.
+pub(in crate::application::exec_taskrun_worker) fn pause_at_for_human(
+    point: Point,
+    requires_human: bool,
+) -> Result<(), ()> {
+    if requires_human {
+        pause_at(point)
+    } else {
+        Ok(())
+    }
+}
+
 #[cfg(all(
     feature = "test-support",
     feature = "desktop-protected",
