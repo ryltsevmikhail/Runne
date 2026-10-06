@@ -15,7 +15,13 @@ POLICIES = {
     "runne-plugin-protocol": set(),
     "runne-observability": {"runne-application"},
     # Linux openat2/cgroup-v2 and pidfd process management use pinned rustix.
-    "runne-platform": {"runne-application", "runne-platform-ports", "libc", "rustix", "thiserror", "uuid"},
+    # The Linux composite containment admission binds invocation scopes with
+    # sha2 protected-control-plane policy digests and workspace identity
+    # digests (same reviewed crate already allowed for the authority slices).
+    "runne-platform": {
+        "runne-application", "runne-platform-ports", "libc", "rustix", "sha2",
+        "thiserror", "uuid",
+    },
     "runne-macos-process-identity": {
         "core-foundation", "libc", "nix", "runne-api", "runne-provider", "security-framework", "security-framework-sys", "sha2",
     },
