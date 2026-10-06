@@ -26,7 +26,7 @@ pub(super) fn v50_matches(connection: &Connection, version: i64) -> SqliteResult
 }
 
 pub(super) fn v50_base_matches(connection: &Connection, version: i64) -> SqliteResult<bool> {
-    if !matches!(version, 51..=63) {
+    if !matches!(version, 51..=65) {
         return Ok(false);
     }
     if !v49_matches(connection, version)? {

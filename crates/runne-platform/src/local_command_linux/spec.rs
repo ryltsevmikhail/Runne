@@ -1,3 +1,4 @@
+pub(super) use super::LinuxCommandError;
 use super::child::stdio::CommandStdio;
 use super::snapshot::SealedExecutableSnapshot;
 use super::{child, gate, io::LinuxCommandOutputLimitsV1, policy};
@@ -5,38 +6,16 @@ use super::{child, gate, io::LinuxCommandOutputLimitsV1, policy};
 mod argv;
 #[path = "spec/executable.rs"]
 mod executable;
-use crate::process_managed_area::{LinuxManagedArea, ManagedAreaError};
+use crate::process_managed_area::LinuxManagedArea;
 use argv::encode_vectors;
 use rustix::process::{Signal, pidfd_send_signal};
 use std::ffi::OsString;
 use std::fs::File;
 use std::os::fd::{AsRawFd, OwnedFd};
 use std::time::{Duration, Instant};
-
-/// Closed launch failures. Native path and OS error details are not retained.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-pub enum LinuxCommandError {
-    /// Required kernel restrictions or delegated cgroup support are unavailable.
-    #[error("protected Linux command execution unavailable")]
-    Unavailable,
-    /// The structured command or held descriptor set is invalid.
-    #[error("structured Linux command is invalid")]
-    Invalid,
-    /// Gate, exact-area attach, or child-state proof failed.
-    #[error("Linux command gate is unverified")]
-    Unverified,
-    /// Child wait exceeded the caller's bounded policy.
-    #[error("Linux command wait timed out")]
-    Timeout,
-    /// Exact managed-area lifecycle operation failed.
-    #[error("managed process area operation failed")]
-    Area,
-}
-impl From<ManagedAreaError> for LinuxCommandError {
-    fn from(_: ManagedAreaError) -> Self {
-        Self::Area
-    }
-}
+#[path = "spec/containment.rs"]
+mod containment;
+pub use containment::LinuxCommandContainmentV1;
 
 /// Structured argv/environment plus caller-opened executable, workspace, and cwd.
 /// The caller must already have approved this exact command and canonical workspace.
@@ -91,11 +70,13 @@ impl LinuxCommandSpec<'_> {
             exe: self.executable.file(),
             workspace: self.workspace,
             cwd: self.cwd,
-            ruleset: &ruleset,
+            ruleset: Some(&ruleset),
             argv: &argv,
             env: &env,
             area,
             stdio: CommandStdio::discard()?,
+            composite: None,
+            network_none: false,
         })
     }
 
@@ -116,11 +97,13 @@ impl LinuxCommandSpec<'_> {
             exe: self.executable.file(),
             workspace: self.workspace,
             cwd: self.cwd,
-            ruleset: &ruleset,
+            ruleset: Some(&ruleset),
             argv: &argv,
             env: &env,
             area,
             stdio,
+            composite: None,
+            network_none: false,
         })
     }
 }

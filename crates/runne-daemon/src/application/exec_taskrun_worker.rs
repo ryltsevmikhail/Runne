@@ -2,6 +2,8 @@
 use super::root_handle_admission::RootAdmissionGateway;
 use super::*;
 use runne_application::ports::{ExecutionNodeId, TaskRunAssignmentIdentity};
+#[cfg(all(feature = "desktop-protected", target_os = "linux"))]
+use runne_platform::local_command_linux::LinuxCompositeScopeAdmission;
 use runne_runtime::taskrun_auto_worker::AutomaticTaskRunError;
 use std::sync::{Arc, atomic::AtomicU64};
 #[path = "exec_taskrun_worker/context.rs"]
@@ -34,6 +36,8 @@ pub(crate) struct DaemonAutomaticTaskRuns {
     pub(super) provider_only_test_fixture: bool,
     #[cfg(all(feature = "desktop-protected", target_os = "linux"))]
     pub(super) root_admission: RootAdmissionGateway,
+    #[cfg(all(feature = "desktop-protected", target_os = "linux"))]
+    pub(super) permission_admission: Option<Arc<LinuxCompositeScopeAdmission>>,
 }
 
 #[cfg(feature = "desktop-protected")]
@@ -49,6 +53,8 @@ pub(crate) struct ProtectedTaskRunWorkerConfig {
     pub(crate) current_epoch: Arc<AtomicU64>,
     #[cfg(target_os = "linux")]
     pub(crate) root_admission: RootAdmissionGateway,
+    #[cfg(target_os = "linux")]
+    pub(crate) permission_admission: Option<Arc<LinuxCompositeScopeAdmission>>,
     #[cfg(target_os = "linux")]
     pub(crate) node_lease_heartbeat: Arc<dyn Fn() -> Result<(), ()> + Send + Sync>,
 }
@@ -93,6 +99,8 @@ impl DaemonAutomaticTaskRuns {
             current_epoch,
             #[cfg(all(feature = "desktop-protected", target_os = "linux"))]
             root_admission: RootAdmissionGateway::unavailable(),
+            #[cfg(all(feature = "desktop-protected", target_os = "linux"))]
+            permission_admission: None,
             #[cfg(target_os = "linux")]
             node_lease_heartbeat: Arc::new(|| Err(())),
             #[cfg(all(test, target_os = "linux"))]
@@ -124,6 +132,8 @@ impl DaemonAutomaticTaskRuns {
             tool_loop_service: Some(config.tool_loop_service),
             #[cfg(target_os = "linux")]
             root_admission: config.root_admission,
+            #[cfg(target_os = "linux")]
+            permission_admission: config.permission_admission,
             #[cfg(target_os = "linux")]
             node_lease_heartbeat: config.node_lease_heartbeat,
             #[cfg(all(test, target_os = "linux"))]

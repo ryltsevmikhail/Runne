@@ -71,7 +71,7 @@ fn production_store_open_migrates_v28_to_v35() {
     drop(crate::provider::SqliteProviderCredentialLifecycleStore::open(&migrated).unwrap());
     let connection = Connection::open(&migrated).unwrap();
     assert_eq!(current_schema_marker(&connection), CURRENT_SCHEMA_VERSION);
-    assert!(v64_matches(&connection, CURRENT_SCHEMA_VERSION).unwrap());
+    assert!(v65_matches(&connection, CURRENT_SCHEMA_VERSION).unwrap());
 }
 
 #[test]

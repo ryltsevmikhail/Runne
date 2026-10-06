@@ -92,7 +92,8 @@ fn assert_retained_result(
     assert_eq!(verify::reserved_effect_count(database, task), 1);
     assert_eq!(
         super::super::super::diagnostic::count_watch_mask(read_watch, libc::IN_OPEN),
-        0
+        0,
+        "saved Result did not repeat the already drained auto-read"
     );
     assert_eq!(
         super::super::super::diagnostic::count_watch_mask(create_watch, libc::IN_CREATE),

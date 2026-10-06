@@ -39,6 +39,7 @@ impl super::super::DaemonAutomaticTaskRuns {
         assignment: &TaskRunAssignmentIdentity,
         workspace_id: runne_domain::id::WorkspaceId,
         binding: &ToolInvocationBindingV1,
+        prepared: &super::permission::PreparedPermissionInvocation,
     ) -> Result<(), ()> {
         use crate::application::exec_taskrun_worker::local::run::tool_executor as executor;
         use runne_application::ports::EventStore;
@@ -158,10 +159,12 @@ impl super::super::DaemonAutomaticTaskRuns {
             })
             .map_err(|_| ())?;
         super::super::provider::d2_stage("effect_trust_lease");
-        crate::application::exec_taskrun_worker::local::run::test_barrier::pause_at(
-            crate::application::exec_taskrun_worker::local::run::test_barrier::Point::AfterApprovalBeforeLease,
-        )
-        .map_err(|_| ())?;
+        if prepared.requires_human {
+            crate::application::exec_taskrun_worker::local::run::test_barrier::pause_at(
+                crate::application::exec_taskrun_worker::local::run::test_barrier::Point::AfterApprovalBeforeLease,
+            )
+            .map_err(|_| ())?;
+        }
         let trust_lease = self
             .root_admission
             .acquire_local_command_effect_lease(workspace_id, trust)
@@ -188,10 +191,12 @@ impl super::super::DaemonAutomaticTaskRuns {
         {
             return Err(());
         }
-        crate::application::exec_taskrun_worker::local::run::test_barrier::pause_at(
-            crate::application::exec_taskrun_worker::local::run::test_barrier::Point::AfterClaimBeforeArea,
-        )
-        .map_err(|_| ())?;
+        if prepared.requires_human {
+            crate::application::exec_taskrun_worker::local::run::test_barrier::pause_at(
+                crate::application::exec_taskrun_worker::local::run::test_barrier::Point::AfterClaimBeforeArea,
+            )
+            .map_err(|_| ())?;
+        }
         super::super::provider::d2_stage("effect_area_create");
         let area_root = LinuxManagedAreaRoot::open_current_cgroup().map_err(|_| ())?;
         let area = executor::new_area(
@@ -248,6 +253,7 @@ impl super::super::DaemonAutomaticTaskRuns {
             workspace_version,
             root_revision,
             root_identity,
+            prepared,
         );
         let after_exit_barrier =
             crate::application::exec_taskrun_worker::local::run::test_barrier::pause_at(

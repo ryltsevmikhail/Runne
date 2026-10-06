@@ -36,20 +36,20 @@ pub(super) async fn exercise(
             .expect("D2 submit identity"),
         conversation_id,
         workspace_id,
-        if matches!(
-            std::env::var("RUNNE_TEST_D2_TOOL_SCENARIO").as_deref(),
-            Ok("crash-pending-approval"
-                | "restart-started-before-cycle"
+        match std::env::var("RUNNE_TEST_D2_TOOL_SCENARIO").as_deref() {
+            Ok("crash-pending-approval") => {
+                "Create fixture-created.txt with approved fixture bytes."
+            }
+            Ok(
+                "restart-started-before-cycle"
                 | "restart-cycle-before-budget"
                 | "restart-context-committed"
                 | "restart-cancelled-before-budget"
                 | "restart-plan-committed"
                 | "restart-proposal-before-invocation"
-                | "restart-dispatched-remote-unknown")
-        ) {
-            "Read fixture-read.txt and create fixture-created.txt with the approved bytes."
-        } else {
-            "Read fixture-read.txt through the workspace file read tool."
+                | "restart-dispatched-remote-unknown",
+            ) => "Read fixture-read.txt and create fixture-created.txt with the approved bytes.",
+            _ => "Create fixture-created.txt with approved fixture bytes.",
         },
     )
     .expect("D2 prompt")

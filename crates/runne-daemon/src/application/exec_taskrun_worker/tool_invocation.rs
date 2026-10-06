@@ -8,6 +8,10 @@ use sha2::{Digest, Sha256};
 
 #[path = "tool_invocation/effect.rs"]
 mod effect;
+#[path = "tool_invocation/permission.rs"]
+mod permission;
+#[path = "tool_invocation/permission_build.rs"]
+mod permission_build;
 #[path = "tool_invocation/proposal.rs"]
 mod proposal;
 #[path = "tool_invocation/target_snapshot.rs"]

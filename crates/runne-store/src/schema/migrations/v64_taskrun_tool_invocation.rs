@@ -19,8 +19,8 @@ pub(super) fn apply_v64_migration(connection: &Connection) -> SqliteResult<()> {
 }
 
 pub(super) fn v64_matches(connection: &Connection, version: i64) -> SqliteResult<bool> {
-    if version != 64
-        || !v63_matches(connection, 63)?
+    if version < 64
+        || !v63_matches(connection, version)?
         || !table_sql_matches_migration(connection, "taskrun_tool_invocations", MIGRATION_V64)?
         || !table_sql_matches_migration(connection, "taskrun_tool_budgets", MIGRATION_V64)?
         || !table_sql_matches_migration(

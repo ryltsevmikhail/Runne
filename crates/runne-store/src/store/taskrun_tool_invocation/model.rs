@@ -1,6 +1,7 @@
+use runne_application::permission_modes::{ContainmentStrategy, PermissionMode};
 use runne_application::ports::TaskRunAssignmentIdentity;
 use runne_application::provider::{ProviderEncryptedPayload, ProviderJournalKeyBinding};
-use runne_domain::id::{AttemptId, CycleId, IntegrityDigest, TaskRunId};
+use runne_domain::id::{AttemptId, CycleId, IntegrityDigest, TaskRunId, WorkspaceId};
 
 pub const MAX_TOOL_ARGUMENT_BYTES: usize = 8 * 1024;
 pub const MAX_TOOL_RESULT_BYTES: usize = 8 * 1024;
@@ -15,6 +16,12 @@ pub struct ToolInvocationKey {
     pub cycle_id: CycleId,
     pub proposal_index: u32,
 }
+
+/// Stable digest representing the conservative missing-selection mode state.
+pub const MISSING_PERMISSION_MODE_MANAGED_DIGEST: [u8; 32] = [
+    0x2f, 0x81, 0xb5, 0xc1, 0x9d, 0xd3, 0x4d, 0x4b, 0xdc, 0x64, 0xd6, 0x97, 0x92, 0x39, 0x86, 0x30,
+    0x9f, 0xc6, 0x25, 0x55, 0x62, 0x20, 0xa1, 0x41, 0x6d, 0x69, 0x26, 0x69, 0x57, 0x12, 0x10, 0x14,
+];
 
 impl ToolInvocationKey {
     /// Deterministic opaque nonce for one invocation's managed execution area.
@@ -75,6 +82,51 @@ pub struct ToolInvocationBindingV1 {
     pub policy_revision: u64,
     pub approval_expires_at: i64,
     pub round_index: u32,
+}
+
+/// Who authorized the preset decision attached to one immutable invocation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ToolPermissionDecisionSource {
+    /// Durable exact human approval is still required before release.
+    Human,
+    /// The versioned preset admitted this exact invocation without a prompt.
+    AutoPreset,
+}
+
+impl ToolPermissionDecisionSource {
+    pub const fn tag(self) -> i64 {
+        match self {
+            Self::Human => 1,
+            Self::AutoPreset => 2,
+        }
+    }
+
+    pub const fn from_tag(value: i64) -> Option<Self> {
+        match value {
+            1 => Some(Self::Human),
+            2 => Some(Self::AutoPreset),
+            _ => None,
+        }
+    }
+}
+
+/// Exact permission-mode facts frozen beside one tool invocation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ToolPermissionAdmissionV1 {
+    pub key: ToolInvocationKey,
+    pub runtime_authority_id: String,
+    pub principal_id: String,
+    pub workspace_id: WorkspaceId,
+    pub selected_mode: PermissionMode,
+    pub authorization_revision: u64,
+    pub managed_policy_version: u64,
+    pub managed_policy_digest: IntegrityDigest,
+    pub composite_scope_digest: IntegrityDigest,
+    pub containment: ContainmentStrategy,
+    pub native_scope_handle: IntegrityDigest,
+    pub decision_source: ToolPermissionDecisionSource,
+    pub relevant_policy_digest: IntegrityDigest,
+    pub expires_at_unix_ms: i64,
 }
 
 /// Encrypted canonical tool content produced by the runtime journal key boundary.

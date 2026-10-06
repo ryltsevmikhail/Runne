@@ -76,7 +76,11 @@ pub(super) fn claim(
                 }
                 Err(error) => return Err(error),
             }
-            approval_matches(&tx, &binding, now)?;
+            let permission_source =
+                validate_release_permission(&tx, &s.runtime_authority_id.0, &binding, now)?;
+            if permission_source == ToolPermissionDecisionSource::Human {
+                approval_matches(&tx, &binding, now)?;
+            }
             verify_sources(&tx, key, &binding.sources)?;
             if claim.3 != 0 {
                 tx.execute("UPDATE taskrun_tool_invocations SET state='uncertain',updated_at=?1 WHERE taskrun_id=?2 AND attempt_id=?3 AND cycle_id=?4 AND proposal_index=?5 AND state='claimed'",params![now,key.taskrun_id.as_bytes(),key.attempt_id.as_bytes(),key.cycle_id.as_bytes(),i64::from(key.proposal_index)]).map_err(|_|ToolInvocationStoreError::CorruptData)?;
@@ -114,7 +118,11 @@ pub(super) fn claim(
         }
         Err(e) => return Err(e),
     }
-    approval_matches(&tx, &binding, now)?;
+    let permission_source =
+        validate_release_permission(&tx, &s.runtime_authority_id.0, &binding, now)?;
+    if permission_source == ToolPermissionDecisionSource::Human {
+        approval_matches(&tx, &binding, now)?;
+    }
     verify_sources(&tx, key, &binding.sources)?;
     ensure_no_unresolved(&tx, key.taskrun_id)?;
     let budget = load_budget(&tx, key.taskrun_id)?;

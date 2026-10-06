@@ -1,11 +1,12 @@
-use super::x2_supervisor::{X2Observation, X2Outcome, spawn_gated_with_io, supervise_gated_child};
+use super::x2_supervisor::{X2Observation, X2Outcome, supervise_gated_child};
 use crate::safe_tool_helper::{
     BindingV1, IdentityV1, OutputError, ReceiptV1, VersionV1, parse_output,
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
+use runne_application::permission_modes::{CompositeEffectScope, NativeScopeAdmissionReceipt};
 use runne_platform::local_command_linux::{
-    GatedLinuxChild, LinuxCommandExecutable, LinuxCommandOutputLimitsV1, LinuxCommandSpec,
-    SealedExecutableSnapshot,
+    GatedLinuxChild, LinuxCommandContainmentV1, LinuxCommandExecutable, LinuxCommandOutputLimitsV1,
+    LinuxCommandSpec, LinuxCompositeScopeAdmission, SealedExecutableSnapshot,
 };
 use runne_platform::process_managed_area::{
     LinuxManagedArea, LinuxManagedAreaRoot, ManagedAreaBinding,

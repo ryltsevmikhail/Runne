@@ -18,28 +18,17 @@ pub(super) async fn target_changed_before_go(
     .await
     .expect("approve target before changing it");
     wait_entered("pre-release").await;
-    let replacement = target.with_extension("changed");
-    std::fs::write(&replacement, b"changed after approval\n").expect("replacement bytes");
-    std::fs::rename(&replacement, target).expect("replace approved target before GO");
-    assert_eq!(
-        std::fs::read(target).expect("read replacement before observation"),
-        b"changed after approval\n"
-    );
-    let replacement_watch = open_watch(target);
+    std::fs::write(target, b"changed after approval\n")
+        .expect("create replacement before approved create_new GO");
     release("pre-release");
     let _ = wait_audit_only(client, task, database, runtime_root).await;
     let state = super::flows::wait_terminal(client, task, database, runtime_root).await;
     assert_eq!(state, runne_runtime_client::TaskRunState::Failed);
     super::database::assert_failure_projection(database, task);
     assert_eq!(
-        count_watch_mask(watch, libc::IN_OPEN),
-        0,
-        "original target inode never opened by native read"
-    );
-    assert_eq!(
-        count_watch_mask(&replacement_watch, libc::IN_OPEN),
-        0,
-        "replacement target inode never opened by native read"
+        count_watch_mask(watch, libc::IN_CREATE),
+        1,
+        "test replacement is the only create before blocked GO"
     );
     assert_eq!(database::result_count(database, task), 0);
     assert_eq!(database::invocation_state(database, task), "audit_only");
@@ -48,7 +37,7 @@ pub(super) async fn target_changed_before_go(
         fixture_count(runtime_root, "fixture-provider-request-count"),
         1
     );
-    eprintln!("PASS: D2 approved target replacement before GO blocked read ({state:?})");
+    eprintln!("PASS: D2 approved target replacement before GO blocked create ({state:?})");
 }
 
 pub(super) async fn target_changed_after_read_exit(
@@ -59,15 +48,6 @@ pub(super) async fn target_changed_after_read_exit(
     database: &std::path::Path,
     runtime_root: &std::path::Path,
 ) {
-    let approval = flows::wait_approval(client, task, database, runtime_root).await;
-    flows::decide(
-        client,
-        &approval,
-        runne_runtime_client::ApprovalDecisionDto::Approve,
-        "stale-after-read",
-    )
-    .await
-    .expect("approve read before stale verification case");
     wait_entered("after-exit").await;
     assert_eq!(
         count_watch_mask(watch, libc::IN_OPEN),
@@ -110,15 +90,14 @@ pub(super) async fn truncated_read_result(
     database: &std::path::Path,
     runtime_root: &std::path::Path,
 ) {
-    let approval = flows::wait_approval(client, task, database, runtime_root).await;
-    flows::decide(
-        client,
-        &approval,
-        runne_runtime_client::ApprovalDecisionDto::Approve,
-        "truncated-read",
-    )
-    .await
-    .expect("approve exact read before truncation test");
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(12);
+    while super::database::invocation_count(database, task) == 0 {
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "truncated read proposal was not persisted durably"
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
     let _ = wait_audit_only(client, task, database, runtime_root).await;
     let state = super::flows::wait_terminal(client, task, database, runtime_root).await;
     assert_eq!(state, runne_runtime_client::TaskRunState::Failed);

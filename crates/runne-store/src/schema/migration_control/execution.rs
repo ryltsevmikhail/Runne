@@ -75,5 +75,8 @@ fn apply_execution_migrations(
     if source_version < 64 && target_version >= 64 {
         apply_v64_migration(conn)?;
     }
+    if source_version < 65 && target_version >= 65 {
+        apply_v65_migration(conn)?;
+    }
     Ok(())
 }

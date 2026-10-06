@@ -10,7 +10,8 @@ use tokio::net::TcpListener;
 use tokio_rustls::TlsAcceptor;
 
 use super::fixed_response::{
-    D2_TOOL_PROPOSAL_RESPONSE, SSE_RESPONSE, d2_tool_loop_response, d2_tool_scenario_response,
+    D2_PENDING_CREATE_RESPONSE, D2_TOOL_PROPOSAL_RESPONSE, SSE_RESPONSE, d2_tool_loop_response,
+    d2_tool_scenario_response,
 };
 use super::request_validation::{FixtureRequestKind, matches_expected_request, request_length_for};
 mod io;
@@ -53,7 +54,12 @@ impl TlsSseServer {
         drop_response: bool,
     ) -> Result<Self, ()> {
         let d2_scenario = d2_scenario::selected(runtime_root)?;
-        let request_kind = if d2_scenario.is_some() {
+        let request_kind = if d2_scenario.as_deref() == Some("crash-pending-approval") {
+            // The create-first prompt is rejected by the D2ToolLoop round-zero
+            // validator, which requires the read-first prompt; the proposal
+            // validator accepts any single user prompt.
+            FixtureRequestKind::D2ToolProposal
+        } else if d2_scenario.is_some() {
             FixtureRequestKind::D2ToolLoop
         } else if std::env::var_os("RUNNE_TEST_D2_TOOL_PROPOSAL").is_some() {
             FixtureRequestKind::D2ToolProposal
@@ -131,7 +137,28 @@ impl TlsSseServer {
                         .unwrap_or_else(|| SSE_RESPONSE.to_owned())
                 } else {
                     match request_kind {
-                        FixtureRequestKind::D2ToolProposal => D2_TOOL_PROPOSAL_RESPONSE.to_owned(),
+                        FixtureRequestKind::D2ToolProposal => {
+                            if d2_scenario.as_deref() == Some("crash-pending-approval") {
+                                // Request zero re-proposes the create-first
+                                // prompt; any later request (the server outlives
+                                // daemon restarts, so indices keep growing) ends
+                                // the loop with the final response.
+                                if request_index == 0 {
+                                    D2_PENDING_CREATE_RESPONSE.to_owned()
+                                } else {
+                                    d2_tool_loop_response(2)
+                                        .expect("fixture final response")
+                                        .to_owned()
+                                }
+                            } else if request
+                                .windows(b"Create fixture-created.txt".len())
+                                .any(|window| window == b"Create fixture-created.txt")
+                            {
+                                D2_PENDING_CREATE_RESPONSE.to_owned()
+                            } else {
+                                D2_TOOL_PROPOSAL_RESPONSE.to_owned()
+                            }
+                        }
                         FixtureRequestKind::D2ToolLoopRound0 => d2_tool_loop_response(0)
                             .expect("fixture round zero response")
                             .to_owned(),

@@ -18,6 +18,13 @@ pub(super) fn assert_failure_projection(
     database::assert_failure_projection(database_path, task);
 }
 
+pub(super) fn assert_interrupted_by_restart_projection(
+    database_path: &std::path::Path,
+    task: runne_runtime_client::CanonicalId,
+) {
+    database::assert_interrupted_by_restart_projection(database_path, task);
+}
+
 const PROMPT: &str =
     "Read fixture-read.txt and create fixture-created.txt with the approved bytes.";
 
@@ -120,8 +127,8 @@ pub(super) async fn exercise(
             barriers::target_changed_before_go(
                 client,
                 task,
-                &target,
-                &watch,
+                &created,
+                &create_watch,
                 database,
                 runtime_root,
             )
@@ -139,8 +146,15 @@ pub(super) async fn exercise(
             .await
         }
         "cancel-before-go" => {
-            cancellation::cancel_before_go(client, task, &target, &watch, database, runtime_root)
-                .await
+            cancellation::cancel_before_go(
+                client,
+                task,
+                &created,
+                &create_watch,
+                database,
+                runtime_root,
+            )
+            .await
         }
         "truncated-read-result" => {
             barriers::truncated_read_result(client, task, &watch, database, runtime_root).await

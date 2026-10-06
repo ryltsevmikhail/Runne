@@ -12,6 +12,9 @@ pub(super) fn compose(
     prohibited_content: Arc<dyn ProhibitedContentPort>,
     #[cfg(feature = "desktop-protected")]
     root_admission: super::root_handle_admission::RootAdmissionGateway,
+    #[cfg(all(feature = "desktop-protected", target_os = "linux"))] permission_admission: Option<
+        Arc<runne_platform::local_command_linux::LinuxCompositeScopeAdmission>,
+    >,
     #[cfg(target_os = "linux")] _node_lease_heartbeat: Arc<
         dyn Fn() -> Result<(), ()> + Send + Sync,
     >,
@@ -39,6 +42,8 @@ pub(super) fn compose(
                 current_epoch,
                 #[cfg(target_os = "linux")]
                 root_admission,
+                #[cfg(target_os = "linux")]
+                permission_admission,
                 #[cfg(target_os = "linux")]
                 node_lease_heartbeat: _node_lease_heartbeat,
             },

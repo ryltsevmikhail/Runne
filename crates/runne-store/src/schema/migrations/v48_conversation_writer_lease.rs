@@ -15,7 +15,7 @@ pub(super) fn apply_v48_migration(connection: &Connection) -> SqliteResult<()> {
 }
 
 pub(super) fn v48_matches(connection: &Connection, version: i64) -> SqliteResult<bool> {
-    if !matches!(version, 48..=63) {
+    if !matches!(version, 48..=65) {
         return Ok(false);
     }
     if !v47_matches(connection, version)? {
@@ -76,5 +76,7 @@ pub(super) fn v48_matches(connection: &Connection, version: i64) -> SqliteResult
             | (63, 1, 63, 2016)
             | (64, 1, 63, 2061)
             | (64, 1, 64, 2080)
+            | (65, 1, 64, 2126)
+            | (65, 1, 65, 2145)
     ))
 }

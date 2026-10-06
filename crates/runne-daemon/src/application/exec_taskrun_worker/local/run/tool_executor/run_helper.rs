@@ -4,10 +4,14 @@ use super::*;
 /// Runs the sealed daemon image in the existing X2 gated command executor.
 /// The release callback must perform the canonical durable claim/cancel gate
 /// and may only release this exact stopped child.
+#[allow(clippy::too_many_arguments)]
 pub(in crate::application) fn run_helper(
     files: &LinuxCommandWorkspaceFiles,
     input: &[u8],
     area: &LinuxManagedArea,
+    permission_scope: &CompositeEffectScope,
+    native_receipt: NativeScopeAdmissionReceipt,
+    permission_admission: Option<&LinuxCompositeScopeAdmission>,
     release: impl FnOnce(&mut GatedLinuxChild<'_>) -> Result<(), ()>,
     mut cancelled: impl FnMut() -> bool,
 ) -> Result<(i32, Vec<u8>, Vec<u8>), HelperRunFailure> {
@@ -38,7 +42,15 @@ pub(in crate::application) fn run_helper(
     let limits = LinuxCommandOutputLimitsV1::new(stdout_cap, STDERR_CAP)
         .map_err(|_| failure(HelperRunError::Unavailable))?;
     stage("effect_helper_spawn");
-    let mut child = spawn_gated_with_io(&spec, area, input, limits)
+    let permission_admission =
+        permission_admission.ok_or_else(|| failure(HelperRunError::Unavailable))?;
+    let containment = LinuxCommandContainmentV1::WorkspaceBoundV1 {
+        scope: permission_scope,
+        receipt: native_receipt,
+        admission: permission_admission,
+    };
+    let mut child = spec
+        .spawn_gated_with_containment_with_io(area, input, limits, containment)
         .map_err(|_| failure(HelperRunError::Unavailable))?;
     stage("effect_helper_gate_release");
     if release(&mut child).is_err() {

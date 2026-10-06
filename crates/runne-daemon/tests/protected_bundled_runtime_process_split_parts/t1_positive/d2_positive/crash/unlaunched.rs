@@ -46,14 +46,26 @@ pub(crate) async fn before_unlaunched(
             .expect("read-only pre-effect D2 invocation view");
     let row =
         read_unlaunched_row(&db, &task_bytes).expect("read exact unlaunched proposal and approval");
+    // The auto-admitted read completes durably before the human-approved
+    // create reaches its crash stage; the pending scenario crashes before any
+    // effect runs at all.
+    let read_result_durable = expected_state != "proposed";
     assert_eq!(row.0, expected_state);
     assert_eq!(row.1, 0, "no managed local area was admitted");
     assert!(!row.2, "native release was never started");
     assert!(!row.3, "no managed area exists before lease");
     assert!(!row.4, "no result exists before launch");
     assert_eq!(row.5, expected_approval_state);
-    assert_eq!(verify::result_count(database, task), 0);
-    assert_eq!(verify::release_intent_count(database, task), 0);
+    assert_eq!(
+        verify::result_count(database, task),
+        usize::from(read_result_durable),
+        "only the auto-admitted read has a durable result"
+    );
+    assert_eq!(
+        verify::release_intent_count(database, task),
+        u32::from(read_result_durable),
+        "only the auto-admitted read has released"
+    );
     assert_claim_assignment(database, &task_bytes, &row);
     let budget_identity = read_budget_identity(database, task).expect("durable D2 reservation");
     assert_eq!(
@@ -65,18 +77,24 @@ pub(crate) async fn before_unlaunched(
             runtime_root,
             "fixture-provider-request-count"
         ),
-        1
+        1 + u64::from(read_result_durable),
+        "read loop round plus the approved create proposal"
     );
     assert_eq!(
         super::super::super::diagnostic::count_watch_mask(watch, libc::IN_OPEN),
-        0
+        usize::from(read_result_durable),
+        "one auto-admitted read opened the target"
     );
 
     super::uncertain::kill_supervised_daemon(supervisor);
     let (mut first, first_client) =
         super::uncertain::restart_same_root(executable, session_bus_socket, runtime_root).await;
     let first_snapshot = wait_failed(&first_client, task, database, runtime_root).await;
-    super::super::super::faults::assert_failure_projection(database, task);
+    if read_result_durable {
+        super::super::super::faults::assert_interrupted_by_restart_projection(database, task);
+    } else {
+        super::super::super::faults::assert_failure_projection(database, task);
+    }
     assert_unlaunched_unchanged(
         database,
         runtime_root,
@@ -109,7 +127,11 @@ pub(crate) async fn before_unlaunched(
         runne_runtime_client::TaskRunState::Failed
     );
     assert_eq!(second_snapshot.stream_version(), version);
-    super::super::super::faults::assert_failure_projection(database, task);
+    if read_result_durable {
+        super::super::super::faults::assert_interrupted_by_restart_projection(database, task);
+    } else {
+        super::super::super::faults::assert_failure_projection(database, task);
+    }
     assert_unlaunched_unchanged(
         database,
         runtime_root,
@@ -151,6 +173,7 @@ fn assert_unlaunched_unchanged(
         rusqlite::Connection::open_with_flags(database, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
             .expect("read-only reopened D2 invocation view");
     let row = read_unlaunched_row(&db, &id).expect("read preserved unlaunched proposal");
+    let read_result_durable = expected_state != "proposed";
     assert_eq!(row.0, expected_state);
     assert_eq!(row.1, 0);
     assert!(!row.2);
@@ -158,8 +181,16 @@ fn assert_unlaunched_unchanged(
     assert!(!row.4);
     assert_eq!(row.5, expected_approval_state);
     assert_claim_assignment(database, &id, &row);
-    assert_eq!(verify::result_count(database, task), 0);
-    assert_eq!(verify::release_intent_count(database, task), 0);
+    assert_eq!(
+        verify::result_count(database, task),
+        usize::from(read_result_durable),
+        "only the auto-admitted read result survives the restarts"
+    );
+    assert_eq!(
+        verify::release_intent_count(database, task),
+        u32::from(read_result_durable),
+        "only the auto-admitted read release survives the restarts"
+    );
     assert_eq!(
         budget_effects_used(database, task),
         Some(expected_effects_used(expected_state))
@@ -173,11 +204,13 @@ fn assert_unlaunched_unchanged(
             runtime_root,
             "fixture-provider-request-count"
         ),
-        1
+        1 + u64::from(read_result_durable),
+        "no provider request is repeated after the restarts"
     );
     assert_eq!(
         super::super::super::diagnostic::count_watch_mask(watch, libc::IN_OPEN),
-        0
+        0,
+        "no reopen after the restarts; the pre-crash open was already counted"
     );
 }
 

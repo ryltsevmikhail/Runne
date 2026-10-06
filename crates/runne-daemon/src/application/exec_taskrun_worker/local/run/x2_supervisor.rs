@@ -1,5 +1,5 @@
 use runne_platform::local_command_linux::GatedLinuxChild;
-use runne_platform::local_command_linux::{LinuxCommandOutputLimitsV1, LinuxCommandSpec};
+use runne_platform::local_command_linux::LinuxCommandSpec;
 use runne_platform::process_managed_area::LinuxManagedArea;
 use std::time::Duration;
 
@@ -19,15 +19,6 @@ pub(super) fn spawn_gated<'a>(
     area: &'a LinuxManagedArea,
 ) -> Result<GatedLinuxChild<'a>, runne_platform::local_command_linux::LinuxCommandError> {
     spec.spawn_gated(area)
-}
-
-pub(super) fn spawn_gated_with_io<'a>(
-    spec: &LinuxCommandSpec<'_>,
-    area: &'a LinuxManagedArea,
-    input: &[u8],
-    limits: LinuxCommandOutputLimitsV1,
-) -> Result<GatedLinuxChild<'a>, runne_platform::local_command_linux::LinuxCommandError> {
-    spec.spawn_gated_with_io(area, input, limits)
 }
 
 /// Shared bounded lifecycle for every child released through the X2 gate.

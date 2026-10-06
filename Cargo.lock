@@ -4519,9 +4519,13 @@ name = "runne-platform"
 version = "0.1.0"
 dependencies = [
  "libc",
+ "runne-api",
  "runne-application",
+ "runne-domain",
  "runne-platform-ports",
  "rustix",
+ "sha2",
+ "tempfile",
  "thiserror 2.0.18",
  "uuid",
 ]

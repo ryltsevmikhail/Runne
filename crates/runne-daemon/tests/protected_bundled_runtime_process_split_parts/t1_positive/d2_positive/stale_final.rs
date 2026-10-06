@@ -40,7 +40,7 @@ pub(super) async fn exercise(
     assert_eq!(verify::release_intent_count(database, task), 2);
     assert_eq!(
         super::super::diagnostic::count_watch_mask(read_watch, libc::IN_OPEN),
-        0
+        1
     );
     assert_eq!(
         super::super::diagnostic::count_watch_mask(create_watch, libc::IN_CREATE),

@@ -4,7 +4,7 @@ fn v37_upgrade_preserves_legacy_schema_and_allows_only_typed_zero_cost() {
     initialize_released_v13(&conn);
     apply_migrations(&conn).unwrap();
     assert_eq!(schema_marker(&conn), CURRENT_SCHEMA_VERSION);
-    assert!(v64_matches(&conn, CURRENT_SCHEMA_VERSION).unwrap());
+    assert!(v65_matches(&conn, CURRENT_SCHEMA_VERSION).unwrap());
     let trigger: String = conn
         .query_row(
             "SELECT sql FROM sqlite_master WHERE type = 'trigger' AND name = ?1",

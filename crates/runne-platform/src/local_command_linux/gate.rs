@@ -1,36 +1,65 @@
 use super::LinuxCommandError;
 use std::os::fd::{AsRawFd, OwnedFd};
+mod seccomp;
 
+pub(in crate::local_command_linux) unsafe fn install_composite_filter_probe() -> i32 {
+    unsafe { seccomp::install(true, false) }
+}
+
+#[allow(clippy::too_many_arguments)]
 pub(super) fn enter(
     keep: [OwnedFd; 8],
-    retained: [i32; 8],
+    _protected_keep: Vec<OwnedFd>,
+    protected_fds: Vec<i32>,
+    retained: Vec<i32>,
     parent_pid: i32,
     argv: *const *const u8,
     env: *const *const u8,
+    apply_landlock: bool,
+    composite: bool,
+    network_none: bool,
+    mount_targets: Vec<*const libc::c_char>,
+    protected_regular: Vec<i32>,
+    device_targets: Vec<*const libc::c_char>,
+    device_source_paths: Vec<*const libc::c_char>,
 ) -> ! {
     let fds = keep.each_ref().map(|fd| fd.as_raw_fd());
     // Fork child: no allocation, formatting, mutexes, destructors, or Rust IO after this point.
     unsafe {
-        if close_except(retained).is_err() {
+        if close_except(&retained).is_err() {
             libc::_exit(120);
         }
         if libc::dup2(fds[5], 0) < 0 || libc::dup2(fds[6], 1) < 0 || libc::dup2(fds[7], 2) < 0 {
             libc::_exit(121);
         }
-        if libc::fchdir(fds[2]) != 0 {
-            libc::_exit(122);
-        }
-        if libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL) != 0 || libc::getppid() != parent_pid
+        if libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL) != 0
+            || (!composite && libc::getppid() != parent_pid)
+            || (composite && libc::getppid() != 0)
         {
             libc::_exit(123);
         }
         if reset_dispositions() != 0 {
             libc::_exit(123);
         }
-        if libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0 || install_seccomp() != 0 {
+        if composite
+            && !super::child::composite::enter_child(
+                fds[0],
+                &mount_targets,
+                &protected_fds,
+                &protected_regular,
+                &device_targets,
+                &device_source_paths,
+            )
+        {
+            libc::_exit(129);
+        }
+        if libc::fchdir(fds[2]) != 0 {
+            libc::_exit(122);
+        }
+        if libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0 {
             libc::_exit(124);
         }
-        if libc::syscall(libc::SYS_landlock_restrict_self, fds[4], 0u32) != 0 {
+        if apply_landlock && libc::syscall(libc::SYS_landlock_restrict_self, fds[4], 0u32) != 0 {
             libc::_exit(125);
         }
         for fd in [fds[2], fds[3], fds[4], fds[5], fds[6], fds[7]] {
@@ -50,7 +79,7 @@ pub(super) fn enter(
         if libc::send(fds[0], b"R".as_ptr().cast(), 1, libc::MSG_NOSIGNAL) != 1 {
             libc::_exit(126);
         }
-        if libc::kill(libc::getpid(), libc::SIGSTOP) != 0 {
+        if !composite && libc::kill(libc::getpid(), libc::SIGSTOP) != 0 {
             libc::_exit(127);
         }
         let mut go = 0u8;
@@ -58,6 +87,9 @@ pub(super) fn enter(
             libc::_exit(128);
         }
         libc::close(fds[0]);
+        if seccomp::install(composite, network_none) != 0 {
+            libc::_exit(124);
+        }
         let empty = b"\0";
         libc::syscall(
             libc::SYS_execveat,
@@ -70,10 +102,10 @@ pub(super) fn enter(
         libc::_exit(127);
     }
 }
-unsafe fn close_except(keep: [i32; 8]) -> Result<(), ()> {
+unsafe fn close_except(keep: &[i32]) -> Result<(), ()> {
     let mut start = 3u32;
     for fd in keep {
-        let fd = fd as u32;
+        let fd = *fd as u32;
         if start < fd && unsafe { libc::syscall(libc::SYS_close_range, start, fd - 1, 0u32) } != 0 {
             return Err(());
         }
@@ -112,151 +144,4 @@ unsafe fn reset_dispositions() -> i32 {
         }
     }
     0
-}
-
-unsafe fn install_seccomp() -> i32 {
-    let arch = match std::env::consts::ARCH {
-        "x86_64" => 0xc000_003e,
-        "aarch64" => 0xc000_00b7,
-        "x86" => 0x4000_0003,
-        "arm" => 0x4000_0028,
-        "riscv64" => 0xc000_00f3,
-        _ => return -1,
-    };
-    let blocked = [
-        libc::SYS_mount,
-        libc::SYS_umount2,
-        libc::SYS_pivot_root,
-        libc::SYS_unshare,
-        libc::SYS_setns,
-        libc::SYS_open_tree,
-        libc::SYS_move_mount,
-        libc::SYS_fsopen,
-        libc::SYS_fsconfig,
-        libc::SYS_fsmount,
-        libc::SYS_mount_setattr,
-        libc::SYS_clone3,
-    ];
-    let mut filter = [libc::sock_filter {
-        code: 0,
-        jt: 0,
-        jf: 0,
-        k: 0,
-    }; 40];
-    let mut len = 0usize;
-    filter[len] = libc::sock_filter {
-        code: 0x20,
-        jt: 0,
-        jf: 0,
-        k: 4,
-    };
-    len += 1;
-    filter[len] = libc::sock_filter {
-        code: 0x15,
-        jt: 1,
-        jf: 0,
-        k: arch,
-    };
-    len += 1;
-    filter[len] = libc::sock_filter {
-        code: 0x06,
-        jt: 0,
-        jf: 0,
-        k: 0x8000_0000,
-    };
-    len += 1;
-    filter[len] = libc::sock_filter {
-        code: 0x20,
-        jt: 0,
-        jf: 0,
-        k: 0,
-    };
-    len += 1;
-    #[cfg(target_arch = "x86_64")]
-    {
-        filter[len] = libc::sock_filter {
-            code: 0x45,
-            jt: 0,
-            jf: 1,
-            k: 0x4000_0000,
-        };
-        len += 1;
-        filter[len] = libc::sock_filter {
-            code: 0x06,
-            jt: 0,
-            jf: 0,
-            k: 0x0005_0000 | libc::EPERM as u32,
-        };
-        len += 1;
-    }
-    for syscall in blocked {
-        filter[len] = libc::sock_filter {
-            code: 0x15,
-            jt: 0,
-            jf: 1,
-            k: syscall as u32,
-        };
-        len += 1;
-        filter[len] = libc::sock_filter {
-            code: 0x06,
-            jt: 0,
-            jf: 0,
-            k: 0x0005_0000 | libc::EPERM as u32,
-        };
-        len += 1;
-    }
-    // Deny clone3; for legacy clone deny every namespace flag while preserving ordinary forks/threads.
-    filter[len] = libc::sock_filter {
-        code: 0x15,
-        jt: 0,
-        jf: 4,
-        k: libc::SYS_clone as u32,
-    };
-    len += 1;
-    filter[len] = libc::sock_filter {
-        code: 0x20,
-        jt: 0,
-        jf: 0,
-        k: 16,
-    };
-    len += 1;
-    filter[len] = libc::sock_filter {
-        code: 0x45,
-        jt: 0,
-        jf: 1,
-        k: 0x7e02_0000,
-    };
-    len += 1;
-    filter[len] = libc::sock_filter {
-        code: 0x06,
-        jt: 0,
-        jf: 0,
-        k: 0x0005_0000 | libc::EPERM as u32,
-    };
-    len += 1;
-    filter[len] = libc::sock_filter {
-        code: 0x20,
-        jt: 0,
-        jf: 0,
-        k: 0,
-    };
-    len += 1;
-    filter[len] = libc::sock_filter {
-        code: 0x06,
-        jt: 0,
-        jf: 0,
-        k: 0x7fff_0000,
-    };
-    len += 1;
-    let mut program = libc::sock_fprog {
-        len: len as u16,
-        filter: filter.as_mut_ptr(),
-    };
-    unsafe {
-        libc::prctl(
-            libc::PR_SET_SECCOMP,
-            libc::SECCOMP_MODE_FILTER,
-            &mut program,
-        )
-    }
 }

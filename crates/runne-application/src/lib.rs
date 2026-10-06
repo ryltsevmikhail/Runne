@@ -21,6 +21,7 @@ pub mod errors;
 pub mod fingerprint;
 pub mod local_session;
 pub mod migration;
+pub mod permission_modes;
 pub(crate) mod pipeline;
 mod pipeline_submit;
 pub mod ports;

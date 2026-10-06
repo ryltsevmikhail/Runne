@@ -42,7 +42,11 @@ pub(super) fn record_area_launch(
         now,
     )?;
     validate::verify_assignment_lease(&tx, assignment, now)?;
-    approval_matches(&tx, &binding, now)?;
+    let permission_source =
+        validate_release_permission(&tx, &store.runtime_authority_id.0, &binding, now)?;
+    if permission_source == ToolPermissionDecisionSource::Human {
+        approval_matches(&tx, &binding, now)?;
+    }
     verify_sources(&tx, key, &binding.sources)?;
     let stored: Option<AreaLaunchRow> = tx.query_row(
         "SELECT managed_area_identity,local_stop_state,claim_fence,claim_node_id,claim_node_epoch FROM taskrun_tool_invocations WHERE taskrun_id=?1 AND attempt_id=?2 AND cycle_id=?3 AND proposal_index=?4",

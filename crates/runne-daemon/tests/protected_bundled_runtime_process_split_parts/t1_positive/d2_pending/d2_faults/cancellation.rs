@@ -18,7 +18,7 @@ pub(super) async fn cancel_before_go(
         "cancel-before-go",
     )
     .await
-    .expect("approve read before cancel race");
+    .expect("approve create before cancel race");
     barriers::wait_entered("pre-release").await;
     assert_eq!(database::taskrun_head(database_path, task), version);
     let acknowledgement = cancel(
@@ -35,14 +35,14 @@ pub(super) async fn cancel_before_go(
     assert_eq!(held.state(), runne_runtime_client::TaskRunState::Cancelling);
     assert_ne!(database::local_stop_state(database_path, task), Some(2));
     assert_eq!(database::result_count(database_path, task), 0);
-    assert_eq!(count_watch_mask(watch, libc::IN_OPEN), 0);
+    assert_eq!(count_watch_mask(watch, libc::IN_CREATE), 0);
     barriers::release("pre-release");
     let state = barriers::wait_audit_only(client, task, database_path, runtime_root).await;
-    assert!(target.exists());
+    assert!(!target.exists());
     assert_eq!(
-        count_watch_mask(watch, libc::IN_OPEN),
+        count_watch_mask(watch, libc::IN_CREATE),
         0,
-        "no GO/read occurred"
+        "no GO/create occurred"
     );
     assert_eq!(database::result_count(database_path, task), 0);
     assert_eq!(database::local_stop_state(database_path, task), Some(2));

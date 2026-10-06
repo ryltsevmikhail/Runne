@@ -1,4 +1,4 @@
-use super::diagnostic::{count_watch_mask, open_create_watch, open_watch, read_watch};
+use super::diagnostic::{count_watch_mask, open_create_watch, open_watch};
 use super::*;
 #[path = "d2_positive/after_results.rs"]
 mod after_results;
@@ -81,24 +81,91 @@ pub(super) async fn exercise(
         .expect("submit explicit D2 TaskRun")
         .task_run_id();
 
-    let read_approval = approval::wait_approval(client, task, None, database, runtime_root).await;
-    assert_eq!(read_approval.action(), "workspace.tool.invoke");
-    let crash_create =
-        std::env::var("RUNNE_TEST_D2_TOOL_SCENARIO").as_deref() == Ok("crash-after-create-effect");
-    if crash_create {
-        assert!(read_approval.resource().contains("fixture-created.txt"));
-        assert!(
-            read_approval
-                .risk_summary()
-                .contains("workspace.file.create_new")
-        );
-    } else {
-        assert!(read_approval.resource().contains("fixture-read.txt"));
-        assert!(read_approval.risk_summary().contains("workspace.file.read"));
+    let scenario = std::env::var("RUNNE_TEST_D2_TOOL_SCENARIO").unwrap_or_default();
+    let first_call_creates = matches!(
+        scenario.as_str(),
+        "crash-after-create-effect" | "crash-before-go"
+    );
+    if !first_call_creates {
+        verify::wait_results(database, task, 1, runtime_root).await;
+        if scenario == "stale-after-result" {
+            stale_after_result::exercise(
+                client,
+                task,
+                &read_path,
+                &create_path,
+                &watch,
+                &create_watch,
+                database,
+                runtime_root,
+            )
+            .await;
+            return;
+        }
+        if scenario == "result-commit-crash" {
+            verify::assert_encrypted_results(database, task, 1);
+            assert_eq!(
+                count_watch_mask(&watch, libc::IN_OPEN),
+                1,
+                "one auto-admitted read before result crash"
+            );
+            crash::after_durable_result(
+                supervisor,
+                executable,
+                session_bus_socket,
+                runtime_root,
+                database,
+                task,
+                conversation_id,
+                &read_path,
+                &watch,
+                &create_path,
+                &create_watch,
+            )
+            .await;
+            return;
+        }
     }
-    assert_eq!(read_watch(&watch), 0, "Pending read must not open target");
-    assert!(!create_path.exists(), "Pending read has no create effect");
-    approval::approve_twice(client, &read_approval, "read").await;
+    let create_approval = approval::wait_approval(client, task, None, database, runtime_root).await;
+    assert_eq!(create_approval.action(), "workspace.tool.invoke");
+    assert!(create_approval.resource().contains("fixture-created.txt"));
+    assert!(
+        create_approval
+            .risk_summary()
+            .contains("workspace.file.create_new")
+    );
+    assert!(
+        !create_path.exists(),
+        "Pending create has no filesystem effect"
+    );
+    if scenario == "deny-create" {
+        approval::deny_once(client, &create_approval).await;
+        let failed = verify::wait_success(client, task, database, runtime_root).await;
+        assert_eq!(failed.state(), runne_runtime_client::TaskRunState::Failed);
+        super::faults::assert_failure_projection(database, task);
+        assert_eq!(verify::result_count(database, task), 1);
+        assert_eq!(verify::reserved_effect_count(database, task), 1);
+        assert_eq!(verify::release_intent_count(database, task), 1);
+        assert_eq!(
+            count_watch_mask(&watch, libc::IN_OPEN),
+            1,
+            "read was not repeated after denial"
+        );
+        assert_eq!(
+            count_watch_mask(&create_watch, libc::IN_CREATE),
+            0,
+            "denied create emitted no IN_CREATE"
+        );
+        assert!(!create_path.exists());
+        assert_eq!(
+            super::diagnostic::fixture_count(runtime_root, "fixture-provider-request-count"),
+            2,
+            "denied create has no final provider continuation"
+        );
+        println!("PASS: D2 read Result followed by durable create denial without mutation");
+        return;
+    }
+    approval::approve_twice(client, &create_approval, "create").await;
     let unlaunched_barrier = match std::env::var("RUNNE_TEST_D2_TOOL_SCENARIO").as_deref() {
         Ok("crash-approved-before-lease") => Some(("approved-before-lease", "approved")),
         Ok("crash-claimed-before-area") => Some(("claimed-before-area", "claimed")),
@@ -131,9 +198,9 @@ pub(super) async fn exercise(
                 runtime_root,
                 database,
                 task,
-                &read_path,
-                &watch,
-                libc::IN_OPEN,
+                &create_path,
+                &create_watch,
+                libc::IN_CREATE,
                 0,
                 0,
                 None,
@@ -162,88 +229,9 @@ pub(super) async fn exercise(
         }
         _ => {}
     }
-    verify::wait_results(database, task, 1, runtime_root).await;
-    if std::env::var("RUNNE_TEST_D2_TOOL_SCENARIO").as_deref() == Ok("stale-after-result") {
-        stale_after_result::exercise(
-            client,
-            task,
-            &read_path,
-            &create_path,
-            &watch,
-            &create_watch,
-            database,
-            runtime_root,
-        )
-        .await;
-        return;
-    }
-    let first_read_open = count_watch_mask(&watch, libc::IN_OPEN);
-    assert_eq!(first_read_open, 1, "one approved native read opened target");
     assert_eq!(verify::reserved_effect_count(database, task), 1);
     assert_eq!(verify::release_intent_count(database, task), 1);
 
-    if std::env::var("RUNNE_TEST_D2_TOOL_SCENARIO").as_deref() == Ok("result-commit-crash") {
-        verify::assert_encrypted_results(database, task, 1);
-        crash::after_durable_result(
-            supervisor,
-            executable,
-            session_bus_socket,
-            runtime_root,
-            database,
-            task,
-            conversation_id,
-            &read_path,
-            &watch,
-            &create_path,
-            &create_watch,
-        )
-        .await;
-        return;
-    }
-
-    let create_approval = approval::wait_approval(
-        client,
-        task,
-        Some(read_approval.approval_id()),
-        database,
-        runtime_root,
-    )
-    .await;
-    assert_eq!(create_approval.action(), "workspace.tool.invoke");
-    assert!(create_approval.resource().contains("fixture-created.txt"));
-    assert!(
-        create_approval
-            .risk_summary()
-            .contains("workspace.file.create_new")
-    );
-    assert!(
-        !create_path.exists(),
-        "Pending create has no filesystem effect"
-    );
-    if std::env::var("RUNNE_TEST_D2_TOOL_SCENARIO").as_deref() == Ok("deny-create") {
-        approval::deny_once(client, &create_approval).await;
-        let failed = verify::wait_success(client, task, database, runtime_root).await;
-        assert_eq!(failed.state(), runne_runtime_client::TaskRunState::Failed);
-        super::faults::assert_failure_projection(database, task);
-        assert_eq!(verify::result_count(database, task), 1);
-        assert_eq!(verify::reserved_effect_count(database, task), 1);
-        assert_eq!(verify::release_intent_count(database, task), 1);
-        assert_eq!(read_watch(&watch), 0, "read was not repeated after denial");
-        assert_eq!(
-            read_watch(&create_watch),
-            0,
-            "denied create emitted no IN_CREATE"
-        );
-        assert!(!create_path.exists());
-        assert_eq!(
-            super::diagnostic::fixture_count(runtime_root, "fixture-provider-request-count"),
-            2,
-            "denied create has no final provider continuation"
-        );
-        println!("PASS: D2 read Result followed by durable create denial without mutation");
-        return;
-    }
-    approval::approve_twice(client, &create_approval, "create").await;
     verify::wait_results(database, task, 2, runtime_root).await;
     assert_eq!(
         std::fs::read(&create_path).expect("native create result"),

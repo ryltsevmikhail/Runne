@@ -161,12 +161,17 @@ pub(crate) mod snapshot;
 mod taskrun_assignment;
 pub use d2_completion_recovery::{D2CompletionRecoveryCandidate, D2CompletionRecoveryPage};
 pub use d2_failure_recovery::{D2FailureRecoveryCandidate, D2FailureRecoveryPage};
+mod permission_modes;
 mod taskrun_cancellation_completion;
 mod taskrun_cancellation_scan;
 pub(crate) mod taskrun_claim;
 mod taskrun_execution_input;
 mod taskrun_local_command;
 pub mod taskrun_tool_invocation;
+pub use permission_modes::{
+    FullAccessChallengeRequest, IssuedFullAccessChallenge, IssuedFullAccessChallengeContext,
+    PermissionModeAuthorityContext, PermissionModeSelectionSnapshot, ProtectedNativeLaunchContext,
+};
 pub use taskrun_local_command::{
     LocalCommandApprovalBinding, LocalCommandAttemptState, LocalCommandRecoveryCandidate,
 };

@@ -109,7 +109,7 @@ fn managed_v53_store_rejects_orphan_stop_receipt() {
     drop(managed);
     let raw = Connection::open(&path).unwrap();
     assert_eq!(schema_marker(&raw), CURRENT_SCHEMA_VERSION);
-    assert!(v64_matches(&raw, CURRENT_SCHEMA_VERSION).unwrap());
+    assert!(v65_matches(&raw, CURRENT_SCHEMA_VERSION).unwrap());
     drop(raw);
     drop(open_managed_connection(&path, ConnectionMode::Writer).unwrap());
 

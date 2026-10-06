@@ -8,6 +8,8 @@ use rusqlite::{OptionalExtension, TransactionBehavior, params};
 use sha2::Digest;
 
 include!("write/propose_approval.rs");
+include!("write/permission.rs");
+include!("write/permission_read.rs");
 include!("write/claim_reconcile.rs");
 include!("write/result_release.rs");
 include!("write/area_proof.rs");

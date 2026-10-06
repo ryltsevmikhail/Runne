@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use crate::canonical_provider::DaemonCanonicalProviderService;
@@ -48,6 +48,9 @@ pub(super) struct CommandHosts {
     pub(super) root_control: Option<Arc<ProtectedRootControl>>,
     pub(super) trust_control_routes: Option<axum::Router>,
     pub(super) root_admission: RootAdmissionGateway,
+    #[cfg(target_os = "linux")]
+    pub(super) permission_admission:
+        Option<Arc<runne_platform::local_command_linux::LinuxCompositeScopeAdmission>>,
 }
 
 #[cfg(not(feature = "desktop-protected"))]
@@ -71,6 +74,7 @@ pub(super) struct CommandHosts {
 pub(super) fn compose(
     store: &StoreTransaction,
     canonical_db_path: &Path,
+    replay_integrity_key_path: &Path,
     runtime_authority_id: [u8; 16],
     prohibited_content: Arc<dyn ProhibitedContentPort>,
     trust_authority: Option<Arc<ProjectTrustPolicyAuthority>>,
@@ -78,7 +82,12 @@ pub(super) fn compose(
     protected_activation: bool,
     sessions: Arc<Mutex<LocalSessionService>>,
 ) -> CommandHosts {
-    let _ = (canonical_db_path, runtime_authority_id, prohibited_content);
+    let _ = (
+        canonical_db_path,
+        replay_integrity_key_path,
+        runtime_authority_id,
+        prohibited_content,
+    );
     // T1/NM-06: the shared process-wide authority (opened once in the
     // bootstrap flow). A missing authority keeps the gate closed.
     let trust_gate = match trust_authority.as_ref() {
@@ -117,6 +126,13 @@ pub(super) fn compose(
     let workspace_diffs = RuntimeWorkspaceDiffHost::new(gateway.clone());
     let workspace_editor = RuntimeWorkspaceEditorHost::new(gateway.clone());
     let process_invocations = AuthoritativeProcessInvocationRegistry::default();
+    #[cfg(target_os = "linux")]
+    let permission_admission = open_protected_roots(canonical_db_path, replay_integrity_key_path)
+        .and_then(|roots| {
+            let references = roots.iter().collect::<Vec<_>>();
+            runne_platform::local_command_linux::LinuxCompositeScopeAdmission::new(&references).ok()
+        })
+        .map(Arc::new);
     let process = RuntimeProcessHost::new(NativeProcessProvider::new(
         process_invocations.clone(),
         gateway.clone(),
@@ -137,7 +153,26 @@ pub(super) fn compose(
         root_control: authority.map(ProtectedRootControl::new),
         trust_control_routes,
         root_admission: gateway,
+        #[cfg(target_os = "linux")]
+        permission_admission,
     }
+}
+
+fn open_protected_roots(db_path: &Path, replay_key_path: &Path) -> Option<Vec<std::fs::File>> {
+    [db_path.parent(), replay_key_path.parent()]
+        .into_iter()
+        .flatten()
+        .filter(|path| *path != std::path::Path::new("/"))
+        .map(|path| std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf()))
+        .fold(Vec::<PathBuf>::new(), |mut roots, root| {
+            if !roots.contains(&root) {
+                roots.push(root);
+            }
+            roots
+        })
+        .iter()
+        .map(|root| std::fs::File::open(root).ok())
+        .collect()
 }
 
 #[cfg(not(feature = "desktop-protected"))]
@@ -145,6 +180,7 @@ pub(super) fn compose(
 pub(super) fn compose(
     store: &StoreTransaction,
     _canonical_db_path: &Path,
+    _replay_integrity_key_path: &Path,
     _runtime_authority_id: [u8; 16],
     _prohibited_content: Arc<dyn ProhibitedContentPort>,
     _trust_authority: Option<Arc<ProjectTrustPolicyAuthority>>,

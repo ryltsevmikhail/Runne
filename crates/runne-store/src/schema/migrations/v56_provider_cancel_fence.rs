@@ -29,7 +29,7 @@ pub(super) fn apply_v56_migration(connection: &Connection) -> SqliteResult<()> {
 }
 
 pub(super) fn v56_matches(connection: &Connection, version: i64) -> SqliteResult<bool> {
-    if !matches!(version, 56..=63) {
+    if !matches!(version, 56..=65) {
         return Ok(false);
     }
     if !v55_matches(connection, version)? {
@@ -69,7 +69,7 @@ fn v64_d2_extensions_present(connection: &Connection) -> SqliteResult<bool> {
         [],
         |row| row.get(0),
     )?;
-    Ok(current == Some(64) && installed)
+    Ok(current.is_some_and(|version| version >= 64) && installed)
 }
 
 fn v56_cancel_fences_match(connection: &Connection) -> SqliteResult<bool> {

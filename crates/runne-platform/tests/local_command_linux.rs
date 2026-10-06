@@ -14,6 +14,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 mod confinement;
 #[path = "local_command_linux/io.rs"]
 mod io;
+#[path = "local_command_linux/permission.rs"]
+mod permission;
 #[path = "local_command_linux/signal.rs"]
 mod signal;
 #[path = "local_command_linux/snapshot_exec.rs"]

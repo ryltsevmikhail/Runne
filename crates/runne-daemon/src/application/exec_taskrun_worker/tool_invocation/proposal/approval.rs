@@ -11,6 +11,7 @@ impl crate::application::exec_taskrun_worker::DaemonAutomaticTaskRuns {
         workspace_id: runne_domain::id::WorkspaceId,
         binding: ToolInvocationBindingV1,
         principal: ApiPrincipalId,
+        prepared: super::super::permission::PreparedPermissionInvocation,
     ) -> Result<(), ()> {
         let key = binding.key;
         let approval_id = binding.approval_id;
@@ -114,7 +115,13 @@ impl crate::application::exec_taskrun_worker::DaemonAutomaticTaskRuns {
             let context = context.clone();
             let assignment = assignment.clone();
             tokio::task::spawn_blocking(move || {
-                worker.execute_approved_tool_effect(&context, &assignment, workspace_id, &binding)
+                worker.execute_approved_tool_effect(
+                    &context,
+                    &assignment,
+                    workspace_id,
+                    &binding,
+                    &prepared,
+                )
             })
             .await
             .map_err(|_| ())??;

@@ -33,8 +33,8 @@ pub(super) async fn exercise(
     }
     assert_eq!(
         super::super::diagnostic::count_watch_mask(read_watch, libc::IN_OPEN),
-        0,
-        "replayed approval/result caused no second read open"
+        1,
+        "auto-admitted read opened once with no replay effect"
     );
     assert_eq!(
         super::super::diagnostic::count_watch_mask(create_watch, libc::IN_CREATE),

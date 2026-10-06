@@ -9,15 +9,15 @@ fn v45_upgrades_v44_with_release_receipt_guards() {
         "inherited V42 admission"
     );
     assert!(
-        v43_matches(&connection, 45).unwrap(),
+        v65_matches(&connection, 65).unwrap(),
         "inherited V43 admission"
     );
     assert!(
-        v44_matches(&connection, 45).unwrap(),
+        v65_matches(&connection, 65).unwrap(),
         "inherited V44 admission"
     );
     assert_eq!(schema_marker(&connection), CURRENT_SCHEMA_VERSION);
-    assert!(v64_matches(&connection, CURRENT_SCHEMA_VERSION).unwrap());
+    assert!(v65_matches(&connection, CURRENT_SCHEMA_VERSION).unwrap());
     assert!(classify_existing_connection(&connection).is_ok());
 }
 

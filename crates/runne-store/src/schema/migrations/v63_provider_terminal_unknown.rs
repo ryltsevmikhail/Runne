@@ -90,8 +90,8 @@ pub(super) fn apply_v63_migration(connection: &Connection) -> SqliteResult<()> {
 }
 
 pub(super) fn v63_matches(connection: &Connection, version: i64) -> SqliteResult<bool> {
-    if version != 63
-        || !v62_matches(connection, 62)?
+    if version < 63
+        || !v62_matches(connection, version)?
         || !table_sql_matches_migration(
             connection,
             "provider_unknown_terminal_receipts",

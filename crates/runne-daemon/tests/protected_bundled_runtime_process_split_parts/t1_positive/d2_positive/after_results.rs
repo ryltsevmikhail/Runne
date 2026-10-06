@@ -28,7 +28,8 @@ pub(super) async fn dispatch(f: Fixture<'_>) -> bool {
             assert_eq!(verify::release_intent_count(f.database, f.task), 2);
             assert_eq!(
                 super::super::diagnostic::count_watch_mask(f.read_watch, libc::IN_OPEN),
-                0
+                1,
+                "one auto-admitted read before the blocked third proposal"
             );
             assert_eq!(
                 super::super::diagnostic::count_watch_mask(f.create_watch, libc::IN_CREATE),
@@ -74,13 +75,18 @@ pub(super) async fn dispatch(f: Fixture<'_>) -> bool {
             .await;
             assert_eq!(
                 super::super::diagnostic::count_watch_mask(f.read_watch, libc::IN_OPEN),
-                0,
-                "both same-root reopens did not repeat the approved read"
+                1,
+                "exactly one auto-admitted read before the terminal cancel"
             );
             assert_eq!(
                 super::super::diagnostic::count_watch_mask(f.create_watch, libc::IN_CREATE),
                 0,
                 "both same-root reopens did not repeat the approved create"
+            );
+            assert_eq!(
+                super::super::diagnostic::count_watch_mask(f.read_watch, libc::IN_OPEN),
+                0,
+                "both same-root reopens did not repeat the approved read"
             );
             assert_eq!(
                 std::fs::read(f.read_path).expect("read unchanged fixture input"),

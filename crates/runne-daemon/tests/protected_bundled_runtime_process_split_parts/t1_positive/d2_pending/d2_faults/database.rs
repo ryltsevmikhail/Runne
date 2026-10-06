@@ -90,6 +90,29 @@ pub(super) fn tool_budget_effects_used(database: &Path, task: CanonicalId) -> Op
 }
 
 pub(super) fn assert_failure_projection(database: &Path, task: CanonicalId) {
+    assert_terminal_failure_projection(
+        database,
+        task,
+        runne_domain::conversation::GenerationFailureReason::ProviderExecutionRejected,
+    );
+}
+
+/// A restart that already carries the durable auto-admitted read result
+/// settles the interrupted create as an interruption, not a pre-effect
+/// rejection.
+pub(super) fn assert_interrupted_by_restart_projection(database: &Path, task: CanonicalId) {
+    assert_terminal_failure_projection(
+        database,
+        task,
+        runne_domain::conversation::GenerationFailureReason::InterruptedByRestart,
+    );
+}
+
+fn assert_terminal_failure_projection(
+    database: &Path,
+    task: CanonicalId,
+    expected_reason: runne_domain::conversation::GenerationFailureReason,
+) {
     let connection =
         rusqlite::Connection::open_with_flags(database, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
             .expect("read-only D2 failure projection view");
@@ -131,9 +154,11 @@ pub(super) fn assert_failure_projection(database: &Path, task: CanonicalId) {
         .decode(&failed_payload)
         .expect("decode Conversation terminal");
     let failed_attempt = match terminal {
-        ConversationEvent::GenerationFailed { taskrun_id, attempt_id, reason }
-            if taskrun_id.as_bytes() == &task_bytes
-                && reason == runne_domain::conversation::GenerationFailureReason::ProviderExecutionRejected => attempt_id,
+        ConversationEvent::GenerationFailed {
+            taskrun_id,
+            attempt_id,
+            reason,
+        } if taskrun_id.as_bytes() == &task_bytes && reason == expected_reason => attempt_id,
         _ => panic!("original Conversation has exact D2 failure event"),
     };
     let outcome: Vec<u8> = connection

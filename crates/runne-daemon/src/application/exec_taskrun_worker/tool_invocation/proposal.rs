@@ -7,7 +7,6 @@ use runne_store::store::taskrun_tool_invocation::{
     EncryptedToolPayloadV1, ToolInvocationBindingV1, ToolInvocationKey, ToolSourceRef,
 };
 use sha2::{Digest, Sha256};
-
 #[path = "proposal/approval.rs"]
 mod approval;
 
@@ -102,6 +101,11 @@ impl super::super::DaemonAutomaticTaskRuns {
             .store
             .load_taskrun_tool_invocation(key)
             .map_err(|_| ())?;
+        let permission_scope = runne_application::permission_modes::PermissionScope {
+            runtime_authority_id: self.store.runtime_authority_id().clone(),
+            principal_id: principal.clone(),
+            workspace_id,
+        };
         let expires_at = match saved.as_ref() {
             Some(record) => record.binding.approval_expires_at,
             None => now_millis().checked_add(APPROVAL_TTL_MS).ok_or(())?,
@@ -170,6 +174,18 @@ impl super::super::DaemonAutomaticTaskRuns {
         };
         binding.refresh_digests();
         let semantic_digest = binding.semantic_digest;
+        let native = self.permission_admission.as_ref().ok_or(())?;
+        let prepared = permission::prepare_from_store(
+            &self.store,
+            &permission_scope,
+            &principal,
+            workspace_id,
+            root_digest,
+            &binding,
+            saved.as_ref().map(|record| record.receipt.state),
+            native,
+            now_millis(),
+        )?;
         let provider = self.provider.as_ref().ok_or(())?;
         let encrypted: EncryptedToolPayloadV1 = provider
             .seal_d2_tool_arguments(
@@ -185,7 +201,13 @@ impl super::super::DaemonAutomaticTaskRuns {
             })?;
         super::super::provider::d2_stage("proposal_encrypted");
         self.store
-            .propose_taskrun_tool_invocation(binding.clone(), encrypted, assignment, now_millis())
+            .propose_taskrun_tool_invocation_with_permission(
+                binding.clone(),
+                encrypted,
+                prepared.admission.clone(),
+                assignment,
+                now_millis(),
+            )
             .map_err(|error| {
                 use runne_store::store::taskrun_tool_invocation::ToolInvocationStoreError as E;
                 super::super::provider::d2_stage(match error {
@@ -216,8 +238,47 @@ impl super::super::DaemonAutomaticTaskRuns {
                 });
             })?;
         super::super::provider::d2_stage("proposal_durable");
-        self.await_approval_and_execute(context, assignment, workspace_id, binding, principal)
+        if !prepared.requires_human
+            && saved.as_ref().map(|record| record.receipt.state)
+                != Some(runne_store::store::taskrun_tool_invocation::ToolInvocationState::Approved)
+        {
+            self.store
+                .admit_taskrun_tool_permission_automatically(
+                    key,
+                    semantic_digest,
+                    assignment,
+                    now_millis(),
+                )
+                .map_err(|_| ())?;
+        }
+        if prepared.requires_human {
+            self.await_approval_and_execute(
+                context,
+                assignment,
+                workspace_id,
+                binding,
+                principal,
+                prepared,
+            )
             .await
+        } else {
+            let worker = self.clone();
+            let context = context.clone();
+            let assignment = assignment.clone();
+            tokio::task::spawn_blocking(move || {
+                worker.execute_approved_tool_effect(
+                    &context,
+                    &assignment,
+                    workspace_id,
+                    &binding,
+                    &prepared,
+                )
+            })
+            .await
+            .map_err(|_| ())??;
+            super::super::provider::d2_stage("native_effect_recorded");
+            Ok(())
+        }
     }
 }
 

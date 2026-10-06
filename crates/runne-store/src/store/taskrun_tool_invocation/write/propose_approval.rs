@@ -12,6 +12,27 @@ pub(super) fn propose(
     a: &TaskRunAssignmentIdentity,
     _now: i64,
 ) -> Result<ToolInvocationReceipt, ToolInvocationStoreError> {
+    propose_inner(s, b, arguments_payload, a, None)
+}
+
+pub(super) fn propose_with_permission(
+    s: &StoreTransaction,
+    b: ToolInvocationBindingV1,
+    arguments_payload: EncryptedToolPayloadV1,
+    permission: ToolPermissionAdmissionV1,
+    a: &TaskRunAssignmentIdentity,
+    _now: i64,
+) -> Result<ToolInvocationReceipt, ToolInvocationStoreError> {
+    propose_inner(s, b, arguments_payload, a, Some(permission))
+}
+
+fn propose_inner(
+    s: &StoreTransaction,
+    b: ToolInvocationBindingV1,
+    arguments_payload: EncryptedToolPayloadV1,
+    a: &TaskRunAssignmentIdentity,
+    permission: Option<ToolPermissionAdmissionV1>,
+) -> Result<ToolInvocationReceipt, ToolInvocationStoreError> {
     validate_binding(&b).map_err(|error| match error {
         ToolInvocationStoreError::Conflict => {
             ToolInvocationStoreError::ProposalConflict(ProposalConflictKind::Binding)
@@ -99,6 +120,9 @@ pub(super) fn propose(
         },
     )?;
     tx.execute("INSERT INTO taskrun_tool_invocations(taskrun_id,attempt_id,cycle_id,proposal_index,expected_taskrun_version,call_id,tool_name,tool_revision,schema_digest,canonical_arguments,arguments_digest,semantic_digest,effect_digest,source_refs,environment_id,environment_revision,root_identity,root_revision,target_name,target_precondition,approval_id,principal_id,approval_principal_id,approval_action,approval_resource,approval_digest,policy_revision,approval_expires_at,round_index,state,updated_at,args_key_id,args_key_version,args_runtime_authority_id,args_database_generation,args_nonce,args_plaintext_len,args_plaintext_digest) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27,?28,?29,'proposed',?30,?31,?32,?33,?34,?35,?36,?37)",params![b.key.taskrun_id.as_bytes(),b.key.attempt_id.as_bytes(),b.key.cycle_id.as_bytes(),i64::from(b.key.proposal_index),b.expected_taskrun_version as i64,b.call_id,b.tool_name,b.tool_revision,b.schema_digest.as_bytes(),arguments_payload.payload.ciphertext(),b.arguments_digest.as_bytes(),b.semantic_digest.as_bytes(),effect.as_bytes(),source_bytes,b.environment_id,b.environment_revision,b.root_identity.as_bytes(),b.root_revision as i64,b.target_name,b.target_precondition.map(|d|d.into_bytes().to_vec()),b.approval_id,b.principal_id,b.approval_principal_id,b.approval_action,b.approval_resource,b.approval_digest.as_bytes(),b.policy_revision as i64,b.approval_expires_at,b.round_index as i64,now,arguments_payload.key.key_id().as_slice(),arguments_payload.key.key_version() as i64,arguments_payload.key.runtime_authority_id().as_slice(),arguments_payload.key.database_generation() as i64,arguments_payload.payload.nonce().as_slice(),arguments_payload.payload.plaintext_len() as i64,arguments_payload.payload.plaintext_digest()]).map_err(proposal_insert_error)?;
+    if let Some(permission) = permission {
+        insert_permission(&tx, &b, &permission, now)?;
+    }
     let receipt =
         read::get_from_connection(&tx, b.key)?.ok_or(ToolInvocationStoreError::CorruptData)?;
     tx.commit()

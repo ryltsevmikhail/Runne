@@ -172,7 +172,16 @@ where
     if old.state != ToolInvocationState::Claimed {
         return Err(ToolInvocationStoreError::InvalidState);
     }
-    approval_matches(&intent, &binding, intent_now)?;
+    let permission_source =
+        validate_release_permission(
+            &intent,
+            &store.runtime_authority_id.0,
+            &binding,
+            intent_now,
+        )?;
+    if permission_source == ToolPermissionDecisionSource::Human {
+        approval_matches(&intent, &binding, intent_now)?;
+    }
     verify_sources(&intent, key, &binding.sources)?;
     let area: Option<(Vec<u8>, i64, Option<Vec<u8>>)> = intent.query_row("SELECT managed_area_identity,local_stop_state,empty_proof_identity FROM taskrun_tool_invocations WHERE taskrun_id=?1 AND attempt_id=?2 AND cycle_id=?3 AND proposal_index=?4",params![key.taskrun_id.as_bytes(),key.attempt_id.as_bytes(),key.cycle_id.as_bytes(),i64::from(key.proposal_index)],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).optional().map_err(|_|ToolInvocationStoreError::CorruptData)?;
     if area.is_none_or(|(_, state, proof)| state != 1 || proof.is_some()) {
@@ -209,7 +218,15 @@ where
         }
         Err(error) => return Err(error),
     }
-    approval_matches(&release_tx, &binding, release_now)?;
+    let permission_source = validate_release_permission(
+        &release_tx,
+        &store.runtime_authority_id.0,
+        &binding,
+        release_now,
+    )?;
+    if permission_source == ToolPermissionDecisionSource::Human {
+        approval_matches(&release_tx, &binding, release_now)?;
+    }
     verify_sources(&release_tx, key, &binding.sources)?;
     let outcome = release();
     if outcome.is_err() {

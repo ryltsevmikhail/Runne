@@ -21,6 +21,8 @@ mod local_engine_tests;
 pub mod local_session;
 /// Closed runtime operational telemetry wire contracts.
 pub mod operational_telemetry;
+/// Shared permission-mode projections, commands, and native confirmation contracts.
+pub mod permission_modes;
 /// API command principals and actors.
 pub mod principal;
 /// Runtime-owned process and bounded terminal-output contracts.
@@ -72,6 +74,7 @@ pub use editor::*;
 pub use host_port::*;
 pub use local_session::*;
 pub use operational_telemetry::*;
+pub use permission_modes::*;
 pub use principal::*;
 pub use process::*;
 pub use project_trust_control::*;

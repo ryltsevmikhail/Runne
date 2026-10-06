@@ -20,6 +20,7 @@ impl crate::application::exec_taskrun_worker::DaemonAutomaticTaskRuns {
         workspace_version: u64,
         root_revision: u64,
         root_identity: [u8; 32],
+        prepared: &super::super::permission::PreparedPermissionInvocation,
     ) -> Result<
         (i32, Vec<u8>, Vec<u8>),
         crate::application::exec_taskrun_worker::local::run::tool_executor::HelperRunFailure,
@@ -28,6 +29,9 @@ impl crate::application::exec_taskrun_worker::DaemonAutomaticTaskRuns {
             files,
             input,
             area,
+            &prepared.scope,
+            prepared.native_receipt,
+            self.permission_admission.as_deref(),
             |child| {
                 if crate::application::exec_taskrun_worker::local::run::test_barrier::pause_at(
                     crate::application::exec_taskrun_worker::local::run::test_barrier::Point::BeforeRelease,

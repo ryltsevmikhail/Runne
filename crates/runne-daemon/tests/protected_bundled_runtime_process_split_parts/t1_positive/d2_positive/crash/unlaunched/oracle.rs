@@ -107,7 +107,9 @@ pub(super) fn assert_claim_assignment(
 }
 
 pub(super) fn expected_effects_used(state: &str) -> u32 {
-    u32::from(state == "claimed")
+    // The auto-admitted read claims one budget slot before the human-approved
+    // create reaches its crash stage; a claimed create claims one more.
+    u32::from(state != "proposed") + u32::from(state == "claimed")
 }
 
 pub(super) fn read_budget_identity(

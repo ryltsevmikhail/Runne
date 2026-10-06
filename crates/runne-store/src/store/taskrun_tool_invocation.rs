@@ -40,6 +40,36 @@ impl StoreTransaction {
         write::propose(self, binding, arguments_payload, assignment, now_unix_ms)
     }
 
+    /// Persists a proposal and its exact permission admission in one transaction.
+    pub fn propose_taskrun_tool_invocation_with_permission(
+        &self,
+        binding: ToolInvocationBindingV1,
+        arguments_payload: EncryptedToolPayloadV1,
+        permission: ToolPermissionAdmissionV1,
+        assignment: &TaskRunAssignmentIdentity,
+        now_unix_ms: i64,
+    ) -> Result<ToolInvocationReceipt, ToolInvocationStoreError> {
+        write::propose_with_permission(
+            self,
+            binding,
+            arguments_payload,
+            permission,
+            assignment,
+            now_unix_ms,
+        )
+    }
+
+    /// Marks an already-persisted preset-allowed invocation as admitted.
+    pub fn admit_taskrun_tool_permission_automatically(
+        &self,
+        key: ToolInvocationKey,
+        semantic_digest: IntegrityDigest,
+        assignment: &TaskRunAssignmentIdentity,
+        now_unix_ms: i64,
+    ) -> Result<ToolInvocationReceipt, ToolInvocationStoreError> {
+        write::admit_automatically(self, key, semantic_digest, assignment, now_unix_ms)
+    }
+
     /// Binds an already-decided approval row; this method never decides approval.
     pub fn bind_taskrun_tool_approval(
         &self,
@@ -165,6 +195,14 @@ impl StoreTransaction {
             .lock()
             .map_err(|_| ToolInvocationStoreError::Unavailable)?;
         read::load_record(&reader, key)
+    }
+
+    /// Loads the immutable permission admission attached to one invocation.
+    pub fn load_taskrun_tool_permission_admission(
+        &self,
+        key: ToolInvocationKey,
+    ) -> Result<Option<ToolPermissionAdmissionV1>, ToolInvocationStoreError> {
+        write::load_permission(self, key)
     }
 
     pub fn load_taskrun_tool_invocations_for_taskrun(

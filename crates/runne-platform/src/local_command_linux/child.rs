@@ -1,4 +1,6 @@
 use super::{GatedLinuxChild, LinuxCommandError, gate};
+#[path = "child/composite.rs"]
+pub(super) mod composite;
 #[path = "child/output.rs"]
 pub(super) mod output;
 #[path = "child/stdio.rs"]
@@ -67,11 +69,13 @@ pub(super) struct SpawnSpec<'area, 'input> {
     pub exe: &'input File,
     pub workspace: &'input File,
     pub cwd: &'input File,
-    pub ruleset: &'input OwnedFd,
+    pub ruleset: Option<&'input OwnedFd>,
     pub argv: &'input [CString],
     pub env: &'input [CString],
     pub area: &'area LinuxManagedArea,
     pub stdio: stdio::CommandStdio,
+    pub composite: Option<&'input composite::PreparedComposite>,
+    pub network_none: bool,
 }
 
 pub(super) fn spawn<'a>(spec: SpawnSpec<'a, '_>) -> Result<GatedLinuxChild<'a>, LinuxCommandError> {
@@ -84,6 +88,8 @@ pub(super) fn spawn<'a>(spec: SpawnSpec<'a, '_>) -> Result<GatedLinuxChild<'a>, 
         env,
         area,
         mut stdio,
+        composite,
+        network_none,
     } = spec;
     if area.is_populated().map_err(|_| LinuxCommandError::Area)? {
         return Err(LinuxCommandError::Area);
@@ -104,18 +110,48 @@ pub(super) fn spawn<'a>(spec: SpawnSpec<'a, '_>) -> Result<GatedLinuxChild<'a>, 
     // SAFETY: successful socketpair returned two owned descriptors.
     let parent_socket = unsafe { OwnedFd::from_raw_fd(pair[0]) };
     let child_socket = unsafe { OwnedFd::from_raw_fd(pair[1]) };
-    let keep = [
+    let base_keep = [
         supervision::dup(child_socket.as_raw_fd())?,
         supervision::dup(exe.as_raw_fd())?,
         supervision::dup(cwd.as_raw_fd())?,
         supervision::dup(workspace.as_raw_fd())?,
-        supervision::dup(ruleset.as_raw_fd())?,
+        ruleset.map_or_else(
+            || supervision::dup(cwd.as_raw_fd()),
+            |fd| supervision::dup(fd.as_raw_fd()),
+        )?,
         supervision::dup(stdio.child_fds[0].as_raw_fd())?,
         supervision::dup(stdio.child_fds[1].as_raw_fd())?,
         supervision::dup(stdio.child_fds[2].as_raw_fd())?,
     ];
-    let mut retained = keep.each_ref().map(|fd| fd.as_raw_fd());
+    let (protected_keep, mount_targets, device_targets, device_source_paths, protected_regular) =
+        match composite {
+            Some(prepared) => {
+                let (descriptors, targets, regular_indices, dev_targets, dev_sources) =
+                    prepared.child_descriptors()?;
+                let regular_fds = regular_indices
+                    .iter()
+                    .map(|index| descriptors[*index].as_raw_fd())
+                    .collect();
+                (descriptors, targets, dev_targets, dev_sources, regular_fds)
+            }
+            None => (Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new()),
+        };
+    let mount_target_ptrs = mount_targets.iter().map(|target| target.as_ptr()).collect();
+    let device_target_ptrs = device_targets
+        .iter()
+        .map(|target| target.as_ptr())
+        .collect();
+    let device_source_path_ptrs = device_source_paths
+        .iter()
+        .map(|source| source.as_ptr())
+        .collect();
+    let mut retained = base_keep
+        .iter()
+        .map(|fd| fd.as_raw_fd())
+        .chain(protected_keep.iter().map(|fd| fd.as_raw_fd()))
+        .collect::<Vec<_>>();
     retained.sort_unstable();
+    let protected_fd_numbers = protected_keep.iter().map(|fd| fd.as_raw_fd()).collect();
     let arg_ptrs: Vec<*const u8> = argv
         .iter()
         .map(|arg| arg.as_ptr().cast())
@@ -130,8 +166,13 @@ pub(super) fn spawn<'a>(spec: SpawnSpec<'a, '_>) -> Result<GatedLinuxChild<'a>, 
     let mut signal_mask = SignalMaskGuard::block_all()?;
     let parent_pid = unsafe { libc::getpid() };
     let mut pidfd_raw = -1i32;
+    let namespace_flags = if composite.is_some() {
+        (libc::CLONE_NEWUSER | libc::CLONE_NEWNS | libc::CLONE_NEWPID) as u64
+    } else {
+        0
+    };
     let args = CloneArgs {
-        flags: 0x1000,
+        flags: 0x1000 | namespace_flags,
         pidfd: (&mut pidfd_raw as *mut i32) as u64,
         child_tid: 0,
         parent_tid: 0,
@@ -147,11 +188,20 @@ pub(super) fn spawn<'a>(spec: SpawnSpec<'a, '_>) -> Result<GatedLinuxChild<'a>, 
         unsafe { libc::syscall(libc::SYS_clone3, &args, std::mem::size_of::<CloneArgs>()) };
     if pid_raw == 0 {
         gate::enter(
-            keep,
+            base_keep,
+            protected_keep,
+            protected_fd_numbers,
             retained,
             parent_pid,
             arg_ptrs.as_ptr(),
             env_ptrs.as_ptr(),
+            ruleset.is_some(),
+            composite.is_some(),
+            network_none,
+            mount_target_ptrs,
+            protected_regular,
+            device_target_ptrs,
+            device_source_path_ptrs,
         );
     }
     let restored = signal_mask.restore().is_ok();
@@ -166,9 +216,19 @@ pub(super) fn spawn<'a>(spec: SpawnSpec<'a, '_>) -> Result<GatedLinuxChild<'a>, 
         return Err(LinuxCommandError::Unverified);
     }
     drop(child_socket);
+    if composite.is_some()
+        && composite::map_child_identity(pid.as_raw_pid(), parent_socket.as_raw_fd()).is_err()
+    {
+        supervision::kill_and_reap(pid, &pidfd);
+        return Err(LinuxCommandError::Unavailable);
+    }
     if supervision::read_ready(parent_socket.as_raw_fd()).is_err() {
         supervision::kill_and_reap(pid, &pidfd);
         return Err(LinuxCommandError::Unavailable);
+    }
+    if composite.is_some() && unsafe { libc::kill(pid.as_raw_pid(), libc::SIGSTOP) } != 0 {
+        supervision::kill_and_reap(pid, &pidfd);
+        return Err(LinuxCommandError::Unverified);
     }
     if let Err(error) = supervision::wait_stopped(pid) {
         supervision::kill_and_reap(pid, &pidfd);

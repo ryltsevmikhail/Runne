@@ -107,6 +107,7 @@ pub(in crate::application) async fn start_http_and_runtime(
     let command_hosts = command_hosts::compose(
         &store,
         std::path::Path::new(&config.db_path),
+        std::path::Path::new(&config.replay_integrity_key_path),
         bootstrap.authority_id,
         Arc::clone(&prohibited_content),
         trust_authority.clone(),
@@ -136,6 +137,8 @@ pub(in crate::application) async fn start_http_and_runtime(
         Arc::clone(&prohibited_content),
         #[cfg(feature = "desktop-protected")]
         command_hosts.root_admission.clone(),
+        #[cfg(all(feature = "desktop-protected", target_os = "linux"))]
+        command_hosts.permission_admission.clone(),
         #[cfg(target_os = "linux")]
         node_lease_heartbeat,
     )?;

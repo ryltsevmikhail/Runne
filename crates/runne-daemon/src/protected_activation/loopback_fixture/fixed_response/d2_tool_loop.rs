@@ -47,7 +47,13 @@ pub(crate) fn scenario_response(scenario: &str) -> Option<String> {
             .split("event: response.function_call_arguments.done")
             .next()
             .map(str::to_owned),
-        "deny-read" | "stale-approval" => Some(proposal.to_owned()),
+        "deny-read"
+        | "stale-approval"
+        | "approval-expiry"
+        | "revoke-before-lease"
+        | "target-changed-before-go"
+        | "cancel-before-go"
+        | "crash-before-go" => Some(CREATE_RESPONSE.to_owned()),
         "cancel-after-create-effect"
         | "cancel-restart-after-create-effect"
         | "crash-after-create-effect" => Some(CREATE_RESPONSE.to_owned()),
