@@ -7,6 +7,18 @@ if [[ $# -ne 2 ]]; then
 fi
 app=$(realpath "$1")
 daemon=$(realpath "$2")
+# A desktop-protected daemon enforces the NM-06 project-trust delivery gate,
+# which legitimately denies replay for the synthetic untrusted workspace in
+# this fixture. Shared target/debug/runned binaries can be contaminated by a
+# later dev-signed-run.sh build; require a default-feature daemon instead.
+nm -C "$daemon" >/dev/null 2>&1 || {
+  echo "nm (binutils) could not inspect the daemon binary" >&2
+  exit 1
+}
+if nm -C "$daemon" 2>/dev/null | grep 'runne_platform_desktop' >/dev/null; then
+  echo "daemon binary contains desktop-protected symbols; rebuild it with default features (isolated CARGO_TARGET_DIR)" >&2
+  exit 1
+fi
 base=$(git rev-parse --show-toplevel)
 root=$(mktemp -d "${TMPDIR:-/tmp}/runne-d2-gui.XXXXXX")
 chmod 700 "$root"
