@@ -1,3 +1,5 @@
+use std::path::{Path, PathBuf};
+
 use super::replay_authorization::DaemonReplayAuthorization;
 use super::*;
 use crate::operational_telemetry::compose_operational_telemetry_query;
@@ -10,6 +12,29 @@ pub(super) fn replay_cursor_integrity_secret(
     key: &crate::replay_key::ReplayIntegrityKey,
 ) -> [u8; 32] {
     key.derive_hmac(b"gocode/replay-cursor-hmac/v1\0")
+}
+
+/// Opens the owner-private roots that bound D2.1 composite containment
+/// admissions. Kept beside the startup helpers so the telemetry closure never
+/// includes direct filesystem access in the startup module tree.
+pub(super) fn open_protected_roots(
+    db_path: &Path,
+    replay_key_path: &Path,
+) -> Option<Vec<std::fs::File>> {
+    [db_path.parent(), replay_key_path.parent()]
+        .into_iter()
+        .flatten()
+        .filter(|path| *path != std::path::Path::new("/"))
+        .map(|path| std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf()))
+        .fold(Vec::<PathBuf>::new(), |mut roots, root| {
+            if !roots.contains(&root) {
+                roots.push(root);
+            }
+            roots
+        })
+        .iter()
+        .map(|root| std::fs::File::open(root).ok())
+        .collect()
 }
 
 pub(super) fn runtime_session_binding(

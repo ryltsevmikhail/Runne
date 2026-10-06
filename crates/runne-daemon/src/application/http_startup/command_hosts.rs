@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use crate::canonical_provider::DaemonCanonicalProviderService;
@@ -127,12 +127,15 @@ pub(super) fn compose(
     let workspace_editor = RuntimeWorkspaceEditorHost::new(gateway.clone());
     let process_invocations = AuthoritativeProcessInvocationRegistry::default();
     #[cfg(target_os = "linux")]
-    let permission_admission = open_protected_roots(canonical_db_path, replay_integrity_key_path)
-        .and_then(|roots| {
-            let references = roots.iter().collect::<Vec<_>>();
-            runne_platform::local_command_linux::LinuxCompositeScopeAdmission::new(&references).ok()
-        })
-        .map(Arc::new);
+    let permission_admission = super::super::http_startup_support::open_protected_roots(
+        canonical_db_path,
+        replay_integrity_key_path,
+    )
+    .and_then(|roots| {
+        let references = roots.iter().collect::<Vec<_>>();
+        runne_platform::local_command_linux::LinuxCompositeScopeAdmission::new(&references).ok()
+    })
+    .map(Arc::new);
     let process = RuntimeProcessHost::new(NativeProcessProvider::new(
         process_invocations.clone(),
         gateway.clone(),
@@ -156,23 +159,6 @@ pub(super) fn compose(
         #[cfg(target_os = "linux")]
         permission_admission,
     }
-}
-
-fn open_protected_roots(db_path: &Path, replay_key_path: &Path) -> Option<Vec<std::fs::File>> {
-    [db_path.parent(), replay_key_path.parent()]
-        .into_iter()
-        .flatten()
-        .filter(|path| *path != std::path::Path::new("/"))
-        .map(|path| std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf()))
-        .fold(Vec::<PathBuf>::new(), |mut roots, root| {
-            if !roots.contains(&root) {
-                roots.push(root);
-            }
-            roots
-        })
-        .iter()
-        .map(|root| std::fs::File::open(root).ok())
-        .collect()
 }
 
 #[cfg(not(feature = "desktop-protected"))]
