@@ -9,16 +9,32 @@ app=$(realpath "$1")
 daemon=$(realpath "$2")
 # A desktop-protected daemon enforces the NM-06 project-trust delivery gate,
 # which legitimately denies replay for the synthetic untrusted workspace in
-# this fixture. Shared target/debug/runned binaries can be contaminated by a
-# later dev-signed-run.sh build; require a default-feature daemon instead.
-nm -C "$daemon" >/dev/null 2>&1 || {
+# this fixture. Only inspectable nm records can identify that symbol; unknown
+# or stripped output is inconclusive and must fail closed.
+unset nm_output
+if ! nm_output=$(nm -C "$daemon" 2>/dev/null); then
   echo "nm (binutils) could not inspect the daemon binary" >&2
   exit 1
-}
-if nm -C "$daemon" 2>/dev/null | grep 'runne_platform_desktop' >/dev/null; then
-  echo "daemon binary contains desktop-protected symbols; rebuild it with default features (isolated CARGO_TARGET_DIR)" >&2
+fi
+if [[ ! "$nm_output" =~ [^[:space:]] ]]; then
+  echo "nm returned no symbol output; refusing an inconclusive daemon binary" >&2
   exit 1
 fi
+if ! printf '%s\n' "$nm_output" | grep -E '^[[:space:]]*[[:xdigit:]]+[[:space:]]+[A-TV-Za-z][[:space:]]+[^[:space:]]' >/dev/null; then
+  echo "nm output has no recognizable defined-symbol records; refusing an inconclusive daemon binary" >&2
+  exit 1
+fi
+if printf '%s\n' "$nm_output" | grep -E '^[[:space:]]*[[:xdigit:]]+[[:space:]]+[A-TV-Za-z][[:space:]].*runne_platform_desktop' >/dev/null; then
+  echo "daemon binary contains desktop-protected symbols; rebuild it with default features (isolated CARGO_TARGET_DIR)" >&2
+  exit 1
+else
+  nm_match_status=$?
+  if [[ $nm_match_status -ne 1 ]]; then
+    echo "could not classify daemon symbols from nm output; refusing to continue" >&2
+    exit 1
+  fi
+fi
+unset nm_output nm_match_status
 base=$(git rev-parse --show-toplevel)
 root=$(mktemp -d "${TMPDIR:-/tmp}/runne-d2-gui.XXXXXX")
 chmod 700 "$root"
