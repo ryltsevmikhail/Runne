@@ -1,4 +1,4 @@
-use super::run::running_completion;
+use super::terminal_commit::running_completion;
 use runne_domain::command::{TaskRunCommand, TerminalResult};
 use runne_platform::local_command_linux::LinuxLeaderExitKindV1;
 

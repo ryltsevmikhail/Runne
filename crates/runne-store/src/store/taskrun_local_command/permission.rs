@@ -1,7 +1,13 @@
 mod approval;
 mod burn;
+#[cfg(target_os = "linux")]
+mod cancel_before_release;
+#[cfg(target_os = "linux")]
+mod cancel_event;
 mod capture;
 pub(crate) mod codec;
+#[cfg(target_os = "linux")]
+mod exit_record;
 mod model;
 pub(crate) mod no_effect;
 mod no_effect_append;
@@ -17,6 +23,10 @@ pub use read::LocalCommandPermissionCaptureV1;
 #[cfg(target_os = "linux")]
 mod terminal;
 #[cfg(target_os = "linux")]
+mod terminal_prepare;
+#[cfg(target_os = "linux")]
+mod terminal_settle;
+#[cfg(target_os = "linux")]
 mod terminal_validate;
 #[cfg(target_os = "linux")]
 mod terminal_write;
@@ -31,13 +41,13 @@ pub use terminal::LocalCommandPermissionTerminalOutputV1;
 #[cfg(target_os = "linux")]
 pub(crate) use terminal::PermissionTerminalCommitV1;
 #[cfg(target_os = "linux")]
-pub(crate) use terminal::prepare as prepare_terminal;
-#[cfg(target_os = "linux")]
 pub(crate) use terminal::validate_duplicate as validate_duplicate_terminal;
 #[cfg(target_os = "linux")]
-pub(crate) use terminal_validate::validate as validate_terminal;
+pub(crate) use terminal_prepare::prepare as prepare_terminal;
 #[cfg(target_os = "linux")]
-pub(crate) use terminal_write::settle_and_record as write_terminal;
+pub(crate) use terminal_settle::settle_and_record as write_terminal;
+#[cfg(target_os = "linux")]
+pub(crate) use terminal_validate::validate as validate_terminal;
 #[cfg(not(target_os = "linux"))]
 pub(crate) struct PermissionTerminalCommitV1<'child, 'area>(
     std::marker::PhantomData<&'child &'area ()>,
@@ -150,7 +160,7 @@ pub(crate) fn record_cancellation_stops(
          JOIN taskrun_local_command_attempts a USING(taskrun_id)
          WHERE b.taskrun_id=?1 AND r.route=2 AND r.provenance=3 AND r.cutover_version=68
            AND a.attempt_id=b.attempt_id AND a.fence=b.fence
-           AND a.state NOT IN ('completed','cancelled')
+           AND a.state IN ('approved','launch_intent','release_reserved','running','completed')
            AND NOT EXISTS(SELECT 1 FROM x2_permission_terminal t
              WHERE t.taskrun_id=b.taskrun_id AND t.attempt_id=b.attempt_id)",
         )

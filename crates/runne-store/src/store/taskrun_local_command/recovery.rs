@@ -7,6 +7,8 @@ use runne_domain::id::{AttemptId, TaskRunId};
 use runne_domain::task_run::TaskRunState;
 use rusqlite::{TransactionBehavior, params};
 #[cfg(target_os = "linux")]
+mod cancel_complete;
+#[cfg(target_os = "linux")]
 mod confirm;
 mod helpers;
 #[cfg(target_os = "linux")]

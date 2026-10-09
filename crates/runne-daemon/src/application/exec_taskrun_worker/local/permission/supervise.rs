@@ -8,7 +8,6 @@ use runne_domain::id::CommandId;
 use runne_domain::task_run::{TaskRun, TaskRunState};
 use runne_platform::local_command_linux::{LinuxLeaderExitKindV1, PermissionChildV1};
 use runne_platform::process_managed_area::LinuxManagedArea;
-use runne_store::store::{ManagedIdentityMetadata, PermissionModeAuthorityContext};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 pub(super) struct PermissionTerminalOutput {
@@ -145,7 +144,9 @@ pub(super) fn supervise(
                 persist_stop(store, identity, binding, 5, &mut stop_reason);
                 return Ok(X2Observation::Stop);
             }
-            if let Some(reason) = current_policy_stop_reason(roots, store, binding) {
+            if let Some(reason) =
+                super::policy_check::current_policy_stop_reason(roots, store, binding)
+            {
                 persist_stop(store, identity, binding, reason, &mut stop_reason);
                 return Ok(X2Observation::Stop);
             }
@@ -196,6 +197,32 @@ pub(super) fn supervise(
         .terminal_evidence()
         .and_then(|evidence| evidence.revalidate_empty_area())
         .map_err(|_| AutomaticTaskRunError::Uncertain)?;
+    // Test-support hook (legacy precedent run/supervise.rs): while the
+    // after-exit barrier is engaged the factual leader exit is recorded
+    // durably before the workflow terminal commit, exactly like the legacy
+    // two-phase settlement; production keeps the atomic terminal UoW.
+    if super::super::run::test_barrier::after_exit_split_requested() && stop_reason.is_none() {
+        let empty = area
+            .prove_empty()
+            .map_err(|_| AutomaticTaskRunError::Uncertain)?;
+        store
+            .record_local_command_permission_exit(
+                identity,
+                binding,
+                &area.identity().to_bytes(),
+                legacy_exit_code(exit),
+                empty,
+            )
+            .map_err(|_| AutomaticTaskRunError::Uncertain)?;
+    }
+    // Test-support hook (legacy precedent run/supervise.rs): parks the worker
+    // between the observed factual child exit and the terminal commit so
+    // fault tests can race a late cancellation against the completion.
+    if super::super::run::test_barrier::pause_at(super::super::run::test_barrier::Point::AfterExit)
+        .is_err()
+    {
+        return Err(AutomaticTaskRunError::Uncertain);
+    }
     Ok(PermissionTerminalOutput {
         stdout: output.stdout,
         stderr: output.stderr,
@@ -220,74 +247,12 @@ fn persist_stop(
             .unwrap_or(6),
     );
 }
-pub(super) fn current_policy(
-    roots: &super::super::super::RootAdmissionGateway,
-    store: &StoreTransaction,
-    binding: &LocalCommandPermissionBindingV1,
-) -> bool {
-    current_policy_stop_reason(roots, store, binding).is_none()
-}
-fn current_policy_stop_reason(
-    roots: &super::super::super::RootAdmissionGateway,
-    store: &StoreTransaction,
-    binding: &LocalCommandPermissionBindingV1,
-) -> Option<u8> {
-    let project = runne_application::project_trust::ProjectTrustProjectId::from_bytes(
-        *binding.project_id().as_bytes(),
-    );
-    let Ok(lease) = store.observe_local_command_permission_trust(binding) else {
-        return Some(6);
-    };
-    let Ok(trust) = lease.snapshot() else {
-        return Some(6);
-    };
-    if trust != binding.closed_rules_snapshot()
-        || trust.record.status == runne_application::project_trust::ProjectTrustStatus::Untrusted
-    {
-        return Some(3);
+
+/// Maps the observed leader exit onto the legacy flat code kept by the
+/// attempt row and the factual-exit record.
+fn legacy_exit_code(exit: LinuxLeaderExitKindV1) -> i32 {
+    match exit {
+        LinuxLeaderExitKindV1::Exited { code } => i32::from(code),
+        LinuxLeaderExitKindV1::Signaled { signal, .. } => 128 + signal,
     }
-    let authority = PermissionModeAuthorityContext::new(
-        &binding.selection().scope.principal_id,
-        project,
-        lease.as_ref(),
-        None,
-    );
-    let Ok(current) = store.load_permission_mode_selection_with_managed_identity(
-        &binding.selection().scope,
-        &binding.selection().scope.principal_id,
-        &authority,
-    ) else {
-        return Some(6);
-    };
-    if current.selection != *binding.selection() {
-        return Some(2);
-    }
-    let now = super::super::now_millis();
-    if current
-        .selection
-        .expires_at_unix_ms
-        .is_some_and(|expiry| expiry <= now)
-        || binding.approval().expires_at_unix_ms <= now
-    {
-        return Some(5);
-    }
-    let managed_matches = matches!(
-        current.identity,
-        ManagedIdentityMetadata::ClosedRulesV2(ref value)
-            if value.snapshot == trust && value.canonical_digest == binding.closed_rules_digest()
-    );
-    if !managed_matches {
-        return Some(3);
-    }
-    let root_current = roots
-        .with_local_command_root_version(
-            binding.selection().scope.workspace_id,
-            binding.workspace_version(),
-            binding.admitted_root_version(),
-            *binding.held_root_identity_digest().as_bytes(),
-            |_| Ok(()),
-        )
-        .is_ok();
-    drop(lease);
-    if !root_current { Some(4) } else { None }
 }

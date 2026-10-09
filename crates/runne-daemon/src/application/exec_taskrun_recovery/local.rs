@@ -144,13 +144,30 @@ impl DaemonAutomaticTaskRuns {
                     )
                     .map_err(|_| "confirm_stop")?;
             }
-            complete_cancelled(
-                &self.taskruns,
-                &self.store,
-                candidate,
-                stream.current_version,
-            )
-            .map_err(|_| "complete_cancellation")?;
+            if matches!(
+                self.store
+                    .local_command_permission_route(candidate.identity.taskrun_id)
+                    .map_err(|_| "complete_cancellation")?,
+                runne_store::store::LocalCommandPermissionRoute::CurrentPermission
+            ) {
+                let empty = area.prove_empty().map_err(|_| "prove_empty")?;
+                self.store
+                    .complete_local_command_cancellation_recovery(
+                        candidate,
+                        &self.node_id,
+                        self.epoch,
+                        empty,
+                    )
+                    .map_err(|_| "complete_cancellation")?;
+            } else {
+                complete_cancelled(
+                    &self.taskruns,
+                    &self.store,
+                    candidate,
+                    stream.current_version,
+                )
+                .map_err(|_| "complete_cancellation")?;
+            }
             area.remove_empty().map_err(|_| "remove_area")?;
             return Ok(());
         }

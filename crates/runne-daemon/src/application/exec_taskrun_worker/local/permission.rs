@@ -6,10 +6,14 @@ use runne_store::store::LocalCommandPermissionRoute;
 mod approval;
 #[path = "permission/capture.rs"]
 mod capture;
+#[path = "permission/policy_check.rs"]
+mod policy_check;
 #[path = "permission/run.rs"]
 mod run;
 #[path = "permission/supervise.rs"]
 mod supervise;
+#[path = "permission/terminal_commit.rs"]
+mod terminal_commit;
 #[cfg(test)]
 #[path = "permission/tests.rs"]
 mod tests;

@@ -38,7 +38,6 @@ pub(crate) fn validate(
     {
         return Err(invalid());
     }
-    taskrun_claim::verify_active_assignment(tx, identity).map_err(|_| invalid())?;
     let stream = taskrun_claim::stream_validate::verify_stream(tx, identity.taskrun_id, None)
         .map_err(|_| invalid())?;
     if stream.version != payload.expected_version
@@ -49,6 +48,14 @@ pub(crate) fn validate(
     {
         return Err(invalid());
     }
+    match stream.state {
+        TaskRunState::Running => taskrun_claim::verify_active_assignment(tx, identity),
+        TaskRunState::Cancelling => {
+            taskrun_claim::verify_cancelling_assignment(tx, identity, stream.version)
+        }
+        _ => return Err(invalid()),
+    }
+    .map_err(|_| invalid())?;
     let route: Option<(i64, i64, i64)> = tx
         .query_row(
             "SELECT route,provenance,cutover_version FROM taskrun_local_permission_routes
@@ -84,7 +91,9 @@ pub(crate) fn validate(
         return Err(invalid());
     }
     verify_workspace(tx, binding).map_err(|_| invalid())?;
-    let capture = load_capture(tx, identity, binding, false).map_err(|_| invalid())?;
+    let capture = load_capture(tx, identity, binding, false)
+        .or_else(|_| load_capture(tx, identity, binding, true))
+        .map_err(|_| invalid())?;
     let binding_digest: [u8; 32] = capture.0.as_slice().try_into().map_err(|_| invalid())?;
     let durable_stop = super::stop::stop_reason(
         tx,

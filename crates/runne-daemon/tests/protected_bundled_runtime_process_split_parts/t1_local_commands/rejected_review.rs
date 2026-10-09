@@ -104,8 +104,11 @@ pub(super) async fn exercise(
         (String, bool, bool, i64, i64, i64, i64) = connection
         .query_row(
             "SELECT a.state,
-                    a.attempt_id IS NULL AND a.managed_area_identity IS NULL
-                      AND a.exit_code IS NULL AND a.approval_id IS NULL,
+                    a.managed_area_identity IS NULL AND a.exit_code IS NULL
+                      AND a.approval_id IS NULL
+                      AND EXISTS(SELECT 1 FROM taskrun_no_effect_release_receipts n
+                                 WHERE n.taskrun_id=a.taskrun_id AND n.attempt_id=a.attempt_id
+                                   AND n.fence=a.fence),
                     EXISTS(SELECT 1 FROM taskrun_no_effect_release_receipts n
                            JOIN taskrun_assignment_occupations o USING(taskrun_id,fence)
                            WHERE n.taskrun_id=a.taskrun_id AND o.state='released'
@@ -122,7 +125,11 @@ pub(super) async fn exercise(
     assert_eq!(state, "no_effect_terminal");
     assert!(
         no_execution_binding,
-        "no attempt, managed area, exit, or approval binding was created"
+        "no managed area, exit, or approval execution binding was created; the only bound \
+         identifier is the assignment claim referenced by the no-effect release receipt: \
+         (state={state}, no_execution_binding={no_execution_binding}, released={released}, \
+         no_dispatch={no_dispatch}, no_stop={no_stop}, no_terminal={no_terminal}, \
+         release_receipts={release_receipts})"
     );
     assert!(
         released,

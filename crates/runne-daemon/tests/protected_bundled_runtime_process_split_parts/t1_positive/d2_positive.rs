@@ -16,6 +16,8 @@ pub(super) mod crash;
 mod finish_then_cancel;
 #[path = "d2_positive/permission_modes.rs"]
 pub(super) mod permission_modes;
+#[path = "d2_positive/scenario.rs"]
+mod scenario;
 #[path = "d2_positive/stale_after_result.rs"]
 mod stale_after_result;
 #[path = "d2_positive/stale_final.rs"]
@@ -217,111 +219,22 @@ pub(super) async fn exercise(
         println!("PASS: D2 read Result followed by durable create denial without mutation");
         return;
     }
-    if let Some(create_approval) = create_approval.as_ref() {
-        approval::approve_twice(client, create_approval, "create").await;
-        let unlaunched_barrier = match std::env::var("RUNNE_TEST_D2_TOOL_SCENARIO").as_deref() {
-            Ok("crash-approved-before-lease") => Some(("approved-before-lease", "approved")),
-            Ok("crash-claimed-before-area") => Some(("claimed-before-area", "claimed")),
-            _ => None,
-        };
-        if let Some((barrier, state)) = unlaunched_barrier {
-            crash::before_unlaunched(
-                Some(barrier),
-                state,
-                2,
-                supervisor,
-                executable,
-                session_bus_socket,
-                runtime_root,
-                database,
-                task,
-                &read_path,
-                &watch,
-            )
-            .await;
-            return;
-        }
-        match std::env::var("RUNNE_TEST_D2_TOOL_SCENARIO").as_deref() {
-            Ok("crash-before-go") => {
-                crash::before_receipt(
-                    "pre-release",
-                    supervisor,
-                    executable,
-                    session_bus_socket,
-                    runtime_root,
-                    database,
-                    task,
-                    &create_path,
-                    &create_watch,
-                    libc::IN_CREATE,
-                    0,
-                    0,
-                    None,
-                )
-                .await;
-                return;
-            }
-            Ok("crash-after-create-effect") => {
-                crash::before_receipt(
-                    "after-exit",
-                    supervisor,
-                    executable,
-                    session_bus_socket,
-                    runtime_root,
-                    database,
-                    task,
-                    &create_path,
-                    &create_watch,
-                    libc::IN_CREATE,
-                    1,
-                    1,
-                    Some(CREATE_BYTES),
-                )
-                .await;
-                return;
-            }
-            _ => {}
-        }
-    }
-    verify::wait_results(client, database, task, 2, runtime_root).await;
-    assert_eq!(
-        std::fs::read(&create_path).expect("native create result"),
-        CREATE_BYTES
-    );
-    assert_eq!(
-        count_watch_mask(&create_watch, libc::IN_CREATE),
-        1,
-        "one native create emitted one IN_CREATE event"
-    );
-    assert_eq!(verify::reserved_effect_count(database, task), 2);
-    assert_eq!(verify::release_intent_count(database, task), 2);
-    if super::super::managed_ask::enabled() {
-        super::super::managed_ask::assert_human_create_admission(
-            client,
-            database,
-            task,
-            workspace_id,
-            create_approval
-                .as_ref()
-                .expect("managed Ask create requires human approval"),
-        )
-        .await;
-    }
-
-    if after_results::dispatch(after_results::Fixture {
+    if scenario::dispatch(
         client,
         task,
-        conversation: conversation_id,
-        read_path: &read_path,
-        create_path: &create_path,
-        read_watch: &watch,
-        create_watch: &create_watch,
+        conversation_id,
+        workspace_id,
+        &read_path,
+        &create_path,
+        &watch,
+        &create_watch,
         database,
         runtime_root,
         supervisor,
         executable,
         session_bus_socket,
-    })
+        &create_approval,
+    )
     .await
     {
         return;

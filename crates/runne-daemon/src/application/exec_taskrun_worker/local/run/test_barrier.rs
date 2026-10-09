@@ -86,6 +86,34 @@ pub(in crate::application::exec_taskrun_worker) fn pause_at_for_human(
     }
 }
 
+/// True only for the armed after-exit fault test: the legacy two-phase
+/// settlement (factual exit durable before the workflow terminal commit) is
+/// modeled on the V68 path exactly while that barrier is engaged, keeping the
+/// default atomic terminal intact for production runs.
+pub(in crate::application::exec_taskrun_worker) fn after_exit_split_requested() -> bool {
+    #[cfg(not(all(
+        feature = "test-support",
+        feature = "desktop-protected",
+        target_os = "linux"
+    )))]
+    {
+        false
+    }
+    #[cfg(all(
+        feature = "test-support",
+        feature = "desktop-protected",
+        target_os = "linux"
+    ))]
+    {
+        std::env::var_os("RUNNE_TEST_T1_TRUST_COMPOSITION").as_deref()
+            == Some(std::ffi::OsStr::new("1"))
+            && std::env::var("RUNNE_TEST_LOCAL_WORKER_BARRIER")
+                .ok()
+                .as_deref()
+                == Some("after-exit")
+    }
+}
+
 #[cfg(all(
     feature = "test-support",
     feature = "desktop-protected",

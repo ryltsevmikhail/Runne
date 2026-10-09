@@ -81,7 +81,9 @@ impl DaemonAutomaticTaskRuns {
         let cancelled = task.state() == TaskRunState::Cancelled
             && matches!(
                 (candidate.state, candidate.exit_code),
-                (LocalCommandAttemptState::Cancelled, None)
+                // Live worker cancellations keep the observed leader code;
+                // recovery-owned ones invent none (NULL).
+                (LocalCommandAttemptState::Cancelled, _)
                     | (LocalCommandAttemptState::Completed, Some(_))
             );
         if !success_or_failure && !cancelled {
