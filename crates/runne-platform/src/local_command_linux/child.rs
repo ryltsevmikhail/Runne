@@ -76,6 +76,7 @@ pub(super) struct SpawnSpec<'area, 'input> {
     pub stdio: stdio::CommandStdio,
     pub composite: Option<&'input composite::PreparedComposite>,
     pub network_none: bool,
+    pub filesystem_profile: Option<super::policy::NativeFsProfile>,
 }
 
 pub(super) fn spawn<'a>(spec: SpawnSpec<'a, '_>) -> Result<GatedLinuxChild<'a>, LinuxCommandError> {
@@ -90,10 +91,14 @@ pub(super) fn spawn<'a>(spec: SpawnSpec<'a, '_>) -> Result<GatedLinuxChild<'a>, 
         mut stdio,
         composite,
         network_none,
+        filesystem_profile,
     } = spec;
     if area.is_populated().map_err(|_| LinuxCommandError::Area)? {
         return Err(LinuxCommandError::Area);
     }
+    let seccomp_filter =
+        gate::prepare_seccomp(composite.is_some(), network_none, filesystem_profile)
+            .ok_or(LinuxCommandError::Unavailable)?;
     let mut pair = [0; 2];
     // SOCK_STREAM carries READY/GO; send(MSG_NOSIGNAL) prevents SIGPIPE on peer death.
     if unsafe {
@@ -198,6 +203,7 @@ pub(super) fn spawn<'a>(spec: SpawnSpec<'a, '_>) -> Result<GatedLinuxChild<'a>, 
             ruleset.is_some(),
             composite.is_some(),
             network_none,
+            &seccomp_filter,
             mount_target_ptrs,
             protected_regular,
             device_target_ptrs,
@@ -247,6 +253,7 @@ pub(super) fn spawn<'a>(spec: SpawnSpec<'a, '_>) -> Result<GatedLinuxChild<'a>, 
         go_written: false,
         reaped: false,
         exit_code: None,
+        leader_exit: None,
         output: stdio.output.take(),
     })
 }

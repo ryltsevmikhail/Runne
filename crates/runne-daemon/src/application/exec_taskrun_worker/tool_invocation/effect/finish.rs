@@ -20,13 +20,13 @@ impl crate::application::exec_taskrun_worker::DaemonAutomaticTaskRuns {
         cleanup_proved: bool,
         after_exit_barrier: bool,
         run: Result<
-            (i32, Vec<u8>, Vec<u8>),
+            crate::application::exec_taskrun_worker::local::run::tool_executor::HelperRunOutput<'_>,
             crate::application::exec_taskrun_worker::local::run::tool_executor::HelperRunFailure,
         >,
     ) -> Result<(), ()> {
         let provider = self.provider.as_ref().ok_or(())?;
-        let (code, stdout, stderr) = match run {
-            Ok((code, stdout, stderr)) => (code, stdout, stderr),
+        let output = match run {
+            Ok(output) => output,
             Err(failure) => {
                 audit::persist(
                     &self.store,
@@ -56,6 +56,11 @@ impl crate::application::exec_taskrun_worker::DaemonAutomaticTaskRuns {
                 return Err(());
             }
         };
+        let terminal = output.terminal_evidence().map_err(|_| ())?;
+        let exit_kind = terminal.leader_exit_kind();
+        let code = legacy_exit_code(exit_kind);
+        let stdout = output.stdout();
+        let stderr = output.stderr();
         let persist_invalid = |reason, helper_error_effect_started| {
             audit::persist(
                 &self.store,
@@ -67,8 +72,8 @@ impl crate::application::exec_taskrun_worker::DaemonAutomaticTaskRuns {
                     child_spawned: true,
                     go_released: true,
                     cleanup_proved,
-                    stdout: &stdout,
-                    stderr: &stderr,
+                    stdout,
+                    stderr,
                     stdout_truncated: false,
                     stderr_truncated: false,
                     stdout_observed_bytes: stdout.len() as u64,
@@ -82,20 +87,34 @@ impl crate::application::exec_taskrun_worker::DaemonAutomaticTaskRuns {
             )
         };
         if !cleanup_proved {
-            persist_invalid(10, audit::helper_error_effect_started(&stdout))?;
+            persist_invalid(10, audit::helper_error_effect_started(stdout))?;
             return Err(());
         }
-        if code != 0 {
-            persist_invalid(11, audit::helper_error_effect_started(&stdout))?;
+        if !matches!(
+            exit_kind,
+            runne_platform::local_command_linux::LinuxLeaderExitKindV1::Exited { code: 0 }
+        ) {
+            persist_invalid(11, audit::helper_error_effect_started(stdout))?;
             return Err(());
         }
         if !after_exit_barrier {
-            persist_invalid(15, audit::helper_error_effect_started(&stdout))?;
+            persist_invalid(15, audit::helper_error_effect_started(stdout))?;
             return Err(());
         }
         let root = root_file_identity;
+        if !helper_terminal_matches(
+            terminal.observation(),
+            binding,
+            assignment,
+            helper_binding,
+            root,
+            path,
+        ) {
+            persist_invalid(17, None)?;
+            return Err(());
+        }
         let (receipt, actual_content) = match executor::verify_helper_stdout(
-            &stdout,
+            stdout,
             helper_binding,
             if binding.tool_name == "workspace.file.read" {
                 "read"
@@ -107,7 +126,7 @@ impl crate::application::exec_taskrun_worker::DaemonAutomaticTaskRuns {
         ) {
             Ok(value) => value,
             Err(_) => {
-                persist_invalid(12, audit::helper_error_effect_started(&stdout))?;
+                persist_invalid(12, audit::helper_error_effect_started(stdout))?;
                 return Err(());
             }
         };
@@ -131,6 +150,7 @@ impl crate::application::exec_taskrun_worker::DaemonAutomaticTaskRuns {
             persist_invalid(14, None)?;
             return Err(());
         }
+        terminal.revalidate_empty_area().map_err(|_| ())?;
         let stream = self
             .store
             .load_task_run(assignment.taskrun_id)
@@ -173,6 +193,10 @@ impl crate::application::exec_taskrun_worker::DaemonAutomaticTaskRuns {
                 now_millis(),
             )
             .map_err(|_| ())?;
+        crate::application::exec_taskrun_worker::local::run::test_barrier::pause_at(
+            crate::application::exec_taskrun_worker::local::run::test_barrier::Point::AfterDurableToolResultBeforeStepOutcome,
+        )
+        .map_err(|_| ())?;
         let persisted = self
             .store
             .load_taskrun_tool_invocation(binding.key)
@@ -187,6 +211,7 @@ impl crate::application::exec_taskrun_worker::DaemonAutomaticTaskRuns {
             || persisted.local_stop_state
                 != runne_store::store::taskrun_tool_invocation::LocalToolStopState::ProvedEmpty
             || persisted.managed_area_identity != persisted.empty_proof_identity
+            || persisted.managed_area_identity.as_ref() != Some(terminal.area_identity())
         {
             return Err(());
         }
@@ -226,5 +251,16 @@ impl crate::application::exec_taskrun_worker::DaemonAutomaticTaskRuns {
         )
         .map_err(|_| ())?;
         Ok(())
+    }
+}
+
+fn legacy_exit_code(exit: runne_platform::local_command_linux::LinuxLeaderExitKindV1) -> i32 {
+    match exit {
+        runne_platform::local_command_linux::LinuxLeaderExitKindV1::Exited { code } => {
+            i32::from(code)
+        }
+        runne_platform::local_command_linux::LinuxLeaderExitKindV1::Signaled { signal, .. } => {
+            128 + signal
+        }
     }
 }

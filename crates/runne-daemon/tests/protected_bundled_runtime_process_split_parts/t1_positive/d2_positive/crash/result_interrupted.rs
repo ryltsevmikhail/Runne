@@ -19,10 +19,12 @@ pub(crate) async fn after_durable_result(
     create_path: &std::path::Path,
     create_watch: &std::fs::File,
 ) {
-    wait_for_barrier("after-terminal").await;
+    wait_for_barrier("after-result-before-step-outcome").await;
     assert_eq!(verify::result_count(database, task), 1);
     assert_eq!(verify::release_intent_count(database, task), 1);
     assert_eq!(verify::reserved_effect_count(database, task), 1);
+    assert_no_step_outcome(database, task);
+    let result_identity = stored_result_identity(database, task);
     // The caller already drained and asserted the single initial IN_OPEN.
     // From here on, this watcher proves no additional open occurs on restart.
     assert!(read_path.is_file());
@@ -31,6 +33,10 @@ pub(crate) async fn after_durable_result(
     let (mut restarted, client) = super::uncertain::restart_same_root(executable, bus, root).await;
     let version = wait_interrupted(&client, database, task, conversation).await;
     assert_retained_result(database, root, task, read_watch, create_watch, create_path);
+    assert!(
+        stored_result_identity(database, task) == result_identity,
+        "first reopen preserved the encrypted receipt and result identity"
+    );
     stop_daemon(&mut restarted);
 
     let (mut reopened, second) = super::uncertain::restart_same_root(executable, bus, root).await;
@@ -39,6 +45,10 @@ pub(crate) async fn after_durable_result(
         version
     );
     assert_retained_result(database, root, task, read_watch, create_watch, create_path);
+    assert!(
+        stored_result_identity(database, task) == result_identity,
+        "second reopen preserved the encrypted receipt and result identity"
+    );
     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
     assert_eq!(
         second
@@ -51,6 +61,60 @@ pub(crate) async fn after_durable_result(
     );
     reopened.stop().expect("stop second interrupted D2 reopen");
     eprintln!("PASS: D2 saved Result stayed intact and InterruptedByRestart across two reopens");
+}
+
+fn stored_result_identity(
+    database: &std::path::Path,
+    task: runne_runtime_client::CanonicalId,
+) -> [u8; 32] {
+    use sha2::{Digest, Sha256};
+
+    let db =
+        rusqlite::Connection::open_with_flags(database, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+            .expect("open read-only stored-result identity view");
+    let task_bytes = uuid::Uuid::parse_str(&task.to_string())
+        .expect("TaskRun UUID")
+        .into_bytes();
+    let identity: String = db
+        .query_row(
+            "SELECT hex(?1)||':'||hex(attempt_id)||':'||hex(cycle_id)||':'||proposal_index||':'||
+                    hex(semantic_digest)||':'||hex(result_digest)||':'||result_length||':'||
+                    result_truncated||':'||hex(helper_receipt_digest)||':'||
+                    hex(helper_receipt_bytes)||':'||hex(receipt_key_id)||':'||receipt_key_version||':'||
+                    hex(receipt_runtime_authority_id)||':'||receipt_database_generation||':'||
+                    hex(receipt_nonce)||':'||receipt_plaintext_len||':'||release_started||':'||
+                    hex(managed_area_identity)||':'||hex(empty_proof_identity)
+             FROM taskrun_tool_invocations
+             WHERE taskrun_id=?1 AND state='result'
+             ORDER BY attempt_id,cycle_id,proposal_index LIMIT 1",
+            [task_bytes.as_slice()],
+            |row| row.get(0),
+        )
+        .expect("read bounded stored-result identity");
+    Sha256::digest(identity.as_bytes()).into()
+}
+
+fn assert_no_step_outcome(database: &std::path::Path, task: runne_runtime_client::CanonicalId) {
+    let db =
+        rusqlite::Connection::open_with_flags(database, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+            .expect("open read-only pre-outcome TaskRun view");
+    let task_bytes = uuid::Uuid::parse_str(&task.to_string())
+        .expect("TaskRun UUID")
+        .into_bytes();
+    let payloads = db
+        .prepare("SELECT payload FROM events WHERE aggregate_type=1 AND aggregate_id=?1")
+        .expect("prepare pre-outcome TaskRun events")
+        .query_map([task_bytes.as_slice()], |row| row.get::<_, Vec<u8>>(0))
+        .expect("query pre-outcome TaskRun events")
+        .collect::<Result<Vec<_>, _>>()
+        .expect("read pre-outcome TaskRun events");
+    assert!(
+        !payloads.iter().any(|payload| matches!(
+            TaskRunEventCodec.decode(payload),
+            Ok(TaskRunEvent::StepOutcomeRecorded { .. })
+        )),
+        "the crash barrier precedes the StepOutcome commit"
+    );
 }
 
 async fn wait_interrupted(

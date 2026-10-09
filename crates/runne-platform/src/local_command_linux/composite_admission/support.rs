@@ -14,10 +14,23 @@ pub(super) fn validate_scope(
     scope: &CompositeEffectScope,
     protected: IntegrityDigest,
 ) -> Result<(), ()> {
+    if scope.managed_policy.is_closed()
+        && matches!(scope.filesystem.posture, FilesystemPosture::BroadSameUser)
+        && (scope.budget.max_operations.is_some() || scope.budget.max_bytes.is_some())
+    {
+        return Err(());
+    }
     scope.validate().map_err(|_| ())?;
-    let broad = scope.containment == ContainmentStrategy::SameUserCompositeV1;
+    let broad = matches!(
+        scope.containment,
+        ContainmentStrategy::SameUserCompositeV1 | ContainmentStrategy::SameUserCompositeV2
+    );
+    let legacy_broad = scope.containment == ContainmentStrategy::SameUserCompositeV1;
     if scope.protected_control_plane_policy_digest != protected
-        || !scope.managed_policy.is_unrestricted()
+        || (!scope.managed_policy.is_closed() && !scope.managed_policy.is_unrestricted())
+        || (scope.managed_policy.is_closed()
+            && (!scope.managed_policy.supports_closed_scope(scope)
+                || scope.containment == ContainmentStrategy::WorkspaceBoundV1))
         || (broad && scope.children != ChildDelegationScope::Unbounded)
         || (!broad && scope.children != ChildDelegationScope::None)
         || (broad && scope.budget.max_bytes.is_some())
@@ -25,7 +38,7 @@ pub(super) fn validate_scope(
         || scope.lifetime_ms == 0
         || scope.lifetime_ms > MAX_SCOPE_LIFETIME_MS
         || scope.filesystem.permissions.is_empty()
-        || (broad
+        || (legacy_broad
             && ![
                 FilesystemPermission::Read,
                 FilesystemPermission::Create,
@@ -43,6 +56,22 @@ pub(super) fn validate_scope(
             FilesystemPosture::BroadSameUser,
             NetworkScope::BroadSameUser | NetworkScope::None,
         ) => Ok(()),
+        (
+            ContainmentStrategy::SameUserCompositeV2,
+            FilesystemPosture::BroadSameUser,
+            NetworkScope::BroadSameUser | NetworkScope::None,
+        ) if scope.managed_policy.is_closed()
+            && (!scope
+                .filesystem
+                .permissions
+                .contains(&FilesystemPermission::Create)
+                || scope
+                    .filesystem
+                    .permissions
+                    .contains(&FilesystemPermission::Write)) =>
+        {
+            Ok(())
+        }
         (
             ContainmentStrategy::WorkspaceBoundV1,
             FilesystemPosture::BoundedRoots(roots),

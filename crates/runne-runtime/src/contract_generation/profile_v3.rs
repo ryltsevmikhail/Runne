@@ -67,6 +67,14 @@ fn generated_artifacts_v3() -> Result<BTreeMap<&'static str, Vec<u8>>, ContractG
         )?)?)?,
     );
     artifacts.insert(
+        "schemas/approval-v1.schema.json",
+        canonical_json(&approval_schema_v3(serde_json::from_slice(
+            artifacts
+                .get("schemas/approval-v1.schema.json")
+                .expect("approval schema exists"),
+        )?)?)?,
+    );
+    artifacts.insert(
         "schemas/local-runtime-profile-v3.schema.json",
         canonical_json(&profile_schema_v3(serde_json::from_slice(
             artifacts
@@ -155,6 +163,26 @@ fn prompted_openapi(mut document: Value) -> Result<Value, ContractGenerationErro
     paths.insert("/v2/task-runs/submit".into(), operation);
     document["info"]["version"] = json!("3.0.0");
     Ok(document)
+}
+
+fn approval_schema_v3(mut schema: Value) -> Result<Value, ContractGenerationError> {
+    let approval = schema
+        .pointer_mut("/$defs/approval")
+        .expect("approval definition exists");
+    approval
+        .get_mut("properties")
+        .and_then(Value::as_object_mut)
+        .expect("approval properties exist")
+        .insert(
+            "approvalGeneration".into(),
+            json!({"minimum": 1, "type": "integer"}),
+        );
+    approval
+        .get_mut("required")
+        .and_then(Value::as_array_mut)
+        .expect("approval required fields exist")
+        .push(json!("approvalGeneration"));
+    Ok(schema)
 }
 
 fn profile_schema_v3(mut schema: Value) -> Result<Value, ContractGenerationError> {

@@ -5,6 +5,7 @@
 //! boundary and is exposed through the same authority so callers observe one
 //! authority and one epoch. Authority errors are fail-closed.
 
+pub mod effects;
 mod path;
 
 pub use path::{

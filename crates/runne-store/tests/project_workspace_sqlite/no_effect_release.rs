@@ -191,6 +191,55 @@ fn release_rejects_stale_expected_version_without_mutation() {
 }
 
 #[test]
+fn current_route_without_capture_cannot_release() {
+    let database = Database::new("taskrun-release-current-no-capture");
+    let repository = database.repository();
+    create_project(&repository);
+    create_workspace(&repository);
+    let result = submit_task_run(&database, 0x35, "release-current-no-capture");
+    let CommandOutcome::TaskRunSubmitted { taskrun_id, .. } = result else {
+        panic!()
+    };
+    let (node, epoch) = node_registration(&database);
+    let (identity, version) = claim(&database, taskrun_id, 0x36, &node, epoch);
+    {
+        let connection = database.connection();
+        connection
+            .execute(
+                "INSERT INTO taskrun_local_command_attempts
+             (taskrun_id,conversation_id,workspace_id,command_digest,state,updated_at)
+             VALUES (?1,?2,?3,?4,'preflight',1)",
+                rusqlite::params![
+                    taskrun_id.as_bytes(),
+                    [0x41_u8; 16].as_slice(),
+                    [0x42_u8; 16].as_slice(),
+                    [0x43_u8; 32].as_slice()
+                ],
+            )
+            .unwrap();
+        connection.execute(
+            "INSERT INTO taskrun_local_permission_routes(taskrun_id,route,provenance,cutover_version)
+             VALUES (?1,2,3,68)",
+            [taskrun_id.as_bytes()],
+        ).unwrap();
+    }
+    assert_eq!(
+        database
+            .store
+            .release_taskrun_no_effect(release_request(&database, identity, version, 0x37)),
+        Err(TaskRunNoEffectReleaseError::DispatchMayHaveStarted)
+    );
+    assert_eq!(
+        database
+            .store
+            .load_task_run(taskrun_id)
+            .unwrap()
+            .current_version,
+        version
+    );
+}
+
+#[test]
 fn present_and_unknown_intents_never_release_capacity() {
     let database = Database::new("taskrun-release-intent");
     let repository = database.repository();

@@ -1,7 +1,9 @@
 use super::event_guard::*;
 use super::*;
-use runne_domain::id::{IdempotencyKey, MessageId};
+use runne_application::ports::ProjectWorkspaceRepository;
+use runne_domain::id::{CommandId, IdempotencyKey, MessageId, ProjectId};
 use runne_domain::message::{MAX_MESSAGE_TEXT_BYTES, MessageText};
+use runne_domain::project_workspace::{Project, ProjectWorkspaceDisplayName};
 use runne_security::SecretBroker;
 
 fn available_guard() -> Arc<dyn ProhibitedContentPort> {
@@ -52,6 +54,45 @@ fn public_store_open_rejects_memory_database() {
         result,
         Err(CommitError::StorageFailure(StorageFailureKind::Unavailable))
     ));
+}
+
+#[test]
+fn public_store_reopens_after_last_clone_drops_and_reads_committed_project() {
+    let db_path = temp_db_path("drop-order-reopen");
+    let authority = RuntimeAuthorityId("drop-order-host".into());
+    let store = StoreTransaction::open(&db_path, authority.clone(), available_guard()).unwrap();
+    let clone = store.clone();
+    let repository = crate::ProjectWorkspaceStore::from_store(store.clone());
+    let project_id = ProjectId::from_bytes(uuid::Uuid::now_v7().into_bytes());
+    let command_id = CommandId::from_bytes(uuid::Uuid::now_v7().into_bytes());
+    let created = repository
+        .create_project(
+            "drop-order-owner",
+            command_id,
+            &IdempotencyKey::new("drop-order-project").unwrap(),
+            Project::create(
+                project_id,
+                ProjectWorkspaceDisplayName::new("Durable after reopen".into()).unwrap(),
+            ),
+        )
+        .unwrap();
+
+    drop(repository);
+    drop(clone);
+    drop(store);
+
+    let reopened = StoreTransaction::open(&db_path, authority, available_guard()).unwrap();
+    let reopened_repository = crate::ProjectWorkspaceStore::from_store(reopened.clone());
+    assert_eq!(
+        reopened_repository
+            .get_project("drop-order-owner", project_id)
+            .unwrap(),
+        created
+    );
+
+    drop(reopened_repository);
+    drop(reopened);
+    cleanup_db(&db_path);
 }
 
 #[test]

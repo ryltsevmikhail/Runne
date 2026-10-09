@@ -4,6 +4,13 @@ use rustix::fs::{CWD, Mode, OFlags, ResolveFlags, fstat, fstatfs, openat2};
 use std::fs::File;
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 use std::os::unix::ffi::OsStrExt;
+
+#[path = "policy/composite_fs.rs"]
+mod composite_fs;
+pub(in crate::local_command_linux) use composite_fs::preflight_composite_ruleset;
+pub(in crate::local_command_linux) use composite_fs::{
+    NativeFsProfile, build_composite_ruleset, native_fs_profile,
+};
 use std::path::PathBuf;
 
 const CGROUP2_MAGIC: i64 = 0x6367_7270;

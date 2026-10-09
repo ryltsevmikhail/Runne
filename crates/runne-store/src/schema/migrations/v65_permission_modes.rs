@@ -120,6 +120,17 @@ pub(super) fn apply_v65_migration(connection: &Connection) -> SqliteResult<()> {
 }
 
 pub(super) fn v65_matches(connection: &Connection, version: i64) -> SqliteResult<bool> {
+    if version == 68 {
+        return v68_matches(connection, version);
+    }
+    if version == 67 {
+        return v67_matches(connection, version);
+    }
+    if version == 66 {
+        // Existing callers use this lineage check for the current schema.
+        // The V66 matcher validates the exact V65 prefix and V66 extensions.
+        return v66_matches(connection, version);
+    }
     if version != 65
         || !v64_matches(connection, version)?
         || !table_sql_matches_migration(connection, "permission_mode_selections", MIGRATION_V65)?
@@ -165,8 +176,6 @@ pub(super) fn v65_matches(connection: &Connection, version: i64) -> SqliteResult
     }
     Ok(true)
 }
-
-
 
 pub(super) fn v65_add_schema_extensions(
     tables: &mut Vec<&'static str>,

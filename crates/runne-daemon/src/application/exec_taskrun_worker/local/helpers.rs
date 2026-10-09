@@ -93,6 +93,20 @@ pub(super) fn approval_resource(
 pub(super) fn approval_review_summary(
     command: &runne_domain::task_run::TaskRunLocalCommand,
 ) -> Result<String, AutomaticTaskRunError> {
+    approval_review_summary_inner(command, None)
+}
+
+pub(super) fn approval_review_summary_for_scope(
+    command: &runne_domain::task_run::TaskRunLocalCommand,
+    scope: &runne_application::permission_modes::CompositeEffectScope,
+) -> Result<String, AutomaticTaskRunError> {
+    approval_review_summary_inner(command, Some(scope))
+}
+
+fn approval_review_summary_inner(
+    command: &runne_domain::task_run::TaskRunLocalCommand,
+    scope: Option<&runne_application::permission_modes::CompositeEffectScope>,
+) -> Result<String, AutomaticTaskRunError> {
     let executable = match command.executable() {
         runne_domain::task_run::TaskRunExecutable::WorkspaceRelative(path) => {
             serde_json::json!({"workspace_relative": path})
@@ -106,7 +120,7 @@ pub(super) fn approval_review_summary(
         .iter()
         .map(|(key, _)| serde_json::json!({"key": key, "value": "[REDACTED]"}))
         .collect();
-    let details = serde_json::json!({
+    let mut details = serde_json::json!({
         "kind": "structured_local_command",
         "executable": executable,
         "cwd": command.cwd(),
@@ -114,6 +128,43 @@ pub(super) fn approval_review_summary(
         "environment": environment,
         "environment_values_are_redacted": true,
     });
+    if let Some(scope) = scope {
+        let network = match scope.network {
+            runne_application::permission_modes::NetworkScope::None => "disabled",
+            runne_application::permission_modes::NetworkScope::BroadSameUser => "broad_same_user",
+            runne_application::permission_modes::NetworkScope::Brokered { .. } => "brokered",
+        };
+        let descendants = match scope.children {
+            runne_application::permission_modes::ChildDelegationScope::None => "none".to_owned(),
+            runne_application::permission_modes::ChildDelegationScope::MaxDepth(depth) => {
+                format!("max_depth_{depth}")
+            }
+            runne_application::permission_modes::ChildDelegationScope::Unbounded => {
+                "unbounded".to_owned()
+            }
+        };
+        let filesystem = match &scope.filesystem.posture {
+            runne_application::permission_modes::FilesystemPosture::None => "none",
+            runne_application::permission_modes::FilesystemPosture::BoundedRoots(_) => {
+                "bounded_roots"
+            }
+            runne_application::permission_modes::FilesystemPosture::BroadSameUser => {
+                "broad_same_user"
+            }
+        };
+        details["permission_scope"] = serde_json::json!({
+            "filesystem": filesystem,
+            "filesystem_rights": scope.filesystem.permissions.iter().map(|right| match right {
+                runne_application::permission_modes::FilesystemPermission::Read => "read",
+                runne_application::permission_modes::FilesystemPermission::Create => "create",
+                runne_application::permission_modes::FilesystemPermission::Write => "write",
+                runne_application::permission_modes::FilesystemPermission::Delete => "delete",
+            }).collect::<Vec<_>>(),
+            "network": network,
+            "descendants": descendants,
+            "runtime_limit_ms": scope.lifetime_ms,
+        });
+    }
     let rendered =
         serde_json::to_string(&details).map_err(|_| AutomaticTaskRunError::RejectedBeforeEffect)?;
     if rendered.len() > 4096 {

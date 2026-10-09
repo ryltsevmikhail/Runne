@@ -26,7 +26,7 @@ pub(super) fn apply_v49_migration(connection: &Connection) -> SqliteResult<()> {
 }
 
 pub(super) fn v49_matches(connection: &Connection, version: i64) -> SqliteResult<bool> {
-    if !matches!(version, 49..=65) {
+    if !matches!(version, 49..=68) {
         return Ok(false);
     }
     if !v48_matches(connection, version)? {
@@ -183,6 +183,21 @@ pub(super) fn v49_matches(connection: &Connection, version: i64) -> SqliteResult
                             fence,
                             &event,
                         )?)
+                    || (version >= 68
+                        && matches!(
+                            &event,
+                            runne_domain::task_run::TaskRunEvent::TaskRunFailed { reason }
+                                if reason == "local_command_policy_stopped_v1"
+                        )
+                        && crate::store::taskrun_local_command::effects_proof::policy_stop_reopen_proven(
+                            connection,
+                            &taskrun_id,
+                            &attempt_id,
+                            &node_id,
+                            node_epoch,
+                            fence,
+                        )
+                        .map_err(|_| rusqlite::Error::InvalidQuery)?)
             }
             _ => false,
         };

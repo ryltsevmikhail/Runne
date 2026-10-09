@@ -33,6 +33,7 @@ pub struct ApprovalSummaryDto {
     action_digest: [u8; 32],
     policy_revision: u64,
     request_version: u64,
+    approval_generation: u64,
     expires_at: i64,
     risk_summary: String,
     state: ApprovalStateDto,
@@ -57,6 +58,8 @@ impl ApprovalSummaryDto {
     pub const fn policy_revision(&self) -> u64 { self.policy_revision }
     #[must_use]
     pub const fn request_version(&self) -> u64 { self.request_version }
+    #[must_use]
+    pub const fn approval_generation(&self) -> u64 { self.approval_generation }
     #[must_use]
     pub const fn expires_at(&self) -> i64 { self.expires_at }
     #[must_use]
@@ -213,6 +216,7 @@ struct ApprovalWire {
     action_digest: String,
     policy_revision: u64,
     request_version: u64,
+    approval_generation: u64,
     expires_at: i64,
     risk_summary: String,
     state: ApprovalStateWire,
@@ -248,10 +252,10 @@ impl TryFrom<ApprovalWire> for ApprovalSummaryDto {
         validate_display(&value.action)?;
         validate_display(&value.resource)?;
         validate_display(&value.risk_summary)?;
-        if value.policy_revision == 0 || value.request_version == 0 || value.expires_at <= 0 {
+        if value.policy_revision == 0 || value.request_version == 0 || value.approval_generation == 0 || value.expires_at <= 0 {
             return Err(invalid_response());
         }
-        Ok(Self { approval_id: value.approval_id, task_run_id: value.task_run_id, attempt_id: value.attempt_id, invocation_id: value.invocation_id, action: value.action, resource: value.resource, action_digest, policy_revision: value.policy_revision, request_version: value.request_version, expires_at: value.expires_at, risk_summary: value.risk_summary, state: value.state.into() })
+        Ok(Self { approval_id: value.approval_id, task_run_id: value.task_run_id, attempt_id: value.attempt_id, invocation_id: value.invocation_id, action: value.action, resource: value.resource, action_digest, policy_revision: value.policy_revision, request_version: value.request_version, approval_generation: value.approval_generation, expires_at: value.expires_at, risk_summary: value.risk_summary, state: value.state.into() })
     }
 }
 

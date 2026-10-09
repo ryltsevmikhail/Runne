@@ -1,4 +1,4 @@
-//! Runtime-owned permission-mode port used by HTTP, CLI, and Desktop clients.
+//! Legacy V1 permission-mode scaffold retained for Rust source compatibility.
 
 use super::{
     FullAccessChallengeRequestV1, PermissionModeChangeReceiptV1, PermissionModeChangeRequestV1,
@@ -7,6 +7,10 @@ use super::{
 };
 
 /// Public status, challenge, and compare-and-set operations.
+///
+/// This trait is a compatibility scaffold only. Production adapters, routes,
+/// and transports must not implement or expose it.
+#[deprecated(note = "legacy compatibility scaffold; do not wire into production")]
 pub trait PermissionModeHostV1 {
     /// Loads the current selected mode and honest effective enforcement state.
     fn status(

@@ -5,6 +5,8 @@ mod d2_cases;
 mod d2_modes;
 #[path = "t1_positive_parent/d2_restart_tests.rs"]
 mod d2_restart_tests;
+#[path = "t1_positive_parent/local_permission_modes.rs"]
+mod local_permission_modes;
 use d2_modes::LocalWorkerMode;
 #[test]
 fn t1_protected_provider_http_and_runtime_client_replay() {
@@ -19,6 +21,46 @@ fn t1_protected_d2_tool_proposal_persists_pending_without_native_effect() {
 #[test]
 fn t1_protected_d2_read_create_completes_through_two_approvals() {
     run_t1_child(LocalWorkerMode::D2ReadCreateStop);
+}
+
+#[test]
+fn t1_protected_d2_permission_mode_effect_matrix() {
+    run_t1_child(LocalWorkerMode::D2AskAlways);
+    run_t1_child(LocalWorkerMode::D2RiskBased);
+    run_t1_child(LocalWorkerMode::D2FullAccess);
+}
+
+#[test]
+fn t1_protected_d2_managed_ask_requires_create_approval_in_all_modes() {
+    run_t1_child(LocalWorkerMode::D2ManagedAskAlways);
+    run_t1_child(LocalWorkerMode::D2ManagedAskRiskBased);
+    run_t1_child(LocalWorkerMode::D2ManagedAskFullAccess);
+}
+
+#[test]
+fn t1_protected_d2_approved_target_create_race_after_go_all_modes() {
+    for (mode, permission_mode) in [
+        (LocalWorkerMode::D2ApprovedTargetRaceAskAlways, "ask_always"),
+        (LocalWorkerMode::D2ApprovedTargetRaceRiskBased, "risk_based"),
+        (
+            LocalWorkerMode::D2ApprovedTargetRaceFullAccess,
+            "full_access",
+        ),
+    ] {
+        run_t1_child_with_permission(mode, Some(permission_mode));
+    }
+}
+
+#[test]
+fn t1_protected_d2_permission_mode_downgrade_fences_typed_create() {
+    for mode in [
+        LocalWorkerMode::D2DowngradeBeforeRelease,
+        LocalWorkerMode::D2DowngradeAfterExit,
+        LocalWorkerMode::D2DowngradeAfterResult,
+        LocalWorkerMode::D2DowngradeAfterStepOutcome,
+    ] {
+        run_t1_child(mode);
+    }
 }
 
 #[test]
@@ -143,7 +185,9 @@ fn t1_protected_local_command_worker_only() {
 
 #[test]
 fn t1_protected_local_command_crash_recovery() {
-    run_t1_child(LocalWorkerMode::Crash);
+    for permission_mode in ["ask_always", "risk_based", "full_access"] {
+        run_t1_child_with_permission(LocalWorkerMode::Crash, Some(permission_mode));
+    }
 }
 
 #[test]
@@ -181,7 +225,16 @@ fn t1_protected_restart_after_durable_local_cancel_receipt() {
     run_t1_child(LocalWorkerMode::RestartAfterDurableCancel);
 }
 
+#[test]
+fn t1_protected_local_command_lost_ack_replays_exactly_without_redispatch() {
+    run_t1_child(LocalWorkerMode::LocalResultLostAck);
+}
+
 fn run_t1_child(mode: LocalWorkerMode) {
+    run_t1_child_with_permission(mode, None);
+}
+
+fn run_t1_child_with_permission(mode: LocalWorkerMode, permission_mode: Option<&str>) {
     use std::process::{Command, Stdio};
     use std::time::Instant;
     let mut command = Command::new(std::env::current_exe().expect("test executable"));
@@ -196,6 +249,9 @@ fn run_t1_child(mode: LocalWorkerMode) {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     let (d2_config_home, _provider_barrier) = d2_cases::configure(&mut command, mode);
+    if let Some(permission_mode) = permission_mode {
+        command.env("RUNNE_TEST_D2_PERMISSION_MODE", permission_mode);
+    }
     if let Some(stage) = mode.d2_kill_stage() {
         command.env("RUNNE_TEST_D2_KILL_AT_STAGE", stage);
     } else {
@@ -228,6 +284,11 @@ fn run_t1_child(mode: LocalWorkerMode) {
             .env("RUNNE_TEST_LOCAL_WORKER_BARRIER", stage)
             .env("RUNNE_TEST_LOCAL_WORKER_BARRIER_DIR", directory.path());
     }
+    if let Some(case) = mode.local_precapture_failure_case() {
+        command.env("RUNNE_TEST_T1_LOCAL_PRECAPTURE_FAILURE_CASE", case);
+    } else {
+        command.env_remove("RUNNE_TEST_T1_LOCAL_PRECAPTURE_FAILURE_CASE");
+    }
     let race = match mode {
         LocalWorkerMode::CancelAfterExit => Some("cancel-before-terminal"),
         LocalWorkerMode::CompleteAfterExit => Some("complete-before-cancel"),
@@ -248,6 +309,47 @@ fn run_t1_child(mode: LocalWorkerMode) {
         command.env("RUNNE_TEST_T1_LOCAL_TERMINAL_VARIANT", variant);
     } else {
         command.env_remove("RUNNE_TEST_T1_LOCAL_TERMINAL_VARIANT");
+    }
+    // The lost-ACK child cannot learn the daemon-generated taskrun id before
+    // the daemon is spawned, so the terminal TaskRunCompleted commit is gated
+    // by this fixed test-controlled key (RUNNE_TEST_COMMIT_GATE_TERMINAL_KEY)
+    // instead. Arming immediately is safe: submit commits are keyed by the
+    // client command id, which never equals this literal. The directory must
+    // outlive the child, like barrier_directory above.
+    let gate_directory = if matches!(mode, LocalWorkerMode::LocalResultLostAck) {
+        Some(tempfile::tempdir().expect("lost-ACK terminal commit-gate fixture"))
+    } else {
+        None
+    };
+    if let Some(gate_directory) = gate_directory.as_ref() {
+        std::fs::write(
+            gate_directory.path().join("lost-ack-commit-gate.arm"),
+            b"armed",
+        )
+        .expect("arm lost-ACK terminal commit gate");
+        command
+            .env("RUNNE_TEST_T1_LOCAL_LOST_ACK", "1")
+            .env("RUNNE_TEST_COMMIT_GATE_TERMINAL_KEY", "lost-ack-terminal")
+            .env("RUNNE_TEST_COMMIT_GATE_COMMAND_ID", "lost-ack-terminal")
+            .env(
+                "RUNNE_TEST_COMMIT_GATE_FILE",
+                gate_directory.path().join("lost-ack-commit-gate.marker"),
+            )
+            .env(
+                "RUNNE_TEST_COMMIT_GATE_RELEASE",
+                gate_directory.path().join("lost-ack-commit-gate.release"),
+            )
+            .env(
+                "RUNNE_TEST_COMMIT_GATE_ARM_FILE",
+                gate_directory.path().join("lost-ack-commit-gate.arm"),
+            );
+    } else {
+        command.env_remove("RUNNE_TEST_T1_LOCAL_LOST_ACK");
+        command.env_remove("RUNNE_TEST_COMMIT_GATE_TERMINAL_KEY");
+        command.env_remove("RUNNE_TEST_COMMIT_GATE_COMMAND_ID");
+        command.env_remove("RUNNE_TEST_COMMIT_GATE_FILE");
+        command.env_remove("RUNNE_TEST_COMMIT_GATE_RELEASE");
+        command.env_remove("RUNNE_TEST_COMMIT_GATE_ARM_FILE");
     }
     #[cfg(unix)]
     {

@@ -7,9 +7,18 @@ use std::fs::File;
 use std::io::{Read, Write};
 use std::os::fd::AsRawFd;
 
+#[cfg(feature = "test-support")]
+pub(crate) mod credential_companion_test_support;
 mod output;
 mod protocol;
 mod request;
+#[cfg(all(
+    feature = "test-support",
+    feature = "desktop-protected",
+    target_os = "linux"
+))]
+#[path = "safe_tool_helper/target_race_fixture.rs"]
+mod target_race_fixture;
 #[cfg(all(feature = "desktop-protected", target_os = "linux"))]
 pub(crate) use request::encode_request;
 pub use request::{HelperProcessError, run};
@@ -103,6 +112,13 @@ fn execute(root: &File, input: &[u8]) -> Result<ReceiptV1, &'static str> {
                 libc::O_RDWR | libc::O_CREAT | libc::O_EXCL | libc::O_NOFOLLOW | libc::O_NONBLOCK,
             )
             .map_err(|_| "target_exists_or_denied")?;
+            #[cfg(all(
+                feature = "test-support",
+                feature = "desktop-protected",
+                target_os = "linux"
+            ))]
+            target_race_fixture::after_create_before_write(root)
+                .map_err(|_| effect_error("target_race_fixture"))?;
             write_all(&file, &bytes).map_err(effect_error)?;
             if unsafe { libc::fsync(file.as_raw_fd()) } != 0 {
                 return Err("effect_started_sync_failed");

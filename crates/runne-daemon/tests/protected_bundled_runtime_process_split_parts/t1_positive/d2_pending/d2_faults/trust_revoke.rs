@@ -25,6 +25,10 @@ pub(super) async fn exercise(
     .expect("approve exact D2 read before revocation");
     let directory = super::barriers::barrier_dir();
     wait_file(&directory.join("approved-before-lease.entered")).await;
+    assert_eq!(
+        super::database::invocation_state(database, task),
+        "approved"
+    );
 
     let workspace = client
         .get_workspace(workspace_id)
@@ -82,14 +86,16 @@ pub(super) async fn exercise(
     super::database::assert_failure_projection(database, task);
     assert_eq!(
         super::database::invocation_state(database, task),
-        "approved"
+        "audit_only"
     );
     assert_eq!(super::database::result_count(database, task), 0);
     assert_eq!(super::database::release_intent_count(database, task), 0);
+    // Revocation stopped GO after approval; the launched helper area was proved empty.
     assert_eq!(
         super::database::managed_area_launch_count(database, task),
-        0
+        1
     );
+    assert_eq!(super::database::local_stop_state(database, task), Some(2));
     assert_eq!(count_watch_mask(read_watch, libc::IN_OPEN), 0);
     assert_eq!(count_watch_mask(create_watch, libc::IN_CREATE), 0);
     assert!(!created.exists());

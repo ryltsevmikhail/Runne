@@ -16,6 +16,7 @@ test-support = [
     "runne-macos-xpc/test-support",
     "runne-runtime-client/test-support",
     "runne-native-qualification/test-support",
+    "runne-linux-pam/test-support",
 ]
 
 [dependencies]
@@ -43,6 +44,8 @@ libc = "0.2"
 rustix = { version = "=1.1.4", features = ["fs", "net", "pipe", "process"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
+gtk = "=0.18.2"
+runne-linux-pam = { path = "../runne-linux-pam" }
 nix = { version = "=0.31.3", default-features = false, features = ["fs", "poll", "process"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]

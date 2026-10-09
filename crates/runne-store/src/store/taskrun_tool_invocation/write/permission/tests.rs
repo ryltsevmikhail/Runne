@@ -9,7 +9,12 @@ fn release_permission_tracks_current_selection_revision_and_mode() {
         .pragma_update(None, "foreign_keys", "OFF")
         .unwrap();
     let binding = binding();
-    insert_permission(&connection, &binding, ToolPermissionDecisionSource::Human);
+    insert_permission(
+        &connection,
+        &binding,
+        ToolPermissionDecisionSource::Human,
+        1,
+    );
     let tx = connection.unchecked_transaction().unwrap();
     assert!(matches!(
         validate_release_permission(&tx, "runtime-a", &binding, 50),
@@ -55,10 +60,103 @@ fn missing_permission_admission_fails_closed() {
     ));
 }
 
+#[test]
+fn release_permission_respects_current_mode_expiry_for_all_sources() {
+    for source in [
+        ToolPermissionDecisionSource::Human,
+        ToolPermissionDecisionSource::AutoPreset,
+    ] {
+        for (now, allowed) in [(49, true), (50, false), (51, false)] {
+            let connection = rusqlite::Connection::open_in_memory().unwrap();
+            crate::schema::apply_migrations(&connection).unwrap();
+            connection
+                .pragma_update(None, "foreign_keys", "OFF")
+                .unwrap();
+            let binding = binding();
+            insert_permission(&connection, &binding, source, 1);
+            insert_selection(&connection, Some(50));
+            let tx = connection.unchecked_transaction().unwrap();
+            let result = validate_release_permission(&tx, "runtime-a", &binding, now);
+            if allowed {
+                assert_eq!(result.unwrap(), source);
+            } else {
+                assert!(matches!(result, Err(ToolInvocationStoreError::Conflict)));
+            }
+            tx.commit().unwrap();
+        }
+    }
+}
+
+#[test]
+fn release_permission_preserves_unexpired_and_unbounded_modes_for_all_sources() {
+    for source in [
+        ToolPermissionDecisionSource::Human,
+        ToolPermissionDecisionSource::AutoPreset,
+    ] {
+        for expires_at in [Some(51), None] {
+            let connection = rusqlite::Connection::open_in_memory().unwrap();
+            crate::schema::apply_migrations(&connection).unwrap();
+            connection
+                .pragma_update(None, "foreign_keys", "OFF")
+                .unwrap();
+            let binding = binding();
+            insert_permission(&connection, &binding, source, 1);
+            insert_selection(&connection, expires_at);
+            let tx = connection.unchecked_transaction().unwrap();
+            assert_eq!(
+                validate_release_permission(&tx, "runtime-a", &binding, 50).unwrap(),
+                source
+            );
+            tx.commit().unwrap();
+        }
+    }
+}
+
+#[test]
+fn release_permission_preserves_missing_default_selection_without_expiry() {
+    let connection = rusqlite::Connection::open_in_memory().unwrap();
+    crate::schema::apply_migrations(&connection).unwrap();
+    connection
+        .pragma_update(None, "foreign_keys", "OFF")
+        .unwrap();
+    let binding = binding();
+    insert_permission(
+        &connection,
+        &binding,
+        ToolPermissionDecisionSource::Human,
+        0,
+    );
+    let tx = connection.unchecked_transaction().unwrap();
+    assert_eq!(
+        validate_release_permission(&tx, "runtime-a", &binding, 50).unwrap(),
+        ToolPermissionDecisionSource::Human
+    );
+    tx.commit().unwrap();
+}
+
+fn insert_selection(connection: &rusqlite::Connection, expires_at: Option<i64>) {
+    connection
+        .execute(
+            "INSERT INTO permission_mode_selections(
+               runtime_authority_id,principal_id,workspace_id,project_id,selected_mode,preset_version,
+               authorization_revision,managed_policy_version,managed_policy_digest,
+               expires_at_unix_ms,last_command_id,intent_digest,updated_at_unix_ms
+             ) VALUES('runtime-a','submitter',?1,zeroblob(16),1,1,1,0,?2,?3,?4,?2,51)",
+            params![
+                binding_workspace().as_bytes(),
+                MISSING_PERMISSION_MODE_MANAGED_DIGEST.to_vec(),
+                expires_at,
+                vec![4u8; 16]
+            ],
+        )
+        .unwrap();
+}
+
 fn insert_permission(
     connection: &rusqlite::Connection,
     binding: &ToolInvocationBindingV1,
     source: ToolPermissionDecisionSource,
+    authorization_revision: i64,
 ) {
     connection
         .execute(
@@ -68,13 +166,14 @@ fn insert_permission(
                managed_policy_version,managed_policy_digest,composite_scope_digest,containment,
                native_scope_handle,decision_source,relevant_policy_digest,expires_at_unix_ms,
                created_at_unix_ms
-             ) VALUES(?1,?2,?3,?4,'runtime-a','submitter',?5,1,1,1,0,?6,?7,1,?8,?9,?6,100,49)",
+             ) VALUES(?1,?2,?3,?4,'runtime-a','submitter',?5,1,1,?6,0,?7,?8,1,?9,?10,?7,100,49)",
             params![
                 binding.key.taskrun_id.as_bytes(),
                 binding.key.attempt_id.as_bytes(),
                 binding.key.cycle_id.as_bytes(),
                 binding.key.proposal_index,
                 binding_workspace().as_bytes(),
+                authorization_revision,
                 MISSING_PERMISSION_MODE_MANAGED_DIGEST.to_vec(),
                 vec![2u8; 32],
                 vec![3u8; 32],

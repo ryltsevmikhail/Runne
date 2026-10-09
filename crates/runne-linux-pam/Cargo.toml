@@ -1,0 +1,21 @@
+[package]
+name = "runne-linux-pam"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[features]
+test-support = []
+
+[dependencies]
+libc = "0.2"
+zeroize = { workspace = true }
+
+[lints.rust]
+unsafe_code = "allow"
+
+[lints.clippy]
+all = "deny"
+pedantic = "deny"
+nursery = "deny"

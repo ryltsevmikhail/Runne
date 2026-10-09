@@ -2,7 +2,7 @@ use super::*;
 use runne_application::ports::RuntimeAuthorityId;
 use runne_application::ports::{EventStoreError, TaskRunNoEffectReleaseError as ReleaseError};
 
-pub(super) fn authenticated_local_denial(
+pub(crate) fn authenticated_local_denial(
     connection: &Connection,
     taskrun_id: TaskRunId,
 ) -> Result<bool, EventStoreError> {
@@ -90,17 +90,27 @@ pub(super) fn has_generation_evidence(
     if local_state.as_deref() == Some("denied") {
         return Ok(!authenticated_local_denial(connection, taskrun_id)?);
     }
-    let local_may_have_started: bool = connection
-        .query_row(
-            "SELECT EXISTS(SELECT 1 FROM taskrun_local_command_attempts
-              WHERE taskrun_id=?1 AND NOT (
-                state IN ('preflight','approval_pending','approved','no_effect_terminal')
-                AND attempt_id IS NULL AND managed_area_identity IS NULL
-              ))",
-            [taskrun_id.as_bytes()],
-            |row| row.get(0),
+    let current_route =
+        super::taskrun_local_command::permission::no_effect::current_route(connection, taskrun_id)
+            .map_err(|_| EventStoreError::CorruptData)?;
+    let local_may_have_started = if current_route {
+        !super::taskrun_local_command::permission::no_effect::pre_release_matches(
+            connection, taskrun_id, attempt_id, authority,
         )
-        .map_err(|_| EventStoreError::Unavailable)?;
+        .map_err(|_| EventStoreError::CorruptData)?
+    } else {
+        connection
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM taskrun_local_command_attempts
+                  WHERE taskrun_id=?1 AND NOT (
+                    state IN ('preflight','approval_pending','approved','no_effect_terminal')
+                    AND attempt_id IS NULL AND managed_area_identity IS NULL
+                  ))",
+                [taskrun_id.as_bytes()],
+                |row| row.get(0),
+            )
+            .map_err(|_| EventStoreError::Unavailable)?
+    };
     if local_may_have_started {
         // A launch-intent row is durable before the trusted child is created,
         // so every bound/launch state remains a possible effect after a crash.

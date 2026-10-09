@@ -83,6 +83,7 @@ include!("lib_parts/conversation_workspace.rs");
 include!("lib_parts/task_run.rs");
 include!("lib_parts/task_run_count.rs");
 include!("lib_parts/approvals.rs");
+include!("lib_parts/permission_modes.rs");
 include!("lib_parts/task_run_subscribe.rs");
 include!("lib_parts/reference.rs");
 include!("lib_parts/mutation_types.rs");

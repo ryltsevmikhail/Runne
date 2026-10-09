@@ -20,6 +20,8 @@ pub enum AppCoreError {
     Diagnostics(#[from] SecurityTransactionError),
     #[error("runtime is unavailable")]
     RuntimeUnavailable,
+    #[error("permission command status was not found")]
+    PermissionCommandUnknown,
     #[error("trust decision outcome is unknown; refresh trust state before asking again")]
     TrustControlUnknownAfterSend,
     #[error("trust state changed; refresh before confirming")]

@@ -6,6 +6,7 @@ pub(super) struct LocalTaskRunContext<'a> {
     pub(super) workspace_id: runne_runtime_client::CanonicalId,
     pub(super) project_directory: &'a Path,
     pub(super) database: &'a Path,
+    pub(super) session_bus_socket: &'a Path,
     pub(super) runtime_root: &'a Path,
     pub(super) executable: &'a owner_private::ControlledExecutable,
     pub(super) supervisor: &'a mut runne_platform_desktop::ProtectedBundledRuntimeSupervisor,

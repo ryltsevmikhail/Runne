@@ -127,24 +127,20 @@ impl DevelopmentBundledRuntimeLauncher {
             .map_err(|_| ProtectedBundledRuntimeError::RuntimeRootUnavailable)?;
         #[cfg(feature = "test-support")]
         preserve_local_process_environment(&mut command, spec.runtime_root())?;
+        // Test-support-only fault-injection hook: forwards the durable
+        // commit-gate handshake variables into the owned child so the store
+        // can hold the post-commit/pre-ACK boundary for fault tests.
         #[cfg(feature = "test-support")]
-        if let Some(gate) = std::env::var_os("RUNNE_TEST_COMMIT_GATE_FILE") {
-            // Test-support-only fault-injection hook: forwards the durable
-            // commit-gate marker/release paths into the owned child so the
-            // store can hold the post-commit/pre-ACK boundary for fault tests.
-            command.env("RUNNE_TEST_COMMIT_GATE_FILE", gate);
-        }
-        #[cfg(feature = "test-support")]
-        if let Some(release) = std::env::var_os("RUNNE_TEST_COMMIT_GATE_RELEASE") {
-            command.env("RUNNE_TEST_COMMIT_GATE_RELEASE", release);
-        }
-        #[cfg(feature = "test-support")]
-        if let Some(command_id) = std::env::var_os("RUNNE_TEST_COMMIT_GATE_COMMAND_ID") {
-            command.env("RUNNE_TEST_COMMIT_GATE_COMMAND_ID", command_id);
-        }
-        #[cfg(feature = "test-support")]
-        if let Some(arm_file) = std::env::var_os("RUNNE_TEST_COMMIT_GATE_ARM_FILE") {
-            command.env("RUNNE_TEST_COMMIT_GATE_ARM_FILE", arm_file);
+        for name in [
+            "RUNNE_TEST_COMMIT_GATE_FILE",
+            "RUNNE_TEST_COMMIT_GATE_RELEASE",
+            "RUNNE_TEST_COMMIT_GATE_COMMAND_ID",
+            "RUNNE_TEST_COMMIT_GATE_TERMINAL_KEY",
+            "RUNNE_TEST_COMMIT_GATE_ARM_FILE",
+        ] {
+            if let Some(value) = std::env::var_os(name) {
+                command.env(name, value);
+            }
         }
         if controls.capture_output {
             command.stdout(Stdio::piped()).stderr(Stdio::piped());

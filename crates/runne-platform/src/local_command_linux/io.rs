@@ -1,7 +1,8 @@
 use super::spec::LinuxCommandError;
 
 pub(super) const MAX_STDIN_BYTES: usize = 16 * 1024;
-pub(super) const MAX_STREAM_CAPTURE_BYTES: usize = 64 * 1024;
+pub(super) const MAX_STREAM_CAPTURE_BYTES: usize =
+    runne_application::permission_modes::MAX_LOCAL_COMMAND_CAPTURE_BYTES;
 pub(super) const OUTPUT_DRAIN_QUANTUM: usize = 8 * 1024;
 pub(super) const OUTPUT_READ_CHUNK: usize = 4 * 1024;
 

@@ -184,6 +184,15 @@ pub enum ErrorCode {
     // Task outcome errors (exit 5)
     TaskUncertain,
     CancelPending,
+    CommandOutcomeUnknown,
+
+    // Permission recovery errors (exit 1 unless the command outcome is unknown)
+    PermissionRecoveryIo,
+    PermissionRecoveryCorrupt,
+    PermissionRecoveryConflict,
+    PermissionRecoveryScopeMismatch,
+    PermissionCommandUnknown,
+    PermissionCommandUnavailable,
 
     // Admission errors (exit 1)
     ModelMismatch,
@@ -204,9 +213,17 @@ impl ErrorCode {
             | Self::ApiError
             | Self::ModelMismatch
             | Self::SessionNotFound
-            | Self::SessionWorkspaceMismatch => 1,
+            | Self::SessionWorkspaceMismatch
+            | Self::PermissionRecoveryIo
+            | Self::PermissionRecoveryCorrupt
+            | Self::PermissionRecoveryConflict
+            | Self::PermissionRecoveryScopeMismatch
+            | Self::PermissionCommandUnavailable => 1,
             Self::CredentialOperationFailed | Self::CredentialBackendUnsupported => 4,
-            Self::TaskUncertain | Self::CancelPending => 5,
+            Self::TaskUncertain
+            | Self::CancelPending
+            | Self::CommandOutcomeUnknown
+            | Self::PermissionCommandUnknown => 5,
         }
     }
 }

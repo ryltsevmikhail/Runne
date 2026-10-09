@@ -20,6 +20,8 @@ mod managed_api_tests {
     const CONVERSATION: &str = "018f2e3a-7000-7000-8000-000000000901";
     const TASK_RUN: &str = "018f2e3a-7000-7000-8000-000000000904";
     const TASK_RUN_NEXT: &str = "018f2e3a-7000-7000-8000-000000000915";
+    const PERMISSION_UNKNOWN_COMMAND: &str = "018f2e3a-7000-7000-8000-000000000921";
+    const PERMISSION_UNAVAILABLE_COMMAND: &str = "018f2e3a-7000-7000-8000-000000000922";
     const APPROVAL: &str = "018f2e3a-7000-7000-8000-000000000905";
     const INVOCATION: &str = "018f2e3a-7000-7000-8000-000000000906";
     const ATTEMPT: &str = "018f2e3a-7000-7000-8000-000000000907";
@@ -51,6 +53,9 @@ mod managed_api_tests {
     ) -> Response<Body> {
         let method = request.method().clone();
         let path = request.uri().path().to_owned();
+        if let Some(response) = permission_mode_error_response(&method, &path) {
+            return response;
+        }
         let command_key = request
             .headers()
             .get("idempotency-key")
@@ -154,6 +159,33 @@ mod managed_api_tests {
             .unwrap()
     }
 
+    fn permission_mode_error_response(method: &Method, path: &str) -> Option<Response<Body>> {
+        if method != Method::GET {
+            return None;
+        }
+        let (status, code) = if path.ends_with(PERMISSION_UNKNOWN_COMMAND) {
+            (StatusCode::NOT_FOUND, "permission_mode_not_found")
+        } else if path.ends_with(PERMISSION_UNAVAILABLE_COMMAND) {
+            (
+                StatusCode::SERVICE_UNAVAILABLE,
+                "permission_mode_unavailable",
+            )
+        } else {
+            return None;
+        };
+        let request_id = "018f2e3a-7000-7000-8000-000000000923";
+        let response = Response::builder()
+            .status(status)
+            .header("content-type", "application/json")
+            .header("cache-control", "no-store")
+            .header("x-request-id", request_id)
+            .body(Body::from(
+                json!({"code":code,"requestId":request_id}).to_string(),
+            ))
+            .unwrap();
+        Some(response)
+    }
+
     fn bind_workspace_conversation(core: &AppCore, workspace: &str) -> String {
         let reference = core
             .load_or_prepare_workspace_conversation_reference(workspace)
@@ -178,4 +210,38 @@ mod managed_api_tests {
 
     include!("managed_attention_effects_tests.rs");
     include!("managed_receipt_intent_tests.rs");
+
+    #[tokio::test]
+    async fn permission_command_readback_distinguishes_valid_not_found_from_unavailable() {
+        let origin = managed_api_server(ManagedApiMock {
+            submissions: Arc::new(AtomicUsize::new(0)),
+            task_run_ids: Arc::default(),
+            fail_approvals: false,
+            task_runs: json!([]),
+            approvals: json!([]),
+        })
+        .await;
+        let client = runne_runtime_client::mock_authenticated_runtime_client(
+            &origin,
+            mutation_test_client("managed-authority", "managed-lineage", 1)
+                .session_info()
+                .clone(),
+        )
+        .unwrap();
+        let directory = tempfile::tempdir().unwrap();
+        let core =
+            AppCore::open_with_mock_runtime(&directory.path().join("profile.sqlite3"), client)
+                .unwrap();
+
+        let unknown = core
+            .permission_mode_command_status(WORKSPACE, PERMISSION_UNKNOWN_COMMAND)
+            .await
+            .unwrap_err();
+        let unavailable = core
+            .permission_mode_command_status(WORKSPACE, PERMISSION_UNAVAILABLE_COMMAND)
+            .await
+            .unwrap_err();
+        assert!(matches!(unknown, AppCoreError::PermissionCommandUnknown));
+        assert!(matches!(unavailable, AppCoreError::RuntimeUnavailable));
+    }
 }

@@ -11,10 +11,10 @@ use runne_store::store::LocalCommandAttemptState;
 #[path = "local_command_outcome_unknown/fixture.rs"]
 mod fixture;
 
-#[test]
-fn restart_with_empty_area_records_unknown_without_exit_or_relaunch() {
+#[tokio::test(flavor = "current_thread")]
+async fn restart_with_empty_area_records_unknown_without_exit_or_relaunch() {
     eprintln!("RUN: local command restart empty-area unknown settlement");
-    let fixture = fixture::prepare();
+    let fixture = fixture::prepare().await;
     let fixture::PreparedUnknown {
         database,
         taskrun_id,

@@ -87,3 +87,26 @@ pub(crate) fn note_kill_boundary(boundary: &str) {
         std::thread::sleep(Duration::from_millis(1));
     }
 }
+
+/// Test-support-only commit-gate dispatch for the TaskRun unit of work.
+///
+/// Submit commits are gated by the client command id; the terminal
+/// TaskRunCompleted commit is gated only when a fault test pins an explicit
+/// pre-known key via `RUNNE_TEST_COMMIT_GATE_TERMINAL_KEY`.
+#[cfg(feature = "test-support")]
+pub(crate) fn note_command_outcome(payload: &runne_application::ports::CommandCommit) {
+    let key = match &payload.command_result {
+        runne_application::commands::CommandOutcome::TaskRunSubmitted { .. } => {
+            Some(payload.command_id.to_string())
+        }
+        // The terminal TaskRunCompleted commit carries an internal worker
+        // command id no test can know, so the fault test pins this fixed key.
+        runne_application::commands::CommandOutcome::TaskRunCompleted { .. } => {
+            std::env::var("RUNNE_TEST_COMMIT_GATE_TERMINAL_KEY").ok()
+        }
+        _ => None,
+    };
+    if let Some(key) = key {
+        note_durable_commit(&key);
+    }
+}

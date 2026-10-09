@@ -5,6 +5,7 @@ fn project_local_effect(
     area: Option<&[u8]>,
     cancellation_requested: bool,
     unknown_stop_proven: bool,
+    policy_stop_proven: bool,
 ) -> Result<(LocalOutcome, LocalStop), EventStoreError> {
     let has_binding = attempt.is_some() && area.is_some();
     let projected = match state {
@@ -48,7 +49,10 @@ fn project_local_effect(
             (LocalOutcome::Exited, LocalStop::Confirmed)
         }
         "cancelled" => {
-            if !has_binding || !cancellation_requested {
+            if !has_binding
+                || (!cancellation_requested && !policy_stop_proven)
+                || (policy_stop_proven && exit_code.is_none())
+            {
                 return Err(EventStoreError::CorruptData);
             }
             (
@@ -83,24 +87,43 @@ mod tests {
     fn local_effect_facts_do_not_confuse_execution_with_stop_attempts() {
         let (attempt, area) = active_binding();
         assert_eq!(
-            project_local_effect("running", attempt, None, area, false, false).unwrap(),
+            project_local_effect("running", attempt, None, area, false, false, false).unwrap(),
             (LocalOutcome::Running, LocalStop::NotRequested)
         );
         assert_eq!(
-            project_local_effect("running", attempt, None, area, true, false).unwrap(),
+            project_local_effect("running", attempt, None, area, true, false, false).unwrap(),
             (LocalOutcome::OutcomeUnknown, LocalStop::Requested)
         );
         assert_eq!(
-            project_local_effect("stop_unconfirmed", attempt, None, area, true, false).unwrap(),
+            project_local_effect("stop_unconfirmed", attempt, None, area, true, false, false)
+                .unwrap(),
             (LocalOutcome::OutcomeUnknown, LocalStop::Unconfirmed)
         );
         assert_eq!(
-            project_local_effect("completed", attempt, Some(7), area, false, false).unwrap(),
+            project_local_effect("completed", attempt, Some(7), area, false, false, false).unwrap(),
             (LocalOutcome::Exited, LocalStop::Confirmed)
         );
         assert_eq!(
-            project_local_effect("outcome_unknown", attempt, None, area, true, true).unwrap(),
+            project_local_effect("outcome_unknown", attempt, None, area, true, true, false)
+                .unwrap(),
             (LocalOutcome::OutcomeUnknown, LocalStop::Confirmed)
+        );
+    }
+
+    #[test]
+    fn policy_stopped_terminal_requires_its_separate_proof() {
+        let (attempt, area) = active_binding();
+        assert!(
+            project_local_effect("cancelled", attempt, Some(143), area, false, false, false)
+                .is_err()
+        );
+        assert_eq!(
+            project_local_effect("cancelled", attempt, Some(143), area, false, false, true)
+                .unwrap(),
+            (LocalOutcome::Exited, LocalStop::Confirmed)
+        );
+        assert!(
+            project_local_effect("cancelled", attempt, None, area, false, false, true).is_err()
         );
     }
 }

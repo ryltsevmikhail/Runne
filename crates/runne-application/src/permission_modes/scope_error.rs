@@ -25,4 +25,6 @@ pub enum ScopeError {
     ZeroLifetime,
     /// Authority, principal, or workspace identity is invalid.
     InvalidPermissionScope,
+    /// Closed broad scopes cannot claim unenforced finite operation or byte quotas.
+    UnsupportedBroadEffectQuota,
 }

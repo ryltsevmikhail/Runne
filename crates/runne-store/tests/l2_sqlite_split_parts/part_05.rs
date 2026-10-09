@@ -123,13 +123,15 @@ fn test_clock_regression() {
 
     // A head timestamp no longer matching its authenticated event is corruption;
     // startup must fail before a subsequent write could mask the regression.
-    assert!(validated_reopen::reopen_store(
-        &db_path,
-        identity,
-        RuntimeAuthorityId("test-host".into()),
-        available_guard(),
-    )
-    .is_err());
+    assert!(
+        validated_reopen::reopen_store(
+            &db_path,
+            identity,
+            RuntimeAuthorityId("test-host".into()),
+            available_guard(),
+        )
+        .is_err()
+    );
 
     cleanup_db(&db_path);
 }
@@ -183,28 +185,34 @@ fn test_two_competing_writers() {
         (tr_id, identity)
     };
 
+    // Complete the fallible opens before the barrier. This test measures the
+    // writer conflict after startup, not whether concurrent startup succeeds.
+    let first_store = validated_reopen::reopen_store(
+        &db_path,
+        identity,
+        RuntimeAuthorityId("test-host".into()),
+        available_guard(),
+    )
+    .unwrap();
+    let second_store = validated_reopen::reopen_store(
+        &db_path,
+        identity,
+        RuntimeAuthorityId("test-host".into()),
+        available_guard(),
+    )
+    .unwrap();
+
     let barrier = Arc::new(Barrier::new(2));
-    let db = Arc::new(db_path.clone());
-    let identity = Arc::new(identity);
     let tr = Arc::new(tr_id);
     let results = Arc::new(std::sync::Mutex::new(Vec::new()));
 
     let mut handles = vec![];
-    for i in 0..2 {
-        let db = Arc::clone(&db);
-        let identity = Arc::clone(&identity);
+    for (i, store) in [(0_u16, first_store), (1_u16, second_store)] {
         let tr = Arc::clone(&tr);
         let barrier = Arc::clone(&barrier);
         let results = Arc::clone(&results);
         let ctx = make_context(10 + i);
         handles.push(thread::spawn(move || {
-            let store = validated_reopen::reopen_store(
-                db.as_str(),
-                *identity,
-                RuntimeAuthorityId("test-host".into()),
-                available_guard(),
-            )
-            .unwrap();
             let ra = store.runtime_authority_id().clone();
             let svc = TaskRunService::new(store.clone(), store.clone(), store.clone(), ra);
             barrier.wait();
@@ -228,7 +236,7 @@ fn test_two_competing_writers() {
 
     let store = validated_reopen::reopen_store(
         &db_path,
-        *identity,
+        identity,
         RuntimeAuthorityId("test-host".into()),
         available_guard(),
     )

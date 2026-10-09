@@ -41,6 +41,16 @@ pub(crate) fn run_control_loop_v2(
         });
     channel.enter_control_loop()?;
     let mut last_renew_sequence = 0_u64;
+    #[cfg(all(unix, feature = "desktop-protected"))]
+    let mut last_permission_sequence = 0_u64;
+    #[cfg(all(unix, feature = "desktop-protected"))]
+    let mut active_permission_exchange: Option<
+        super::permission_dispatch::PermissionModeExchange,
+    > = None;
+    #[cfg(all(unix, feature = "desktop-protected"))]
+    if let Some(control) = &root_admission {
+        control.observe_permission_launch(owned_launch.compatibility_owned_launch(), &keys)?;
+    }
     #[cfg(all(any(unix, windows), feature = "desktop-protected"))]
     let mut last_root_sequence = 0_u64;
     #[cfg(all(any(unix, windows), feature = "desktop-protected"))]
@@ -99,7 +109,9 @@ pub(crate) fn run_control_loop_v2(
             // transition on another authority path.
             #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
             {
-                let (v3_keys, v3_owned_launch, rendezvous, installed_facts) = outcome.into_parts();
+                let (mut v3_keys, v3_owned_launch, rendezvous, installed_facts) =
+                    outcome.into_parts();
+                v3_keys.advance_native_key_epoch_from(&keys)?;
                 rotate_root_admission(&root_admission, &v3_keys)?;
                 drop(status_guard);
                 return super::control_v3::run_control_loop_v3_entered(
@@ -122,7 +134,8 @@ pub(crate) fn run_control_loop_v2(
             {
                 let mut outcome = outcome;
                 let linux_writer_capability = outcome.take_linux_writer_capability();
-                let (v3_keys, v3_owned_launch, rendezvous) = outcome.into_parts_unix();
+                let (mut v3_keys, v3_owned_launch, rendezvous) = outcome.into_parts_unix();
+                v3_keys.advance_native_key_epoch_from(&keys)?;
                 rotate_root_admission(&root_admission, &v3_keys)?;
                 return super::control_v3::run_control_loop_v3_entered(
                     channel,
@@ -155,6 +168,19 @@ pub(crate) fn run_control_loop_v2(
             root_admission.as_deref(),
         )? {
             last_root_sequence = sequence;
+            continue;
+        }
+        #[cfg(all(unix, feature = "desktop-protected"))]
+        if let Some(sequence) = super::permission_dispatch::dispatch_permission_mode_request(
+            &mut channel,
+            &frame,
+            &keys,
+            owned_launch.compatibility_owned_launch(),
+            last_permission_sequence,
+            &mut active_permission_exchange,
+            root_admission.as_deref(),
+        )? {
+            last_permission_sequence = sequence;
             continue;
         }
         if let Ok(renewal) = ProtectedRenewRequestV2::decode_frame(&frame) {
@@ -216,6 +242,16 @@ pub(crate) fn run_control_loop_v2(
             )?;
             last_renew_sequence = renewal.sequence();
             owned_launch = ticket.next_owned_launch();
+            #[cfg(all(unix, feature = "desktop-protected"))]
+            {
+                active_permission_exchange = None;
+                if let Some(control) = &root_admission {
+                    control.observe_permission_launch(
+                        owned_launch.compatibility_owned_launch(),
+                        &keys,
+                    )?;
+                }
+            }
             #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
             status_guard.track(*owned_launch.session_id());
             continue;

@@ -1,10 +1,13 @@
 use super::*;
 #[path = "t1_positive/d2_pending.rs"]
 mod d2_pending;
+#[path = "t1_positive/managed_ask.rs"]
+mod managed_ask;
 #[path = "t1_positive/trust.rs"]
 mod trust;
 #[path = "t1_positive/workspace.rs"]
 mod workspace;
+pub(super) use d2_pending::restart_same_root;
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "launched with an explicit test-only fixture environment by the parent test"]
 async fn t1_protected_provider_http_and_runtime_client_replay_child() {
@@ -25,7 +28,7 @@ async fn t1_protected_provider_http_and_runtime_client_replay_child() {
     let profile = supervisor
         .take_runtime_profile()
         .expect("one-time protected profile");
-    let client = profile
+    let mut client = profile
         .connect(Duration::from_secs(10))
         .await
         .expect("authenticated protected runtime client");
@@ -117,6 +120,7 @@ async fn t1_protected_provider_http_and_runtime_client_replay_child() {
         workspace_api_id,
     )
     .await;
+    managed_ask::seed_after_trust(&daemon_db, runtime_project_id);
     let before = core
         .open_project_conversation(project)
         .await
@@ -124,7 +128,7 @@ async fn t1_protected_provider_http_and_runtime_client_replay_child() {
     let conversation_id =
         runne_runtime_client::CanonicalId::parse(&before.conversation_id).expect("id");
     if d2_pending::dispatch_if_requested(
-        &client,
+        &mut client,
         conversation_id,
         workspace_id,
         temporary.path(),
@@ -158,6 +162,7 @@ async fn t1_protected_provider_http_and_runtime_client_replay_child() {
             workspace_id,
             project_directory: &project_directory,
             database: &daemon_db,
+            session_bus_socket: &session_bus_socket,
             runtime_root: &runtime_root,
             executable: &executable,
             supervisor: &mut supervisor,

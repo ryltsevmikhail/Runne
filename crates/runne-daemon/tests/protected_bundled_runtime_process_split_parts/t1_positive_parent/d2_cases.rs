@@ -4,6 +4,46 @@ pub(super) fn configure(
     command: &mut std::process::Command,
     mode: LocalWorkerMode,
 ) -> (Option<tempfile::TempDir>, Option<tempfile::TempDir>) {
+    if matches!(
+        mode,
+        LocalWorkerMode::D2AskAlways | LocalWorkerMode::D2RiskBased | LocalWorkerMode::D2FullAccess
+    ) {
+        command.env("RUNNE_TEST_T1_CREDENTIAL_COMPANION", "1");
+    } else {
+        command.env_remove("RUNNE_TEST_T1_CREDENTIAL_COMPANION");
+    }
+    command.env_remove("RUNNE_TEST_T1_APPROVED_TARGET_RACE");
+    if mode.d2_scenario() == Some("approved-target-create-race") {
+        command.env("RUNNE_TEST_T1_APPROVED_TARGET_RACE", "1");
+    }
+    if mode.d2_managed_ask() {
+        command.env("RUNNE_TEST_D2_MANAGED_ASK", "1");
+    } else {
+        command.env_remove("RUNNE_TEST_D2_MANAGED_ASK");
+    }
+    if let Some(mode) = mode.d2_permission_mode() {
+        command.env("RUNNE_TEST_D2_PERMISSION_MODE", mode);
+    } else {
+        command.env_remove("RUNNE_TEST_D2_PERMISSION_MODE");
+    }
+    if matches!(mode, LocalWorkerMode::LocalPermissionFullAccessDowngrade) {
+        command.env("RUNNE_TEST_T1_LOCAL_FULL_ACCESS_LIVE_DOWNGRADE", "1");
+    } else {
+        command.env_remove("RUNNE_TEST_T1_LOCAL_FULL_ACCESS_LIVE_DOWNGRADE");
+    }
+    if matches!(
+        mode,
+        LocalWorkerMode::LocalPermissionFullAccessUnavailableNetwork
+    ) {
+        command.env("RUNNE_TEST_T1_LOCAL_UNAVAILABLE_NETWORK", "1");
+    } else {
+        command.env_remove("RUNNE_TEST_T1_LOCAL_UNAVAILABLE_NETWORK");
+    }
+    if matches!(mode, LocalWorkerMode::LocalPermissionLegacySelection) {
+        command.env("RUNNE_TEST_T1_LOCAL_LEGACY_SELECTION", "1");
+    } else {
+        command.env_remove("RUNNE_TEST_T1_LOCAL_LEGACY_SELECTION");
+    }
     let config = if mode.is_d2() {
         Some(write_d2_config(command, mode))
     } else {
@@ -37,7 +77,10 @@ fn secure_provider_barrier_permissions(path: &std::path::Path) {
 fn secure_provider_barrier_permissions(_: &std::path::Path) {}
 
 pub(super) const fn child_timeout_seconds(mode: LocalWorkerMode) -> u64 {
-    if matches!(mode, LocalWorkerMode::D2ExpiredApproval) {
+    if matches!(
+        mode,
+        LocalWorkerMode::D2ExpiredApproval | LocalWorkerMode::LocalPermissionAskAlways
+    ) {
         200
     } else {
         90

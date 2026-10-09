@@ -104,6 +104,17 @@ fn record_result_inner(
         .map_err(|_| ToolInvocationStoreError::CorruptData)?;
     let state = if force_audit_only
         || receipt.truncated
+        || !matches!(
+            permission_is_current_on_connection(
+                &tx,
+                &store.runtime_authority_id.0,
+                receipt.key,
+                receipt.semantic_digest,
+                &receipt.assignment,
+                now,
+            ),
+            Ok(true)
+        )
         || task.state().is_terminal()
         || task.state() == runne_domain::task_run::TaskRunState::Cancelling
         || current.version != binding.expected_taskrun_version
@@ -131,17 +142,16 @@ fn record_result_inner(
     Ok(result)
 }
 
-pub(super) fn with_release<T, E, F>(
+#[cfg(target_os = "linux")]
+pub(super) fn with_release(
     store: &StoreTransaction,
     key: ToolInvocationKey,
     digest: IntegrityDigest,
     assignment: &TaskRunAssignmentIdentity,
     _caller_now: i64,
-    release: F,
-) -> Result<Result<T, E>, ToolInvocationStoreError>
-where
-    F: FnOnce() -> Result<T, E>,
-{
+    child: &mut runne_platform::local_command_linux::PermissionHelperChildV1<'_>,
+) -> Result<(), ToolInvocationStoreError> {
+    let current_policy = acquire_store_owned_current_policy(store, key)?;
     same_assignment(key, assignment)?;
     let mut writer = store
         .inner
@@ -173,12 +183,22 @@ where
         return Err(ToolInvocationStoreError::InvalidState);
     }
     let permission_source =
-        validate_release_permission(
-            &intent,
-            &store.runtime_authority_id.0,
-            &binding,
-            intent_now,
-        )?;
+        validate_release_permission(&intent, &store.runtime_authority_id.0, &binding, intent_now)?;
+    validate_current_workspace_project(&intent, &current_policy)?;
+    validate_current_managed_effect_policy(
+        &intent,
+        key,
+        &binding,
+        &current_policy.snapshot,
+        current_policy.digest,
+    )?;
+    validate_helper_child(
+        child,
+        &binding,
+        &current_policy.admission,
+        assignment,
+        current_policy.workspace_id,
+    )?;
     if permission_source == ToolPermissionDecisionSource::Human {
         approval_matches(&intent, &binding, intent_now)?;
     }
@@ -224,16 +244,45 @@ where
         &binding,
         release_now,
     )?;
+    validate_current_workspace_project(&release_tx, &current_policy)?;
+    validate_current_managed_effect_policy(
+        &release_tx,
+        key,
+        &binding,
+        &current_policy.snapshot,
+        current_policy.digest,
+    )?;
+    validate_helper_child(
+        child,
+        &binding,
+        &current_policy.admission,
+        assignment,
+        current_policy.workspace_id,
+    )?;
     if permission_source == ToolPermissionDecisionSource::Human {
         approval_matches(&release_tx, &binding, release_now)?;
     }
     verify_sources(&release_tx, key, &binding.sources)?;
-    let outcome = release();
-    if outcome.is_err() {
+    let owner = store
+        .inner
+        .permission_owner
+        .as_ref()
+        .ok_or(ToolInvocationStoreError::Unavailable)?;
+    let root_request = super::super::taskrun_local_command::PermissionRootFenceRequestV1::new(
+        current_policy.workspace_id,
+        current_policy.workspace_version,
+        binding.root_revision,
+        *binding.root_identity.as_bytes(),
+    );
+    let released = owner.release_helper_child(&store.runtime_authority_id, &root_request, child);
+    if released.is_err() {
         release_tx.execute("UPDATE taskrun_tool_invocations SET state='uncertain',updated_at=?1 WHERE taskrun_id=?2 AND attempt_id=?3 AND cycle_id=?4 AND proposal_index=?5 AND state='claimed'",params![release_now,key.taskrun_id.as_bytes(),key.attempt_id.as_bytes(),key.cycle_id.as_bytes(),i64::from(key.proposal_index)]).map_err(|_|ToolInvocationStoreError::CorruptData)?;
     }
     release_tx
         .commit()
         .map_err(|_| ToolInvocationStoreError::Unavailable)?;
-    Ok(outcome)
+    if released.is_err() {
+        return Err(ToolInvocationStoreError::Uncertain);
+    }
+    Ok(())
 }

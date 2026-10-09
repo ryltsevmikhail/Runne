@@ -80,6 +80,7 @@ fn process_outcome(result: Result<CommandOutput, CliError>, _: OutputFormat) -> 
 
 include!("../src/cli/token_parsing.rs");
 include!("../src/cli/help.rs");
+include!("../src/cli/permissions/help.rs");
 include!("../src/cli/task_help.rs");
 include!("../src/cli/provider_credential.rs");
 

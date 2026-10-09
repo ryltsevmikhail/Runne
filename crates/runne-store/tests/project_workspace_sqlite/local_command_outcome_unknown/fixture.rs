@@ -3,10 +3,11 @@ use runne_application::conversation_service::ConversationService;
 use runne_application::ports::{
     EventStore, ExecutionNodeId, TaskRunAssignmentIdentity, TaskRunClaimResult,
 };
-use runne_domain::id::{ConversationId, WorkspaceId};
+use runne_domain::id::{ApprovalId, ConversationId, WorkspaceId};
 use runne_platform::process_managed_area::LinuxManagedArea;
 use runne_store::store::LocalCommandRecoveryCandidate;
 use runne_store::store::StoreTransaction;
+use runne_store::{ProjectWorkspaceStore, store::LocalCommandApprovalBinding};
 
 pub struct PreparedUnknown {
     pub database: Database,
@@ -20,13 +21,13 @@ pub struct PreparedUnknown {
     pub recovery_store: StoreTransaction,
 }
 
-pub fn prepare() -> PreparedUnknown {
-    let database = Database::new("local-command-outcome-unknown-recovery");
-    let repository = database.repository();
+pub async fn prepare() -> PreparedUnknown {
+    let donor = Database::new("local-command-outcome-unknown-recovery-donor");
+    let repository = donor.repository();
     create_project(&repository);
     create_workspace(&repository);
     let conversation_id = ConversationId::from_bytes(command(0x81).into_bytes());
-    ConversationService::new(database.store.clone(), database.store.clone(), authority())
+    ConversationService::new(donor.store.clone(), donor.store.clone(), authority())
         .create_from_application(
             &task_context(0x81, "local-unknown-conversation"),
             runne_api::CreateConversationInput {
@@ -38,11 +39,11 @@ pub fn prepare() -> PreparedUnknown {
             },
         )
         .unwrap();
-    let (node, first_epoch) = super::super::claim::node_registration(&database);
+    let (node, _) = super::super::claim::node_registration(&donor);
     let runtime_authority = runne_application::ports::RuntimeAuthorityId(node.clone());
     let runtime_store = crate::validated_reopen::reopen_store(
-        database.file.path(),
-        database.identity,
+        donor.file.path(),
+        donor.identity,
         runtime_authority.clone(),
         guard(),
     )
@@ -51,7 +52,7 @@ pub fn prepare() -> PreparedUnknown {
         runtime_store.clone(),
         runtime_store.clone(),
         runtime_store.clone(),
-        runtime_authority,
+        runtime_authority.clone(),
     );
     let local = runne_domain::task_run::TaskRunLocalCommand::new(
         runne_domain::task_run::TaskRunExecutable::workspace_relative("bin/tool".into()).unwrap(),
@@ -78,6 +79,48 @@ pub fn prepare() -> PreparedUnknown {
     else {
         panic!("TaskRun submission expected")
     };
+    let approval_id = ApprovalId::from_bytes(command(0x8c).into_bytes());
+    let binding = LocalCommandApprovalBinding {
+        command_digest: local.intent_digest(),
+        executable_digest: [3; 32],
+        workspace_version: 1,
+        admitted_root_version: 1,
+        admitted_root_identity: [4; 32],
+        trust_epoch: 1,
+        trust_revision: 1,
+        source_policy_version: 2,
+        command_policy_version: 1,
+        approval_id: *approval_id.as_bytes(),
+    };
+    super::super::legacy_local_command_fixture::create_pending_approval(
+        &ProjectWorkspaceStore::from_store(runtime_store.clone()),
+        taskrun_id,
+        &local,
+        approval_id,
+    )
+    .await;
+    let database = super::super::legacy_local_command_fixture::migrate_pending(
+        &donor,
+        taskrun_id,
+        approval_id,
+        binding,
+        "local-command-outcome-unknown-recovery",
+    );
+    let (node, first_epoch) = super::super::claim::node_registration(&database);
+    assert_eq!(node, runtime_authority.0);
+    let runtime_store = crate::validated_reopen::reopen_store(
+        database.file.path(),
+        database.identity,
+        runtime_authority.clone(),
+        guard(),
+    )
+    .unwrap();
+    let tasks = runne_application::service::TaskRunService::new(
+        runtime_store.clone(),
+        runtime_store.clone(),
+        runtime_store.clone(),
+        runtime_authority,
+    );
     let claimed_result = tasks
         .claim_task_run(
             &task_context(0x83, "local-unknown-claim"),
@@ -121,18 +164,7 @@ pub fn prepare() -> PreparedUnknown {
         .store
         .bind_local_command_approval(
             taskrun_id,
-            runne_store::store::LocalCommandApprovalBinding {
-                command_digest: local.intent_digest(),
-                executable_digest: [3; 32],
-                workspace_version: 1,
-                admitted_root_version: 1,
-                admitted_root_identity: [4; 32],
-                trust_epoch: 1,
-                trust_revision: 1,
-                source_policy_version: 2,
-                command_policy_version: 1,
-                approval_id: [5; 16],
-            },
+            binding,
             runne_store::store::LocalCommandAttemptState::Approved,
         )
         .unwrap();

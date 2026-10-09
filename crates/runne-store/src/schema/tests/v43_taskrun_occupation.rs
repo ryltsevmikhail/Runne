@@ -11,24 +11,24 @@ fn v43_backfills_claims_as_active_unknown_across_reopen() {
     apply_migrations(&connection).unwrap();
     drop(connection);
     let reopened = Connection::open(path).unwrap();
-    assert!(v65_matches(&reopened, 65).unwrap());
+    assert!(v68_matches(&reopened, CURRENT_SCHEMA_VERSION).unwrap());
     let state: (String, String) = reopened.query_row(
         "SELECT state,dispatch_intent FROM taskrun_assignment_occupations WHERE taskrun_id=?1 AND fence=1",
         [[1_u8;16].as_slice()], |row| Ok((row.get(0)?,row.get(1)?)),
     ).unwrap();
     assert_eq!(state, ("active".into(), "unknown".into()));
-    assert!(v65_matches(&reopened, 65).unwrap());
+    assert!(v68_matches(&reopened, CURRENT_SCHEMA_VERSION).unwrap());
 }
 
 #[test]
 fn v43_admission_rejects_drift_inherited_from_v42() {
     let connection = Connection::open_in_memory().unwrap();
     apply_migrations(&connection).unwrap();
-    assert!(v65_matches(&connection, 65).unwrap());
+    assert!(v68_matches(&connection, CURRENT_SCHEMA_VERSION).unwrap());
     connection
         .execute_batch("DROP TRIGGER taskrun_assignments_immutable;")
         .unwrap();
-    assert!(!v65_matches(&connection, 65).unwrap());
+    assert!(!v68_matches(&connection, CURRENT_SCHEMA_VERSION).unwrap());
     assert!(classify_existing_connection(&connection).is_err());
 }
 
@@ -36,11 +36,11 @@ fn v43_admission_rejects_drift_inherited_from_v42() {
 fn v43_admission_requires_global_renewal_command_id_guards() {
     let connection = Connection::open_in_memory().unwrap();
     apply_migrations(&connection).unwrap();
-    assert!(v65_matches(&connection, 65).unwrap());
+    assert!(v68_matches(&connection, CURRENT_SCHEMA_VERSION).unwrap());
     connection
         .execute_batch("DROP TRIGGER global_command_id_from_taskrun_claim_receipts_v43;")
         .unwrap();
-    assert!(!v65_matches(&connection, 65).unwrap());
+    assert!(!v68_matches(&connection, CURRENT_SCHEMA_VERSION).unwrap());
     assert!(classify_existing_connection(&connection).is_err());
 }
 
@@ -49,23 +49,25 @@ fn v43_renewal_receipts_are_append_only_and_admission_checks_the_guards() {
     let connection = v43_database_with_claim();
     let renewal_id = [31_u8; 16];
     insert_test_renewal(&connection, &renewal_id).unwrap();
-    assert!(connection
-        .execute(
-            "UPDATE taskrun_assignment_lease_renewals SET renewal_id=?1 WHERE renewal_id=?2",
-            params![[32_u8; 16].as_slice(), renewal_id.as_slice()],
-        )
-        .is_err());
-    assert!(connection
-        .execute(
-            "DELETE FROM taskrun_assignment_lease_renewals WHERE renewal_id=?1",
-            [renewal_id.as_slice()],
-        )
-        .is_err());
+    assert!(
+        connection
+            .execute(
+                "UPDATE taskrun_assignment_lease_renewals SET renewal_id=?1 WHERE renewal_id=?2",
+                params![[32_u8; 16].as_slice(), renewal_id.as_slice()],
+            )
+            .is_err()
+    );
+    assert!(
+        connection
+            .execute(
+                "DELETE FROM taskrun_assignment_lease_renewals WHERE renewal_id=?1",
+                [renewal_id.as_slice()],
+            )
+            .is_err()
+    );
 
     connection
-        .execute_batch(
-            "DROP TRIGGER taskrun_assignment_lease_renewals_immutable;",
-        )
+        .execute_batch("DROP TRIGGER taskrun_assignment_lease_renewals_immutable;")
         .unwrap();
     assert!(!v43_matches(&connection, 43).unwrap());
     assert!(classify_existing_connection(&connection).is_err());
@@ -85,13 +87,15 @@ fn v43_admission_rejects_cross_table_renewal_id_collision_after_guard_removal() 
     ).unwrap();
     insert_test_renewal(&connection, &[31_u8; 16]).unwrap();
     insert_command_receipt(&connection, "command_receipts", &[32_u8; 16]).unwrap();
-    connection.execute_batch(
-        "DROP TRIGGER taskrun_assignment_lease_renewals_immutable;",
-    ).unwrap();
-    connection.execute(
-        "UPDATE taskrun_assignment_lease_renewals SET renewal_id=?1 WHERE renewal_id=?2",
-        params![[32_u8; 16].as_slice(), [31_u8; 16].as_slice()],
-    ).unwrap();
+    connection
+        .execute_batch("DROP TRIGGER taskrun_assignment_lease_renewals_immutable;")
+        .unwrap();
+    connection
+        .execute(
+            "UPDATE taskrun_assignment_lease_renewals SET renewal_id=?1 WHERE renewal_id=?2",
+            params![[32_u8; 16].as_slice(), [31_u8; 16].as_slice()],
+        )
+        .unwrap();
     // This models a stored row altered after its append-only guard was removed;
     // classification must reject the collision even though the row relationships remain valid.
     assert!(!v43_matches(&connection, 43).unwrap());

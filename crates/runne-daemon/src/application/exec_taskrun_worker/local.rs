@@ -18,6 +18,8 @@ use std::io::Read;
 mod helpers;
 #[path = "local/no_effect.rs"]
 mod no_effect;
+#[path = "local/permission.rs"]
+mod permission;
 #[path = "local/run.rs"]
 pub(super) mod run;
 use helpers::*;
@@ -33,48 +35,7 @@ impl DaemonAutomaticTaskRuns {
         &self,
         candidate: TaskRunQueueCandidate,
     ) -> Option<Result<(), AutomaticTaskRunError>> {
-        match self.prepare_local_candidate(candidate) {
-            Ok(None) => None,
-            Err(AutomaticTaskRunError::RejectedBeforeEffect) => {
-                Some(self.fail_rejected_local_command(candidate))
-            }
-            Err(error) => Some(Err(error)),
-            Ok(Some((workspace_id, command, prepared, principal))) => {
-                let decision = match self
-                    .resolve_local_approval(
-                        candidate.taskrun_id,
-                        workspace_id,
-                        &command,
-                        &prepared,
-                        principal.clone(),
-                    )
-                    .await
-                {
-                    Ok(value) => value,
-                    Err(AutomaticTaskRunError::RejectedBeforeEffect) => {
-                        return Some(self.fail_rejected_local_command(candidate));
-                    }
-                    Err(error) => return Some(Err(error)),
-                };
-                match decision {
-                    LocalApprovalDecision::Pending => return Some(Ok(())),
-                    LocalApprovalDecision::Rejected => {
-                        return Some(self.fail_rejected_local_command(candidate));
-                    }
-                    LocalApprovalDecision::Approved => {}
-                }
-                Some(
-                    self.launch_local_command(
-                        candidate,
-                        workspace_id,
-                        command,
-                        prepared,
-                        principal,
-                    )
-                    .await,
-                )
-            }
-        }
+        permission::execute_candidate(self, candidate).await
     }
 
     fn prepare_local_candidate(

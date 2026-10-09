@@ -13,7 +13,16 @@ pub(crate) fn local_preapproval_diagnostic(runtime_root: &Path) -> String {
         "preflight",
         "digest",
         "managed_area_support",
+        "current_managed_identity_mismatch",
+        "current_legacy_identity_rejected",
         "ready",
+        "current_approval_wait",
+        "current_approval_rejected",
+        "current_release_before",
+        "current_release_failed",
+        "current_release_done",
+        "current_rejection_stale",
+        "current_approval_other_error",
     ]
     .contains(&stage.as_str())
     {
@@ -114,10 +123,15 @@ pub(crate) fn start(
     supervisor: &mut runne_platform_desktop::ProtectedBundledRuntimeSupervisor,
     root: &Path,
 ) {
-    if supervisor.start().is_err() {
+    let result = if crate::t1_credential_companion::enabled() {
+        supervisor.start_capturing_for_test(crate::random_secret())
+    } else {
+        supervisor.start()
+    };
+    if let Err(error) = result {
         panic!(
-            "protected T1 launch failed; startup_stage={}",
-            startup_diagnostic(root)
+            "protected T1 launch failed; startup_stage={}; error={error}",
+            startup_diagnostic(root),
         );
     }
 }

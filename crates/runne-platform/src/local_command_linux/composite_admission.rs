@@ -1,14 +1,20 @@
-use super::{LinuxCommandError, child::composite::PreparedComposite};
+use super::{
+    LinuxCommandError, child::composite::PreparedComposite,
+    permission::PermissionHelperOperationV1, snapshot::SealedExecutableSnapshot,
+};
 use runne_application::permission_modes::{
-    CompositeEffectScope, CompositeScopeDigest, ContainmentStrategy, FilesystemPosture,
-    IntegrityDigest, NativeAdmissionError, NativeScopeAdmissionPort, NativeScopeAdmissionReceipt,
-    NetworkScope, PermissionMode,
+    CompositeEffectScope, CompositeScopeDigest, ContainmentStrategy, IntegrityDigest,
+    NativeScopeAdmissionReceipt, NetworkScope,
 };
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::fs::File;
 use std::sync::Mutex;
 use std::time::Instant;
+#[path = "composite_admission/helper.rs"]
+mod helper;
+#[path = "composite_admission/readiness.rs"]
+mod readiness;
 #[path = "composite_admission/support.rs"]
 mod support;
 use support::{MAX_SCOPE_LIFETIME_MS, random_handle, validate_scope, workspace_identity};
@@ -23,13 +29,31 @@ struct PendingAdmission {
     workspace_root: Option<IntegrityDigest>,
     network_none: bool,
     admitted_at: Instant,
+    kind: PendingAdmissionKind,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum PendingAdmissionKind {
+    Generic,
+    HelperScope(PermissionHelperOperationV1),
+    HelperRequest {
+        operation: PermissionHelperOperationV1,
+        request_digest: [u8; 32],
+    },
 }
 
 /// Runtime-owned registry of held reserved-root descriptors and one-shot scope tokens.
 pub struct LinuxCompositeScopeAdmission {
     roots: Vec<File>,
+    permission_owner_id: [u8; 16],
+    permission_generation: u64,
     protected_policy_digest: IntegrityDigest,
+    protected_policy_digest_v2_broad: IntegrityDigest,
+    protected_policy_digest_v2_none: IntegrityDigest,
+    protected_policy_digest_v3_broad: IntegrityDigest,
+    protected_policy_digest_v3_none: IntegrityDigest,
     pending: Mutex<HashMap<IntegrityDigest, PendingAdmission>>,
+    helper_executable: Option<SealedExecutableSnapshot>,
 }
 
 impl LinuxCompositeScopeAdmission {
@@ -42,11 +66,34 @@ impl LinuxCompositeScopeAdmission {
         let references = roots.iter().collect::<Vec<_>>();
         let prepared = PreparedComposite::admit(&references)?;
         let protected_policy_digest = PreparedComposite::protected_policy_digest(&references)?;
+        let protected_policy_digest_v2_broad = PreparedComposite::protected_policy_digest_v2(
+            &references,
+            NetworkScope::BroadSameUser,
+        )?;
+        let protected_policy_digest_v2_none =
+            PreparedComposite::protected_policy_digest_v2(&references, NetworkScope::None)?;
+        let protected_policy_digest_v3_broad = PreparedComposite::protected_policy_digest_v3(
+            &references,
+            NetworkScope::BroadSameUser,
+        )?;
+        let protected_policy_digest_v3_none =
+            PreparedComposite::protected_policy_digest_v3(&references, NetworkScope::None)?;
         drop(prepared);
+        let (permission_owner_id, permission_generation) = permission_lineage()?;
+        let helper_executable = File::open("/proc/self/exe")
+            .ok()
+            .and_then(|image| SealedExecutableSnapshot::from_held_file(&image).ok());
         Ok(Self {
             roots,
+            permission_owner_id,
+            permission_generation,
             protected_policy_digest,
+            protected_policy_digest_v2_broad,
+            protected_policy_digest_v2_none,
+            protected_policy_digest_v3_broad,
+            protected_policy_digest_v3_none,
             pending: Mutex::new(HashMap::new()),
+            helper_executable,
         })
     }
 
@@ -56,14 +103,8 @@ impl LinuxCompositeScopeAdmission {
         self.protected_policy_digest
     }
 
-    /// Canonical descriptor identity for a workspace root in `FilesystemRoot`.
-    pub fn workspace_root_identity(workspace: &File) -> Result<IntegrityDigest, LinuxCommandError> {
-        workspace_identity(workspace)
-    }
-
-    /// Explicitly discards an unused admission receipt and its held tree snapshot.
-    pub fn revoke(&self, receipt: NativeScopeAdmissionReceipt) -> Result<bool, LinuxCommandError> {
-        Ok(self.lock()?.remove(&receipt.platform_handle_id()).is_some())
+    pub(super) const fn permission_lineage(&self) -> ([u8; 16], u64) {
+        (self.permission_owner_id, self.permission_generation)
     }
 
     pub(super) fn inspect(
@@ -74,7 +115,10 @@ impl LinuxCompositeScopeAdmission {
         cwd: &File,
         consume: bool,
     ) -> Result<(Option<PreparedComposite>, bool), LinuxCommandError> {
-        validate_scope(scope, self.protected_policy_digest)
+        let protected = self
+            .protected_identity(scope)
+            .ok_or(LinuxCommandError::CompositePolicyUnenforceable)?;
+        validate_scope(scope, protected)
             .map_err(|_| LinuxCommandError::CompositePolicyUnenforceable)?;
         let digest = scope
             .digest()
@@ -91,6 +135,7 @@ impl LinuxCompositeScopeAdmission {
         if token.scope_digest != digest
             || token.managed_policy_digest != receipt.managed_policy_digest()
             || token.containment != receipt.containment()
+            || token.kind != PendingAdmissionKind::Generic
             || token.admitted_at.elapsed().as_millis() > u128::from(MAX_SCOPE_LIFETIME_MS)
         {
             return Err(LinuxCommandError::Unverified);
@@ -105,7 +150,11 @@ impl LinuxCompositeScopeAdmission {
             }
             Some(_) => Err(LinuxCommandError::Unverified),
             None => {
-                if scope.containment != ContainmentStrategy::SameUserCompositeV1 {
+                if !matches!(
+                    scope.containment,
+                    ContainmentStrategy::SameUserCompositeV1
+                        | ContainmentStrategy::SameUserCompositeV2
+                ) {
                     return Err(LinuxCommandError::Unverified);
                 }
                 let prepared = token.prepared.validate_for(workspace, cwd)?;
@@ -117,108 +166,32 @@ impl LinuxCompositeScopeAdmission {
         }
         Ok(result)
     }
-
-    fn lock(
-        &self,
-    ) -> Result<
-        std::sync::MutexGuard<'_, HashMap<IntegrityDigest, PendingAdmission>>,
-        LinuxCommandError,
-    > {
-        self.pending
-            .lock()
-            .map_err(|_| LinuxCommandError::Unverified)
-    }
 }
 
-impl NativeScopeAdmissionPort for LinuxCompositeScopeAdmission {
-    fn admit_mode_readiness(
-        &self,
-        mode: PermissionMode,
-        scope: &CompositeEffectScope,
-    ) -> Result<IntegrityDigest, NativeAdmissionError> {
-        scope
-            .validate()
-            .map_err(|_| NativeAdmissionError::CompositePolicyUnenforceable)?;
-        if scope.protected_control_plane_policy_digest != self.protected_policy_digest {
-            return Err(NativeAdmissionError::CompositePolicyUnenforceable);
-        }
-        if mode == PermissionMode::FullAccess {
-            if scope.containment != ContainmentStrategy::SameUserCompositeV1
-                || !matches!(scope.filesystem.posture, FilesystemPosture::BroadSameUser)
-                || scope.network != NetworkScope::BroadSameUser
-            {
-                return Err(NativeAdmissionError::CompositePolicyUnenforceable);
-            }
-            let roots = self.roots.iter().collect::<Vec<_>>();
-            PreparedComposite::admit(&roots)
-                .and_then(|_| PreparedComposite::preflight_namespaces())
-                .map_err(|_| NativeAdmissionError::EnforcementUnavailable)?;
-        }
-        let scope_digest = scope
-            .digest()
-            .map_err(|_| NativeAdmissionError::CompositePolicyUnenforceable)?;
-        let mut hash = Sha256::new();
-        hash.update(b"runne:d21:linux-mode-readiness:v1\0");
-        hash.update([match mode {
-            PermissionMode::AskAlways => 1,
-            PermissionMode::RiskBased => 2,
-            PermissionMode::FullAccess => 3,
-        }]);
-        hash.update(scope_digest.as_bytes());
-        hash.update(self.protected_policy_digest.as_bytes());
-        let handle = IntegrityDigest::from_bytes(hash.finalize().into());
-        if handle.as_bytes().iter().all(|byte| *byte == 0) {
-            Err(NativeAdmissionError::EnforcementUnavailable)
-        } else {
-            Ok(handle)
-        }
-    }
-
-    fn admit_scope(
-        &self,
-        scope: &CompositeEffectScope,
-    ) -> Result<IntegrityDigest, NativeAdmissionError> {
-        validate_scope(scope, self.protected_policy_digest)
-            .map_err(|_| NativeAdmissionError::CompositePolicyUnenforceable)?;
-        let roots = self.roots.iter().collect::<Vec<_>>();
-        let prepared = PreparedComposite::admit(&roots)
-            .map_err(|_| NativeAdmissionError::EnforcementUnavailable)?;
-        if scope.containment == ContainmentStrategy::SameUserCompositeV1 {
-            PreparedComposite::preflight_namespaces()
-                .map_err(|_| NativeAdmissionError::EnforcementUnavailable)?;
-        }
-        let scope_digest = scope
-            .digest()
-            .map_err(|_| NativeAdmissionError::CompositePolicyUnenforceable)?;
-        let workspace_root = match &scope.filesystem.posture {
-            FilesystemPosture::BoundedRoots(roots) => {
-                roots.iter().next().map(|root| root.root_identity)
-            }
-            _ => None,
+fn permission_lineage() -> Result<([u8; 16], u64), LinuxCommandError> {
+    let mut bytes = [0; 24];
+    let mut filled = 0;
+    while filled < bytes.len() {
+        let result = unsafe {
+            libc::getrandom(bytes[filled..].as_mut_ptr().cast(), bytes.len() - filled, 0)
         };
-        let handle = random_handle().map_err(|_| NativeAdmissionError::EnforcementUnavailable)?;
-        let mut pending = self
-            .pending
-            .lock()
-            .map_err(|_| NativeAdmissionError::EnforcementUnavailable)?;
-        pending.retain(|_, token| {
-            token.admitted_at.elapsed().as_millis() <= u128::from(MAX_SCOPE_LIFETIME_MS)
-        });
-        if pending.len() >= MAX_PENDING_ADMISSIONS || pending.contains_key(&handle) {
-            return Err(NativeAdmissionError::EnforcementUnavailable);
+        if result < 0 && std::io::Error::last_os_error().kind() == std::io::ErrorKind::Interrupted {
+            continue;
         }
-        pending.insert(
-            handle,
-            PendingAdmission {
-                scope_digest,
-                managed_policy_digest: scope.managed_policy.policy_digest(),
-                containment: scope.containment,
-                prepared,
-                workspace_root,
-                network_none: scope.network == NetworkScope::None,
-                admitted_at: Instant::now(),
-            },
-        );
-        Ok(handle)
+        if result <= 0 {
+            return Err(LinuxCommandError::Unavailable);
+        }
+        filled += result as usize;
     }
+    let mut owner = [0; 16];
+    owner.copy_from_slice(&bytes[..16]);
+    let generation = u64::from_be_bytes(
+        bytes[16..]
+            .try_into()
+            .map_err(|_| LinuxCommandError::Unavailable)?,
+    );
+    if owner == [0; 16] || generation == 0 {
+        return Err(LinuxCommandError::Unavailable);
+    }
+    Ok((owner, generation))
 }

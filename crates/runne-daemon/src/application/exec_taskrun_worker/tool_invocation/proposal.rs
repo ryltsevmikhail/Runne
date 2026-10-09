@@ -6,7 +6,6 @@ use runne_domain::{id::IntegrityDigest, task_run::TaskRun};
 use runne_store::store::taskrun_tool_invocation::{
     EncryptedToolPayloadV1, ToolInvocationBindingV1, ToolInvocationKey, ToolSourceRef,
 };
-use sha2::{Digest, Sha256};
 #[path = "proposal/approval.rs"]
 mod approval;
 
@@ -28,7 +27,7 @@ impl super::super::DaemonAutomaticTaskRuns {
         principal: ApiPrincipalId,
     ) -> Result<(), ()> {
         super::super::provider::d2_stage("proposal_validating");
-        let (path, _content) = parse_fixed_arguments(&call).map_err(|_| {
+        let (path, content) = parse_fixed_arguments(&call).map_err(|_| {
             super::super::provider::d2_stage("proposal_error_arguments");
         })?;
         if sources.len() != 2
@@ -55,22 +54,8 @@ impl super::super::DaemonAutomaticTaskRuns {
             super::super::provider::d2_stage("proposal_error_cycle");
             return Err(());
         }
-        let declarations = vec![
-            runne_provider::ProviderToolDeclarationV1::for_name(
-                runne_provider::ProviderToolNameV1::WorkspaceFileRead,
-            ),
-            runne_provider::ProviderToolDeclarationV1::for_name(
-                runne_provider::ProviderToolNameV1::WorkspaceFileCreateNew,
-            ),
-        ];
-        let schema_digest = IntegrityDigest::from_bytes(
-            Sha256::digest(serde_json::to_vec(&declarations).map_err(|_| ())?).into(),
-        );
-        let canonical_value: serde_json::Value =
-            serde_json::from_str(&call.arguments_json).map_err(|_| ())?;
-        let canonical_arguments = serde_json::to_vec(&canonical_value).map_err(|_| ())?;
-        let arguments_digest =
-            IntegrityDigest::from_bytes(Sha256::digest(&canonical_arguments).into());
+        let (schema_digest, canonical_arguments, arguments_digest) =
+            permission::canonical_tool_arguments(&call)?;
         let key = ToolInvocationKey {
             taskrun_id: assignment.taskrun_id,
             attempt_id: assignment.attempt_id,
@@ -80,23 +65,32 @@ impl super::super::DaemonAutomaticTaskRuns {
         self.root_admission
             .admit_d2_tool_target(workspace_id, &path)
             .map_err(|_| ())?;
-        let (workspace_version, root_revision, root_identity, trust, target) = self
-            .root_admission
-            .with_local_command_root(workspace_id, |root, wv, _, rv, ri, admission| {
-                let files = root.open_linux_command_workspace(std::path::Path::new("."))?;
-                let target = crate::application::exec_taskrun_worker::local::run::tool_executor::capture_target_precondition(
-                    &files,
-                    &call.tool_name,
-                    &path,
-                ).map_err(|_| runne_platform_desktop::RootHandleBrokerError::Rejected)?;
-                let target = target.map(|v| {
-                    let bytes = serde_json::to_vec(&v).expect("version serializes");
-                    IntegrityDigest::from_bytes(Sha256::digest(bytes).into())
-                });
-                Ok((wv, rv, ri, admission.token, target))
-            })
-            .map_err(|_| { super::super::provider::d2_stage("proposal_error_target_capture"); })?;
+        let permission_build::ProposalRootCapture {
+            files,
+            workspace_version,
+            root_revision,
+            root_identity,
+            trust,
+            target_digest: target,
+            target_version,
+            root_file_identity,
+            project_id,
+        } = permission_build::capture_proposal_root(
+            &self.root_admission,
+            workspace_id,
+            &call.tool_name,
+            &path,
+        )
+        .map_err(|_| {
+            super::super::provider::d2_stage("proposal_error_target_capture");
+        })?;
         super::super::provider::d2_stage("proposal_target_captured");
+        let trust_policy = permission::capture_current_managed_policy(
+            &self.root_admission,
+            workspace_id,
+            trust,
+            project_id,
+        )?;
         let saved = self
             .store
             .load_taskrun_tool_invocation(key)
@@ -181,10 +175,21 @@ impl super::super::DaemonAutomaticTaskRuns {
             &principal,
             workspace_id,
             root_digest,
+            trust_policy.project,
+            &trust_policy.snapshot,
             &binding,
-            saved.as_ref().map(|record| record.receipt.state),
             native,
             now_millis(),
+        )?;
+        permission_build::prepare_tool_helper(
+            &self.store,
+            &prepared,
+            &binding,
+            assignment,
+            root_file_identity,
+            target_version,
+            &content,
+            files,
         )?;
         let provider = self.provider.as_ref().ok_or(())?;
         let encrypted: EncryptedToolPayloadV1 = provider
@@ -251,6 +256,7 @@ impl super::super::DaemonAutomaticTaskRuns {
                 )
                 .map_err(|_| ())?;
         }
+        drop(trust_policy);
         if prepared.requires_human {
             self.await_approval_and_execute(
                 context,
@@ -283,18 +289,9 @@ impl super::super::DaemonAutomaticTaskRuns {
 }
 
 fn stable(bytes: &[u8]) -> [u8; 16] {
-    let mut value: [u8; 16] = Sha256::digest(bytes)[..16]
-        .try_into()
-        .expect("fixed digest prefix");
-    value[6] = (value[6] & 0x0f) | 0x70;
-    value[8] = (value[8] & 0x3f) | 0x80;
-    value
+    permission::stable_tool_id(bytes)
 }
 
 fn now_millis() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .ok()
-        .and_then(|d| i64::try_from(d.as_millis()).ok())
-        .unwrap_or(0)
+    permission::now_millis()
 }

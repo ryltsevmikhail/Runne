@@ -1,4 +1,5 @@
 use super::*;
+use runne_application::permission_modes::MAX_LOCAL_COMMAND_CAPTURE_BYTES;
 use runne_platform::local_command_linux::LinuxCommandOutputLimitsV1;
 use std::time::Instant;
 
@@ -197,8 +198,54 @@ fn cancellation_before_release_with_io_never_runs_or_leaves_the_child() {
 
 #[test]
 fn io_limits_reject_oversize_configuration() {
+    assert_eq!(MAX_LOCAL_COMMAND_CAPTURE_BYTES, 65_536);
+    assert_eq!(
+        LinuxCommandOutputLimitsV1::new(65_536, 65_536),
+        Ok(limits(65_536, 65_536))
+    );
+    assert_eq!(
+        LinuxCommandOutputLimitsV1::new(0, 65_536),
+        Ok(limits(0, 65_536))
+    );
     assert_eq!(
         LinuxCommandOutputLimitsV1::new(64 * 1024 + 1, 0),
         Err(LinuxCommandError::Invalid)
     );
+    assert_eq!(
+        LinuxCommandOutputLimitsV1::new(0, 64 * 1024 + 1),
+        Err(LinuxCommandError::Invalid)
+    );
+}
+
+#[test]
+fn zero_capture_caps_discard_but_continue_draining_both_streams() {
+    let Some((_root, area, _identity)) = run_or_skip() else {
+        return;
+    };
+    let workspace = Workspace::new();
+    let workspace_fd = workspace.file();
+    let cwd = workspace.cwd();
+    let exe = File::open("/bin/sh").expect("shell");
+    let command = spec(
+        &exe,
+        &workspace_fd,
+        &cwd,
+        OsString::from(
+            "i=0; while [ $i -lt 12000 ]; do printf 0123456789; printf abcdefghij >&2; i=$((i+1)); done",
+        ),
+        Vec::new(),
+    );
+    let mut child = command
+        .spawn_gated_with_io(&area, b"", limits(0, 0))
+        .expect("zero-retention drain child");
+    child.release().expect("release drain child");
+    let (stdout, stderr, out_truncated, err_truncated, out_seen, err_seen, overflowed, status) =
+        collect_until_complete(&mut child, Duration::from_secs(10));
+    assert!(stdout.is_empty() && stderr.is_empty());
+    assert!(out_truncated && err_truncated);
+    assert_eq!((out_seen, err_seen, overflowed), (120_000, 120_000, false));
+    assert_eq!(status, 0);
+    drop(child);
+    assert!(!area.is_populated().expect("drained area empty"));
+    area.remove();
 }

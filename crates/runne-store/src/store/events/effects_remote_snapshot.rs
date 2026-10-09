@@ -83,14 +83,16 @@ pub(crate) fn load_task_run_effects_snapshot_in_transaction(
                     head_event: head.map(|event| event.payload()),
                 },
             );
-            let terminal_stop_proven = crate::store::test_support_diagnostics::on_error(
-                "effects.local_terminal_proof",
-                terminal_stop_proven,
-            )?;
+            let (terminal_stop_proven, policy_stop_proven) =
+                crate::store::test_support_diagnostics::on_error(
+                    "effects.local_terminal_proof",
+                    terminal_stop_proven,
+                )?;
             if matches!(
                 row.3.as_str(),
                 "completed" | "cancelled" | "outcome_unknown"
             ) && !terminal_stop_proven
+                && !policy_stop_proven
             {
                 crate::store::test_support_diagnostics::record("effects.local_terminal_unproven");
                 return Err(EventStoreError::CorruptData);
@@ -104,6 +106,7 @@ pub(crate) fn load_task_run_effects_snapshot_in_transaction(
                     row.6.as_deref(),
                     cancellation_requested,
                     terminal_stop_proven,
+                    policy_stop_proven,
                 ),
             )?;
             (

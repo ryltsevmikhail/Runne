@@ -129,6 +129,52 @@ fn renderer_accepts_profile_maximum_text_context_without_truncation() {
 }
 
 #[test]
+fn developer_canary_fails_before_a_tool_request_is_prepared_and_stays_out_of_errors() {
+    const CANARY: &str = "M9-TOOL-RENDER-DEVELOPER-CANARY";
+
+    let profile = OpenAiResponsesToolProfile::new(base_profile()).unwrap();
+    let call = ProviderCall::new(
+        ProviderCallId::from_bytes([6; 16]),
+        ModelRef::new(
+            ProviderId::new("openai").unwrap(),
+            OPENAI_MODEL_ID,
+            OPENAI_MODEL_REVISION,
+        )
+        .unwrap(),
+        [9; 32],
+        256,
+        profile.call_binding_extension(),
+    )
+    .unwrap()
+    .with_text_inputs(vec![
+        ProviderTextInput::new(ProviderInputRole::Developer, CANARY).unwrap(),
+    ])
+    .unwrap()
+    .with_tool_context(profile.tool_declarations().to_vec(), vec![])
+    .unwrap()
+    .with_required_capabilities(vec![
+        ProviderCapability::Streaming,
+        ProviderCapability::Tools,
+    ]);
+
+    let result = OpenAiResponsesToolRenderer::new(profile).prepare(&call);
+    let Err(error) = result else {
+        panic!("developer context must fail before a tool request is prepared");
+    };
+    assert_eq!(error, OpenAiToolRenderError::InvalidCommittedContext);
+    let display = error.to_string();
+    let debug = format!("{error:?}");
+    assert!(
+        !display.contains(CANARY),
+        "display error exposed developer text"
+    );
+    assert!(
+        !debug.contains(CANARY),
+        "debug error exposed developer text"
+    );
+}
+
+#[test]
 fn text_profile_rejects_populated_tools_and_tool_profile_binds_result_identity() {
     let text = base_profile();
     let profile = OpenAiResponsesToolProfile::new(text.clone()).unwrap();

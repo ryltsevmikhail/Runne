@@ -42,6 +42,13 @@ fn run_entrypoint(arguments: Vec<OsString>) -> ProcessOutcome {
     {
         return broker_process_outcome(run_provider_credential_broker(VecDeque::from(arguments)));
     }
+    #[cfg(target_os = "linux")]
+    if arguments
+        .iter()
+        .any(|argument| argument == "--protected-runtime-root")
+    {
+        return protected_runtime_ui::run(arguments);
+    }
     let result = tokio::runtime::Runtime::new()
         .map_or((Err(CliError::Runtime), OutputFormat::Text), |runtime| {
             runtime.block_on(run_after_broker_bootstrap(arguments))
@@ -60,6 +67,10 @@ fn broker_process_outcome(result: Result<(), CliError>) -> ProcessOutcome {
     }
 }
 
+#[expect(
+    clippy::future_not_send,
+    reason = "the CLI runs its command tree inline with the current-thread runtime"
+)]
 async fn run_after_broker_bootstrap(
     arguments: Vec<OsString>,
 ) -> (Result<CommandOutput, CliError>, OutputFormat) {
@@ -231,6 +242,7 @@ include!("cli/completion.rs");
 include!("cli/conversation.rs");
 include!("cli/task.rs");
 include!("cli/task_run.rs");
+include!("cli/permissions.rs");
 include!("cli/task_run_poll.rs");
 include!("cli/session.rs");
 include!("cli/task_help.rs");
@@ -258,9 +270,24 @@ pub mod persistent_reference_probe;
 mod release;
 
 #[cfg(test)]
+#[path = "cli/permissions/approval_recovery_tests.rs"]
+mod approval_recovery_tests;
+#[cfg(test)]
+#[path = "cli/permissions/approval_response_tests.rs"]
+mod approval_response_tests;
+#[cfg(test)]
 pub mod credential_test_support;
 #[cfg(test)]
 mod output_tests;
+#[cfg(test)]
+#[path = "cli/permissions/recovery_tests.rs"]
+mod permissions_recovery_tests;
+#[cfg(test)]
+#[path = "cli/permissions/tests.rs"]
+mod permissions_tests;
+#[cfg(test)]
+#[path = "cli/permissions/transport_tests.rs"]
+mod permissions_transport_tests;
 #[cfg(test)]
 mod provider_credential_legacy_tests;
 #[cfg(test)]

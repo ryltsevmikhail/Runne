@@ -1,4 +1,3 @@
-
 impl ProtectedBundledRuntimeSupervisor {
     #[must_use]
     pub fn new(
@@ -13,6 +12,8 @@ impl ProtectedBundledRuntimeSupervisor {
             backoff: BundledRuntimeBackoff::new(),
             restart_at: None,
             state: BundledRuntimeLifecycleState::Absent,
+            #[cfg(all(target_os = "linux", feature = "protected-channel-integration"))]
+            permission_control_sequence: None,
             #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
             credential_service_rejoin: None,
         }
@@ -34,25 +35,25 @@ impl ProtectedBundledRuntimeSupervisor {
     ///
     /// Returns a closed launch or lifecycle failure.
     pub fn start(&mut self) -> Result<(), ProtectedBundledRuntimeError> {
-        if !matches!(
-            self.state,
-            BundledRuntimeLifecycleState::Absent
-                | BundledRuntimeLifecycleState::Stopped
-                | BundledRuntimeLifecycleState::FailedStart
-                | BundledRuntimeLifecycleState::Exhausted
-        ) || self.process.is_some()
-        {
-            return Err(ProtectedBundledRuntimeError::InvalidState);
-        }
-        self.backoff = BundledRuntimeBackoff::new();
-        let result = self.spawn_fresh();
-        if result.is_err() {
-            self.state = BundledRuntimeLifecycleState::FailedStart;
-        }
-        result
+        start_protected_runtime_with(self, DevelopmentBundledRuntimeLauncher::launch)
     }
 
     fn spawn_fresh(&mut self) -> Result<(), ProtectedBundledRuntimeError> {
+        self.spawn_fresh_with(DevelopmentBundledRuntimeLauncher::launch)
+    }
+
+    fn spawn_fresh_with(
+        &mut self,
+        launch: impl FnOnce(
+            &DevelopmentBundledRuntimeLauncher,
+            &ProtectedBundledRuntimeLaunchSpec,
+        )
+            -> Result<ProtectedBundledRuntimeProcess, ProtectedBundledRuntimeError>,
+    ) -> Result<(), ProtectedBundledRuntimeError> {
+        #[cfg(all(target_os = "linux", feature = "protected-channel-integration"))]
+        {
+            self.permission_control_sequence = None;
+        }
         #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
         {
             self.credential_service_rejoin = None;
@@ -61,7 +62,7 @@ impl ProtectedBundledRuntimeSupervisor {
         self.restart_at = None;
         self.state = BundledRuntimeLifecycleState::ValidatingBinary;
         self.state = BundledRuntimeLifecycleState::Spawning;
-        let mut process = self.launcher.launch(&self.spec)?;
+        let mut process = launch(&self.launcher, &self.spec)?;
         let profile = process
             .take_runtime_profile()
             .ok_or(ProtectedBundledRuntimeError::InvalidState)?;
@@ -243,6 +244,18 @@ impl ProtectedBundledRuntimeSupervisor {
     ///
     /// Returns a closed ownership or incomplete-shutdown failure.
     pub fn stop(&mut self) -> Result<BundledRuntimeStopDisposition, ProtectedBundledRuntimeError> {
+        self.stop_with().map(|(disposition, _process)| disposition)
+    }
+
+    fn stop_with(
+        &mut self,
+    ) -> Result<
+        (
+            BundledRuntimeStopDisposition,
+            Option<ProtectedBundledRuntimeProcess>,
+        ),
+        ProtectedBundledRuntimeError,
+    > {
         self.restart_at = None;
         self.pending_profile = None;
         self.backoff.record_disconnected();
@@ -252,7 +265,7 @@ impl ProtectedBundledRuntimeSupervisor {
         }
         let Some(mut process) = self.process.take() else {
             self.state = BundledRuntimeLifecycleState::Stopped;
-            return Ok(BundledRuntimeStopDisposition::Graceful);
+            return Ok((BundledRuntimeStopDisposition::Graceful, None));
         };
         self.state = BundledRuntimeLifecycleState::Stopping;
         let graceful_requested = process.request_graceful_stop().is_ok();
@@ -261,7 +274,7 @@ impl ProtectedBundledRuntimeSupervisor {
                 == BundledRuntimeProcessStatus::Exited
         {
             self.state = BundledRuntimeLifecycleState::Stopped;
-            return Ok(BundledRuntimeStopDisposition::Graceful);
+            return Ok((BundledRuntimeStopDisposition::Graceful, Some(process)));
         }
         process.terminate()?;
         if process.wait_for_exit(BUNDLED_RUNTIME_GRACEFUL_STOP_TIMEOUT)?
@@ -271,6 +284,6 @@ impl ProtectedBundledRuntimeSupervisor {
             return Err(ProtectedBundledRuntimeError::ShutdownIncomplete);
         }
         self.state = BundledRuntimeLifecycleState::Stopped;
-        Ok(BundledRuntimeStopDisposition::Forced)
+        Ok((BundledRuntimeStopDisposition::Forced, Some(process)))
     }
 }

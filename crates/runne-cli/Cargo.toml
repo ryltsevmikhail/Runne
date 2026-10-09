@@ -58,8 +58,17 @@ runne-native-enrollment-authority = { path = "../runne-native-enrollment-authori
 rustix = { version = "=1.1.4", features = ["net", "pipe", "process"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
-runne-platform-desktop = { path = "../runne-platform-desktop" }
+runne-platform-desktop = { path = "../runne-platform-desktop", features = ["protected-channel-integration"] }
+gtk = "=0.18.2"
 nix = { version = "=0.31.3", default-features = false, features = ["fs", "poll", "process"] }
+rustix = { version = "=1.1.4", default-features = false, features = ["fs", "process"] }
+
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+runne-application = { path = "../runne-application" }
+runne-domain = { path = "../runne-domain" }
+runne-security = { path = "../runne-security" }
+runne-store = { path = "../runne-store" }
+uuid.workspace = true
 
 [[bin]]
 name = "writer-entry-fixture"

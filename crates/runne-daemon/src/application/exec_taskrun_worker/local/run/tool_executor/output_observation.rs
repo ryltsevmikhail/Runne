@@ -26,59 +26,6 @@ impl OutputObservation {
         self.stderr_eof |= chunk.stderr_eof;
         self.exit_code = chunk.leader_exit_code.or(self.exit_code);
     }
-
-    pub(super) fn into_failure(self) -> HelperRunFailure {
-        HelperRunFailure {
-            reason: HelperRunError::Uncertain,
-            stdout: Vec::new(),
-            stderr: Vec::new(),
-            cleanup_proved: false,
-            child_spawned: false,
-            go_released: false,
-            stdout_truncated: self.stdout_truncated,
-            stderr_truncated: self.stderr_truncated,
-            stdout_observed_bytes: self.stdout_observed_bytes,
-            stderr_observed_bytes: self.stderr_observed_bytes,
-            observed_bytes_overflowed: self.observed_bytes_overflowed,
-            stdout_eof: self.stdout_eof,
-            stderr_eof: self.stderr_eof,
-            exit_code: self.exit_code,
-        }
-    }
-}
-
-pub(super) fn collect_output(
-    child: &mut GatedLinuxChild<'_>,
-    stdout: &mut Vec<u8>,
-    stderr: &mut Vec<u8>,
-    observation: &mut OutputObservation,
-) {
-    let chunk = child.take_output();
-    observation.observe(&chunk);
-    if stdout.len() + chunk.stdout.len() <= STDOUT_CAP {
-        stdout.extend_from_slice(&chunk.stdout);
-    }
-    if stderr.len() + chunk.stderr.len() <= STDERR_CAP {
-        stderr.extend_from_slice(&chunk.stderr);
-    }
-}
-
-pub(super) fn drain_after_stop(
-    child: &mut GatedLinuxChild<'_>,
-    stdout: &mut Vec<u8>,
-    stderr: &mut Vec<u8>,
-    observation: &mut OutputObservation,
-) {
-    for _ in 0..16 {
-        if child.poll_output().is_err() {
-            break;
-        }
-        let before = stdout.len() + stderr.len();
-        collect_output(child, stdout, stderr, observation);
-        if stdout.len() + stderr.len() == before {
-            break;
-        }
-    }
 }
 
 pub(super) fn failure(reason: HelperRunError) -> HelperRunFailure {

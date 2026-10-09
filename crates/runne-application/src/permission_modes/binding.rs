@@ -111,6 +111,7 @@ fn containment_tag(strategy: ContainmentStrategy) -> u8 {
     match strategy {
         ContainmentStrategy::WorkspaceBoundV1 => 1,
         ContainmentStrategy::SameUserCompositeV1 => 2,
+        ContainmentStrategy::SameUserCompositeV2 => 3,
     }
 }
 

@@ -23,7 +23,7 @@ use sha2::{Digest, Sha256};
 use std::io::Read;
 
 /// Current schema version. Increment when adding new DDL migrations.
-pub const CURRENT_SCHEMA_VERSION: i64 = 65;
+pub const CURRENT_SCHEMA_VERSION: i64 = 68;
 
 /// Fail-closed reason returned before a file-backed database is made writable.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -163,6 +163,10 @@ include!("schema/migrations/v62_remote_terminal_audit.rs");
 include!("schema/migrations/v63_provider_terminal_unknown.rs");
 include!("schema/migrations/v64_taskrun_tool_invocation.rs");
 include!("schema/migrations/v65_permission_modes.rs");
+include!("schema/migrations/v66_permission_confirmation.rs");
+include!("schema/migrations/v67_permission_managed_identity.rs");
+include!("schema/migrations/v68_taskrun_permission.rs");
+include!("schema/taskrun_permission.rs");
 #[cfg(feature = "test-support")]
 include!("schema/test_support_matcher_diagnosis.rs");
 mod project_workspace_backfill;
@@ -259,6 +263,10 @@ mod tests {
     include!("schema/tests/v61_remote_terminal_application.rs");
     include!("schema/tests/v64_tool_invocation.rs");
     include!("schema/tests/v65_permission_modes.rs");
+    include!("schema/tests/v66_permission_confirmation.rs");
+    #[path = "v67_permission_managed_identity.rs"]
+    mod v67_permission_managed_identity;
+    include!("schema/tests/v68_taskrun_permission.rs");
     include!("schema/tests/recovery_compatibility.rs");
     include!("schema/tests/recovery_compatibility_v24.rs");
     include!("schema/tests/credential_v24.rs");

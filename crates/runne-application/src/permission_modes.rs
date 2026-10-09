@@ -10,13 +10,21 @@ mod compiler;
 mod compiler_rules;
 mod composite;
 mod composite_digest;
+mod confirmation_v2;
 mod errors;
 mod history;
+mod local_command_binding;
+mod local_command_digest;
+mod local_command_limits;
+mod local_command_validation;
 mod managed_digest;
 mod model;
 mod readiness;
 mod resource;
+mod retained;
 mod scope_error;
+
+pub use retained::*;
 
 pub use admission::{
     FullAccessChallengeBinding, NativeAdmissionError, NativeChallengeError,
@@ -28,12 +36,26 @@ pub use compiler::{
     ManagedPolicyEvaluation, PermissionPolicyCompiler, PolicyDecision, PolicyEvaluationInput,
 };
 pub use composite::{
-    ChildDelegationScope, CompositeEffectScope, CompositeScopeDigest, ContainmentStrategy,
-    EffectBudget, FilesystemPermission, FilesystemPosture, FilesystemRoot, FilesystemScope,
-    ManagedPolicyCoverage, NetworkScope,
+    ChildDelegationScope, ClosedManagedCoverageV1, CompositeEffectScope, CompositeScopeDigest,
+    ContainmentStrategy, EffectBudget, FilesystemPermission, FilesystemPosture, FilesystemRoot,
+    FilesystemScope, ManagedPolicyCoverage, NetworkScope,
+};
+pub use confirmation_v2::{
+    NativeModeConfirmationBindingV2, NativeModeConfirmationError, NativeModeConfirmationVerifierV2,
+    VerifiedNativeModeConfirmationV2, native_mode_public_request_digest_v2,
+    verify_native_mode_confirmation_v2,
 };
 pub use errors::PermissionModeError;
 pub use history::{EffectiveModeHistoryState, PermissionModeHistoryProjection};
+pub use local_command_binding::{
+    LOCAL_COMMAND_PERMISSION_BINDING_COMPILER_VERSION,
+    LOCAL_COMMAND_PERMISSION_BINDING_SCHEMA_VERSION, LocalCommandPermissionBindingInputV1,
+    LocalCommandPermissionBindingV1,
+};
+pub use local_command_limits::{
+    LocalInvocationLimitsError, LocalInvocationLimitsV1, MAX_LOCAL_COMMAND_CAPTURE_BYTES,
+};
+pub use local_command_validation::LocalCommandPermissionBindingError;
 pub use managed_digest::managed_policy_semantics_digest;
 pub use model::{
     ModeSelection, NetworkState, PermissionMode, PermissionModeChangeReceipt,
@@ -64,24 +86,55 @@ pub fn admit_effective_mode(
     scope
         .validate()
         .map_err(|_| NativeAdmissionError::CompositePolicyUnenforceable)?;
-    if mode == PermissionMode::FullAccess
-        && scope.containment != ContainmentStrategy::SameUserCompositeV1
-    {
+    let legacy_full_access = scope.containment == ContainmentStrategy::SameUserCompositeV1;
+    let partial_fs_full_access = scope.containment == ContainmentStrategy::SameUserCompositeV2;
+    if mode == PermissionMode::FullAccess && !(legacy_full_access || partial_fs_full_access) {
         return Err(NativeAdmissionError::CompositePolicyUnenforceable);
     }
-    if mode == PermissionMode::FullAccess
-        && (!matches!(scope.filesystem.posture, FilesystemPosture::BroadSameUser)
-            || scope.network != NetworkScope::BroadSameUser
-            || ![
+    if mode == PermissionMode::FullAccess {
+        let v2_policy_supported = partial_fs_full_access
+            && scope.managed_policy.supports_scope_shape(scope)
+            && scope.managed_policy.scope_minimum_disposition(scope)
+                != Some(crate::project_trust::ManagedEffectDecision::Deny);
+        let closed_policy_supported = if partial_fs_full_access {
+            v2_policy_supported
+        } else {
+            scope.managed_policy.supports_closed_scope(scope)
+        };
+        let closed_network_supported = scope.managed_policy.is_closed()
+            && matches!(
+                scope.network,
+                NetworkScope::None | NetworkScope::BroadSameUser
+            )
+            && closed_policy_supported;
+        let legacy_network_supported = legacy_full_access
+            && !scope.managed_policy.is_closed()
+            && scope.network == NetworkScope::BroadSameUser;
+        let filesystem_rights_supported = if partial_fs_full_access {
+            !scope
+                .filesystem
+                .permissions
+                .contains(&FilesystemPermission::Create)
+                || scope
+                    .filesystem
+                    .permissions
+                    .contains(&FilesystemPermission::Write)
+        } else {
+            [
                 FilesystemPermission::Read,
                 FilesystemPermission::Create,
                 FilesystemPermission::Write,
                 FilesystemPermission::Delete,
             ]
             .iter()
-            .all(|permission| scope.filesystem.permissions.contains(permission)))
-    {
-        return Err(NativeAdmissionError::CompositePolicyUnenforceable);
+            .all(|permission| scope.filesystem.permissions.contains(permission))
+        };
+        if !matches!(scope.filesystem.posture, FilesystemPosture::BroadSameUser)
+            || !(closed_network_supported || legacy_network_supported)
+            || !filesystem_rights_supported
+        {
+            return Err(NativeAdmissionError::CompositePolicyUnenforceable);
+        }
     }
     let handle_id = admission.admit_mode_readiness(mode, scope)?;
     if handle_id.as_bytes().iter().all(|byte| *byte == 0) {
@@ -213,3 +266,15 @@ pub fn validate_mode_change_command(
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+#[path = "permission_modes/closed_coverage/tests_support.rs"]
+mod closed_coverage_test_support;
+
+#[cfg(test)]
+#[path = "permission_modes/tests_containment_v2.rs"]
+mod tests_containment_v2;
+
+#[cfg(test)]
+#[path = "permission_modes/local_command_tests.rs"]
+mod local_command_tests;

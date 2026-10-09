@@ -1,5 +1,8 @@
 use super::*;
 
+#[path = "start/bootstrap_store.rs"]
+mod bootstrap_store;
+
 #[allow(clippy::too_many_arguments)]
 pub(in crate::application) async fn start_http_and_runtime(
     config: &ConfigurationSnapshot,
@@ -22,6 +25,8 @@ pub(in crate::application) async fn start_http_and_runtime(
     executable_sha256: [u8; 32],
     session_id: [u8; 16],
     root_admission_keys: Option<runne_api::ProtectedActivationKeys>,
+    #[cfg(feature = "desktop-protected")]
+    permission_startup: crate::application::root_handle_admission::PermissionStartupBundle,
     provider_readiness: runne_api::ProviderActivationReadinessV1,
     enrollment_capability: Option<
         crate::protected_activation::VerifiedProtectedEnrollmentCapability,
@@ -37,15 +42,8 @@ pub(in crate::application) async fn start_http_and_runtime(
         root_admission_keys.as_ref(),
         enrollment_capability.as_ref(),
     )?;
-    let bootstrap_reservation_store = Arc::new(SqliteBootstrapReservationStore::new(
-        open_runtime_connection(
-            &config.db_path,
-            runne_store::schema::ConnectionMode::ValidatedReopen,
-            bootstrap.authority_id,
-            replay_lineage,
-            "bootstrap reservation store",
-        )?,
-    ));
+    let bootstrap_reservation_store =
+        bootstrap_store::open(config, bootstrap.authority_id, replay_lineage)?;
     let runtime_config = linux_enrollment_control::runtime_config(config.max_in_flight)?;
     let generation = RuntimeGenerationId(bootstrap.launch_generation);
     #[cfg(not(target_os = "linux"))]
@@ -114,6 +112,8 @@ pub(in crate::application) async fn start_http_and_runtime(
         root_admission_keys,
         protected_activation,
         Arc::clone(&local_session_service),
+        #[cfg(feature = "desktop-protected")]
+        &permission_startup,
     );
     #[cfg(target_os = "linux")]
     let registered_execution_node = execution_node::register_before_taskrun_recovery(

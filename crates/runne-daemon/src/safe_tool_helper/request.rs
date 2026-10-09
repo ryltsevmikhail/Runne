@@ -36,6 +36,8 @@ pub enum HelperProcessError {
 }
 
 pub fn run() -> Result<(), HelperProcessError> {
+    #[cfg(feature = "test-support")]
+    super::credential_companion_test_support::assert_helper_argv_environment_clear();
     let mut input = Vec::new();
     std::io::stdin()
         .take((MAX_INPUT + 1) as u64)

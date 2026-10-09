@@ -78,5 +78,14 @@ fn apply_execution_migrations(
     if source_version < 65 && target_version >= 65 {
         apply_v65_migration(conn)?;
     }
+    if source_version < 66 && target_version >= 66 {
+        apply_v66_migration(conn)?;
+    }
+    if source_version < 67 && target_version >= 67 {
+        apply_v67_migration(conn)?;
+    }
+    if source_version < 68 && target_version >= 68 {
+        apply_v68_migration(conn)?;
+    }
     Ok(())
 }

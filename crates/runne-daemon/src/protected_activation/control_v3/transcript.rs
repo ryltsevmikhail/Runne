@@ -15,9 +15,19 @@ fn serve_v3_transcript(
 ) -> Result<(), LaunchAuthorityError> {
     let mut last_renew_sequence = 0_u64;
     #[cfg(all(unix, feature = "desktop-protected"))]
+    let mut last_permission_sequence = 0_u64;
+    #[cfg(all(unix, feature = "desktop-protected"))]
+    let mut active_permission_exchange: Option<PermissionModeExchange> = None;
+    #[cfg(all(unix, feature = "desktop-protected"))]
     let mut last_root_sequence = 0_u64;
     #[cfg(all(unix, feature = "desktop-protected"))]
     let mut used_root_transfers = std::collections::VecDeque::new();
+    #[cfg(all(unix, feature = "desktop-protected"))]
+    if let Some(control) = &root_admission {
+        let compatible =
+            ProtectedOwnedLaunchV1::compatibility_view_of_enrollment_launch_v3(owned_launch)?;
+        control.observe_permission_launch(&compatible, keys)?;
+    }
     loop {
         #[cfg(target_os = "macos")]
         if runtime.yield_for_credential_service_rejoin(channel, keys, owned_launch)? {
@@ -68,6 +78,23 @@ fn serve_v3_transcript(
         {
             last_root_sequence = sequence;
             continue;
+        }
+        #[cfg(all(unix, feature = "desktop-protected"))]
+        {
+            let compatible =
+                ProtectedOwnedLaunchV1::compatibility_view_of_enrollment_launch_v3(owned_launch)?;
+            if let Some(sequence) = dispatch_permission_mode_request(
+                channel,
+                &frame,
+                keys,
+                &compatible,
+                last_permission_sequence,
+                &mut active_permission_exchange,
+                root_admission.as_deref(),
+            )? {
+                last_permission_sequence = sequence;
+                continue;
+            }
         }
         if let Ok(renewal) = ProtectedCredentialEnrollmentRenewRequestV3::decode_frame(&frame) {
             #[cfg(unix)]
@@ -143,7 +170,19 @@ fn serve_v3_transcript(
                     .map_err(runtime::map_enrollment_error)?;
             }
             last_renew_sequence = renewal.sequence();
+            #[cfg(all(unix, feature = "desktop-protected"))]
+            {
+                active_permission_exchange = None;
+            }
             *owned_launch = next_owned_launch;
+            #[cfg(all(unix, feature = "desktop-protected"))]
+            if let Some(control) = &root_admission {
+                let compatible =
+                    ProtectedOwnedLaunchV1::compatibility_view_of_enrollment_launch_v3(
+                        owned_launch,
+                    )?;
+                control.observe_permission_launch(&compatible, keys)?;
+            }
             continue;
         }
         if let Ok(shutdown) = ProtectedCredentialEnrollmentShutdownV3::decode_frame(&frame) {
@@ -252,3 +291,4 @@ fn write_shutdown_ack_after_revocation(
 #[cfg(all(test, target_os = "macos", target_arch = "aarch64"))]
 #[path = "transcript/shutdown_tests.rs"]
 mod shutdown_tests;
+include!("transcript/permission_request.rs");

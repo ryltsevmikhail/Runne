@@ -19,6 +19,7 @@ for name in (
     "macos_xpc_adapter.inc",
     "credential_keychain_boundary.inc",
     "credential_publication.inc",
+    "linux_pam_dependencies.inc",
     "entrypoint.inc",
 ):
     exec((parts / name).read_text(encoding="utf-8"))

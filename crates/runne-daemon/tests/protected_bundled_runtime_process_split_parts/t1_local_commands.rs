@@ -1,6 +1,39 @@
 use super::*;
+#[path = "t1_local_commands/permission_modes.rs"]
+mod permission_modes;
 #[path = "t1_local_commands/rejected_review.rs"]
 mod rejected_review;
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Fixture plumbing keeps the exact native process, authority, barrier, and filesystem handles together."
+)]
+pub(super) async fn exercise_permission_mode_effects(
+    client: &runne_runtime_client::AuthenticatedRuntimeClient,
+    conversation_id: runne_runtime_client::CanonicalId,
+    workspace_id: runne_runtime_client::CanonicalId,
+    project_directory: &std::path::Path,
+    database: &std::path::Path,
+    supervisor: &mut runne_platform_desktop::ProtectedBundledRuntimeSupervisor,
+    executable: &std::path::Path,
+    session_bus_socket: &std::path::Path,
+    runtime_root: &std::path::Path,
+    mode: runne_api::PermissionModeV1,
+) {
+    permission_modes::exercise(
+        client,
+        conversation_id,
+        workspace_id,
+        project_directory,
+        database,
+        supervisor,
+        executable,
+        session_bus_socket,
+        runtime_root,
+        mode,
+    )
+    .await;
+}
 
 pub(super) async fn exercise_local_commands(
     client: &runne_runtime_client::AuthenticatedRuntimeClient,

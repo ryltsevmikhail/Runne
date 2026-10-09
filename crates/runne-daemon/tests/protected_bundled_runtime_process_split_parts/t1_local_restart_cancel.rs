@@ -18,6 +18,7 @@ pub(super) async fn exercise_restart_during_local_cancel(
         workspace_id,
         project_directory,
         database,
+        session_bus_socket: _,
         runtime_root,
         executable,
         supervisor,

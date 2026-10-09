@@ -17,6 +17,7 @@ pub(in crate::application::exec_taskrun_worker) enum Point {
     AfterClaimBeforeArea,
     BeforeRelease,
     AfterExit,
+    AfterDurableToolResultBeforeStepOutcome,
     AfterDurableTerminal,
 }
 
@@ -32,6 +33,7 @@ impl Point {
             Self::AfterClaimBeforeArea => "claimed-before-area",
             Self::BeforeRelease => "pre-release",
             Self::AfterExit => "after-exit",
+            Self::AfterDurableToolResultBeforeStepOutcome => "after-result-before-step-outcome",
             Self::AfterDurableTerminal => "after-terminal",
         }
     }
@@ -47,6 +49,7 @@ impl Point {
             Self::AfterClaimBeforeArea => "claimed-before-area",
             Self::BeforeRelease => "pre-release",
             Self::AfterExit => "after-exit",
+            Self::AfterDurableToolResultBeforeStepOutcome => "after-result-before-step-outcome",
             Self::AfterDurableTerminal => "after-terminal",
         }
     }

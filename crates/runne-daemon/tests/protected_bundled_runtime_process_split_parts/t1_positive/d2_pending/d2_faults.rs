@@ -8,6 +8,8 @@ mod barriers;
 mod cancellation;
 #[path = "d2_faults/database.rs"]
 mod database;
+#[path = "d2_faults/target_race.rs"]
+mod target_race;
 #[path = "d2_faults/trust_revoke.rs"]
 mod trust_revoke;
 
@@ -131,6 +133,21 @@ pub(super) async fn exercise(
                 &create_watch,
                 database,
                 runtime_root,
+            )
+            .await
+        }
+        "approved-target-create-race" => {
+            target_race::exercise(
+                client,
+                task,
+                workspace_id,
+                project_directory,
+                database,
+                runtime_root,
+                supervisor,
+                executable,
+                session_bus_socket,
+                &create_watch,
             )
             .await
         }

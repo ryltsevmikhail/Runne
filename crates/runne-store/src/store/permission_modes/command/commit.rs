@@ -107,7 +107,7 @@ pub(super) fn commit(
     }
 
     tx.execute(
-        "UPDATE permission_mode_native_challenges SET state=3
+        "UPDATE permission_mode_native_challenges SET state=3,confirmation_phase=3
          WHERE runtime_authority_id=?1 AND principal_id=?2 AND workspace_id=?3 AND state=1",
         params![
             command.scope.runtime_authority_id.0,
@@ -116,6 +116,14 @@ pub(super) fn commit(
         ],
     )
     .map_err(|_| PermissionModeStoreError::Unavailable)?;
+    stop_changed_mode_scope(
+        &tx,
+        &command.scope.runtime_authority_id.0,
+        command.scope.principal_id.as_str(),
+        command.scope.workspace_id.as_bytes(),
+        now,
+    )
+    .map_err(|_| PermissionModeStoreError::CorruptData)?;
     receipt::insert(&tx, &command, workspace.project_id, revision, now, &history)?;
     let result = PermissionModeChangeReceipt {
         command_id: command.command_id,
@@ -133,6 +141,81 @@ pub(super) fn commit(
     tx.commit()
         .map_err(|_| PermissionModeStoreError::Unavailable)?;
     Ok(result)
+}
+
+pub(super) fn stop_changed_mode_scope(
+    tx: &rusqlite::Transaction<'_>,
+    runtime_authority_id: &str,
+    principal_id: &str,
+    workspace_id: &[u8; 16],
+    stopped_at: i64,
+) -> Result<(), runne_application::ports::EventStoreError> {
+    use runne_application::ports::EventStoreError;
+    let mut statement = tx
+        .prepare(
+            "SELECT b.taskrun_id,b.attempt_id,b.binding_digest,b.binding
+         FROM x2_permission_bindings b JOIN taskrun_local_permission_routes r USING(taskrun_id)
+         JOIN taskrun_local_command_attempts a USING(taskrun_id)
+         WHERE r.route=2 AND r.provenance=3 AND r.cutover_version=68
+           AND a.attempt_id=b.attempt_id AND a.fence=b.fence
+           AND a.state NOT IN ('completed','cancelled')
+           AND NOT EXISTS(SELECT 1 FROM x2_permission_terminal t
+             WHERE t.taskrun_id=b.taskrun_id AND t.attempt_id=b.attempt_id)",
+        )
+        .map_err(|_| EventStoreError::CorruptData)?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, Vec<u8>>(0)?,
+                row.get::<_, Vec<u8>>(1)?,
+                row.get::<_, Vec<u8>>(2)?,
+                row.get::<_, Vec<u8>>(3)?,
+            ))
+        })
+        .map_err(|_| EventStoreError::CorruptData)?;
+    let rows = rows
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(|_| EventStoreError::CorruptData)?;
+    drop(statement);
+    for (taskrun, attempt, digest, bytes) in rows {
+        let record = crate::store::taskrun_local_command::permission::codec::decode(&bytes)
+            .map_err(|_| EventStoreError::CorruptData)?;
+        if record.runtime_authority_id != runtime_authority_id
+            || record.principal_id != principal_id
+            || record.workspace_id.as_slice() != workspace_id
+        {
+            continue;
+        }
+        if !crate::store::taskrun_local_command::permission::codec::digest_matches(&bytes, &digest)
+            || record.taskrun_id.as_slice() != taskrun.as_slice()
+            || record.attempt_id.as_slice() != attempt.as_slice()
+        {
+            return Err(EventStoreError::CorruptData);
+        }
+        let taskrun: [u8; 16] = taskrun
+            .try_into()
+            .map_err(|_| EventStoreError::CorruptData)?;
+        let attempt: [u8; 16] = attempt
+            .try_into()
+            .map_err(|_| EventStoreError::CorruptData)?;
+        let taskrun_id = runne_domain::id::TaskRunId::from_bytes(taskrun);
+        let stream =
+            crate::store::taskrun_claim::stream_validate::verify_stream(tx, taskrun_id, None)
+                .map_err(|_| EventStoreError::CorruptData)?;
+        if !matches!(
+            stream.state,
+            runne_domain::task_run::TaskRunState::Running
+                | runne_domain::task_run::TaskRunState::Cancelling
+        ) {
+            continue;
+        }
+        let (version, event_id) =
+            crate::store::taskrun_local_command::permission::stop::stop_anchor(&stream, 2)?;
+        crate::store::taskrun_local_command::permission::stop::record_stop(
+            tx, &taskrun, &attempt, &digest, 2, version, &event_id, stopped_at,
+        )?;
+    }
+    Ok(())
 }
 
 fn validate_history(

@@ -1,10 +1,13 @@
 impl StoreTransaction {
-    fn commit_transaction(
+    fn commit_transaction_with_permission_terminal(
         &self,
         tx: rusqlite::Transaction<'_>,
         payload: CommandCommit,
         taskrun_id: TaskRunId,
         taskrun_bytes: &[u8; 16],
+        permission_terminal: Option<
+            crate::store::taskrun_local_command::permission::PermissionTerminalCommitV1<'_, '_>,
+        >,
     ) -> Result<CommitResult, CommitError> {
         // Step 1: Receipt lookup inside transaction
         let scope_codec = IdempotencyScopeCodec;
@@ -74,6 +77,45 @@ impl StoreTransaction {
                         runne_application::ports::StorageFailureKind::CorruptData,
                     )
                 })?;
+                let has_terminal_event = payload.events.iter().any(|event| {
+                    matches!(
+                        event.payload(),
+                        runne_domain::task_run::TaskRunEvent::TaskRunCompleted { .. }
+                            | runne_domain::task_run::TaskRunEvent::TaskRunFailed { .. }
+                            | runne_domain::task_run::TaskRunEvent::CancellationCompleted
+                            | runne_domain::task_run::TaskRunEvent::TaskRunCancelled
+                            | runne_domain::task_run::TaskRunEvent::BudgetExhausted
+                            | runne_domain::task_run::TaskRunEvent::PolicyDenied
+                            | runne_domain::task_run::TaskRunEvent::Unrecoverable
+                    )
+                });
+                let route: Option<(i64, i64, i64)> = tx
+                    .query_row(
+                        "SELECT route,provenance,cutover_version
+                         FROM taskrun_local_permission_routes WHERE taskrun_id=?1",
+                        [taskrun_id.as_bytes()],
+                        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                    )
+                    .optional()
+                    .map_err(map_commit_read_error)?;
+                if route == Some((2, 3, 68)) && has_terminal_event {
+                    #[cfg(target_os = "linux")]
+                    {
+                        let terminal = permission_terminal.as_ref().ok_or_else(|| {
+                            storage_failure(StorageFailureKind::IntegrityViolation)
+                        })?;
+                        crate::store::taskrun_local_command::permission::validate_duplicate_terminal(
+                            &tx,
+                            terminal,
+                            &payload,
+                            &stored_result,
+                        )?;
+                    }
+                    #[cfg(not(target_os = "linux"))]
+                    return Err(storage_failure(StorageFailureKind::IntegrityViolation));
+                } else if permission_terminal.is_some() {
+                    return Err(storage_failure(StorageFailureKind::IntegrityViolation));
+                }
                 match payload.idempotency_scope.operation {
                     runne_application::ports::OperationTag::CreateTaskRun => {
                         let runne_application::commands::CommandOutcome::TaskRunCreated {
@@ -152,7 +194,12 @@ impl StoreTransaction {
             &payload.idempotency_scope,
             taskrun_id,
             payload.command_id,
-            payload.events.first().is_some_and(|event| matches!(event.payload(), runne_domain::task_run::TaskRunEvent::TaskRunSubmitted { .. })),
+            payload.events.first().is_some_and(|event| {
+                matches!(
+                    event.payload(),
+                    runne_domain::task_run::TaskRunEvent::TaskRunSubmitted { .. }
+                )
+            }),
         )?;
 
         // Step 2: Version check
@@ -224,6 +271,7 @@ impl StoreTransaction {
             .checked_add(payload.events.len() as i64)
             .ok_or(CommitError::GlobalPositionExhausted)?;
 
+        guard_step_outcome_permission(&tx, self, &payload, taskrun_id, now)?;
         self.append_commit_events(
             tx,
             payload,
@@ -235,7 +283,9 @@ impl StoreTransaction {
             new_gp,
             now,
             new_stream,
+            permission_terminal,
         )
     }
-
 }
+
+include!("permission_step_outcome.rs");

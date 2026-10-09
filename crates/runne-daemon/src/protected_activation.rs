@@ -2,8 +2,6 @@
 
 pub(crate) mod linux_pair_diagnostics;
 
-#[cfg(feature = "desktop-protected")]
-use crate::application::root_handle_admission::RootHandleAdmissionAuthority;
 #[cfg(any(unix, windows))]
 use crate::bootstrap::{BootstrapOutcome, preflight_recoverable_first_activation_sidecars};
 #[cfg(any(unix, windows))]
@@ -102,6 +100,18 @@ mod enrollment_control_exchange_negative_tests;
 pub(crate) mod enrollment_control_fanout;
 #[cfg(all(unix, feature = "desktop-protected"))]
 mod enrollment_control_transition;
+#[cfg(all(unix, feature = "desktop-protected"))]
+mod permission_control;
+#[cfg(all(unix, feature = "desktop-protected"))]
+mod permission_dispatch;
+#[cfg(all(unix, feature = "desktop-protected"))]
+pub(crate) use permission_control::{PermissionControlHost, containment_v1, network_v1};
+#[cfg(feature = "desktop-protected")]
+mod root_control;
+#[cfg(feature = "desktop-protected")]
+pub(crate) use root_control::ProtectedRootControl;
+#[cfg(all(unix, feature = "desktop-protected"))]
+pub(crate) use root_control::permission_mode_status_result;
 #[cfg(all(
     test,
     unix,
@@ -136,42 +146,6 @@ const CONTROL_IDLE_TIMEOUT: Duration =
     Duration::from_secs(LOCAL_RUNTIME_SESSION_TTL.as_secs() + CHANNEL_TIMEOUT.as_secs());
 #[cfg(any(unix, windows))]
 const LOCAL_PRINCIPAL: &str = "local-owner";
-
-#[cfg(feature = "desktop-protected")]
-pub(crate) struct ProtectedRootControl(Arc<RootHandleAdmissionAuthority>);
-#[cfg(feature = "desktop-protected")]
-impl ProtectedRootControl {
-    pub(crate) fn new(authority: Arc<RootHandleAdmissionAuthority>) -> Arc<Self> {
-        Arc::new(Self(authority))
-    }
-
-    pub(crate) fn rotate_enrollment_keys(
-        &self,
-        keys: &ProtectedActivationKeys,
-    ) -> Result<(), runne_application::ports::RootAdmissionVerifierError> {
-        self.0.rotate_enrollment_keys(keys)
-    }
-
-    pub(crate) fn admit_verified_offer(
-        &self,
-        offer: &runne_api::RootHandleTransferOffer,
-        root: runne_platform_desktop::VerifiedRootHandle,
-        now: u64,
-    ) -> Result<
-        crate::application::root_handle_admission::IssuedRootAdmission,
-        runne_application::ports::RootAdmissionVerifierError,
-    > {
-        self.0.admit(offer, root, now)
-    }
-
-    pub(crate) fn fence(&self) -> Result<(), runne_application::ports::RootAdmissionVerifierError> {
-        self.0.fence()
-    }
-
-    pub(crate) fn shutdown(&self) {
-        self.0.shutdown();
-    }
-}
 
 #[cfg(feature = "desktop-protected")]
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]

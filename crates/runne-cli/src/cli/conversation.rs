@@ -45,6 +45,10 @@ fn new_command_identity() -> Result<CommandIdentity, CliError> {
     CommandIdentity::new(command_id, command_id.to_string()).map_err(CliError::Api)
 }
 
+#[expect(
+    clippy::future_not_send,
+    reason = "the CLI command tree is polled inline via Runtime::block_on on the main thread"
+)]
 async fn run(arguments: Vec<OsString>, format: OutputFormat) -> Result<CommandOutput, CliError> {
     let mut arguments = VecDeque::from(arguments);
     // Check for top-level --help/-h/--version/-V before any command dispatch
@@ -76,6 +80,10 @@ async fn run(arguments: Vec<OsString>, format: OutputFormat) -> Result<CommandOu
     dispatch_command(command_token, profile_path, arguments, format).await
 }
 
+#[expect(
+    clippy::future_not_send,
+    reason = "the CLI command tree is polled inline via Runtime::block_on on the main thread"
+)]
 async fn dispatch_command(
     command: String,
     profile_path: Option<PathBuf>,
@@ -85,13 +93,16 @@ async fn dispatch_command(
     match command.as_str() {
         "conversation" => run_conversation(profile_path, arguments).await,
         "task" => run_task(profile_path, arguments).await,
+        "permissions" => run_permissions(profile_path, arguments).await,
         // `run` is the session-oriented spelling of the same headless surface;
         // the split into distinct run/exec semantics lands with the X2
         // terminal path (slice plan ruling, 2026-09-28).
         "exec" | "run" => run_exec(profile_path, arguments, format).await,
         "session" => run_session(profile_path, arguments, format).await,
         "resume" => run_resume(profile_path, arguments, format).await,
-        "status" => run_status_command(profile_path, arguments).await.map(CommandOutput::text),
+        "status" => run_status_command(profile_path, arguments)
+            .await
+            .map(CommandOutput::text),
         "health" => run_health_command(profile_path, arguments).await,
         "doctor" => run_doctor_command(profile_path, arguments, format).await,
         "completion" => run_completion_command(arguments).map(CommandOutput::text),

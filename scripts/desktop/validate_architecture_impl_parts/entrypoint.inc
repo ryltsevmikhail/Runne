@@ -78,6 +78,7 @@ def main() -> int:
     violations += find_credential_service_dependency_violations(metadata["packages"], root)
     violations += find_credential_keychain_boundary_violations(root)
     violations += find_native_writer_bootstrap_dependency_violations(metadata["packages"])
+    violations += find_linux_pam_dependency_violations(metadata["packages"], root)
     if violations:
         for violation in violations:
             print(f"ERROR: {violation}")

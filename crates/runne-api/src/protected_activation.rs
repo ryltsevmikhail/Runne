@@ -30,6 +30,8 @@ include!("protected_activation/credential_broker_writer_startup_authenticator.rs
 include!("protected_activation/linux_pair_secret_relay_offer.rs");
 include!("protected_activation/qualification_fault_relay.rs");
 include!("protected_activation/qualification_run_context_relay.rs");
+pub mod permission_control_v1;
+pub use permission_control_v1::*;
 mod credential_service;
 pub use credential_service::*;
 #[cfg(test)]

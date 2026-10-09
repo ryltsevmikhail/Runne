@@ -156,8 +156,8 @@ fn v35_creates_reopens_and_upgrades_from_v34() {
     apply_migrations_internal(&connection, 34).unwrap();
     assert!(v34_matches(&connection, 34).unwrap());
     apply_migrations(&connection).unwrap();
-    assert_eq!(CURRENT_SCHEMA_VERSION, 65);
-    assert!(v65_matches(&connection, CURRENT_SCHEMA_VERSION).unwrap());
+    assert_eq!(CURRENT_SCHEMA_VERSION, 68);
+    assert!(v68_matches(&connection, CURRENT_SCHEMA_VERSION).unwrap());
     drop(connection);
     drop(open_managed_connection(&path, ConnectionMode::Writer).unwrap());
 }

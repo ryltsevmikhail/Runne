@@ -21,6 +21,8 @@ struct ProbeCloneArgs {
 }
 
 pub(super) fn preflight_namespaces() -> Result<(), LinuxCommandError> {
+    let seccomp_filter = crate::local_command_linux::gate::prepare_composite_filter_probe()
+        .ok_or(LinuxCommandError::Unavailable)?;
     let mut pair = [0; 2];
     if unsafe {
         libc::socketpair(
@@ -73,7 +75,8 @@ pub(super) fn preflight_namespaces() -> Result<(), LinuxCommandError> {
                 || mount_private_proc() != 0
                 || libc::prctl(libc::PR_SET_DUMPABLE, 0, 0, 0, 0) != 0
                 || libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0
-                || crate::local_command_linux::gate::install_composite_filter_probe() != 0
+                || crate::local_command_linux::gate::install_composite_filter_probe(&seccomp_filter)
+                    != 0
             {
                 libc::_exit(102);
             }

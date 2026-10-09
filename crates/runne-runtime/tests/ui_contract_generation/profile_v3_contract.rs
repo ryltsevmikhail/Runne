@@ -59,3 +59,46 @@ fn checked_in_profile_three_matches_generator() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../contracts/gocode-ui-client-3");
     check_ui_contract_v3(&root).unwrap();
 }
+
+#[test]
+fn approval_generation_is_required_only_in_profile_three() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../contracts");
+    let profile_three: Value = serde_json::from_slice(
+        &fs::read(root.join("gocode-ui-client-3/schemas/approval-v1.schema.json")).unwrap(),
+    )
+    .unwrap();
+    let approval_three = &profile_three["$defs"]["approval"];
+    assert_eq!(
+        approval_three["properties"]["approvalGeneration"]["minimum"],
+        1
+    );
+    assert_eq!(
+        approval_three["properties"]["approvalGeneration"]["type"],
+        "integer"
+    );
+    assert!(
+        approval_three["required"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|field| field == "approvalGeneration")
+    );
+
+    let profile_two: Value = serde_json::from_slice(
+        &fs::read(root.join("gocode-ui-client-2/schemas/approval-v1.schema.json")).unwrap(),
+    )
+    .unwrap();
+    let approval_two = &profile_two["$defs"]["approval"];
+    assert!(
+        approval_two["properties"]
+            .get("approvalGeneration")
+            .is_none()
+    );
+    assert!(
+        !approval_two["required"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|field| field == "approvalGeneration")
+    );
+}

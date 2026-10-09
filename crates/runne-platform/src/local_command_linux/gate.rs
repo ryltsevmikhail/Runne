@@ -2,8 +2,23 @@ use super::LinuxCommandError;
 use std::os::fd::{AsRawFd, OwnedFd};
 mod seccomp;
 
-pub(in crate::local_command_linux) unsafe fn install_composite_filter_probe() -> i32 {
-    unsafe { seccomp::install(true, false) }
+pub(in crate::local_command_linux) fn prepare_composite_filter_probe()
+-> Option<seccomp::PreparedFilter> {
+    seccomp::prepare(true, false, None)
+}
+
+pub(in crate::local_command_linux) unsafe fn install_composite_filter_probe(
+    filter: &seccomp::PreparedFilter,
+) -> i32 {
+    unsafe { seccomp::install(filter) }
+}
+
+pub(super) fn prepare_seccomp(
+    composite: bool,
+    network_none: bool,
+    filesystem: Option<super::policy::NativeFsProfile>,
+) -> Option<seccomp::PreparedFilter> {
+    seccomp::prepare(composite, network_none, filesystem)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -17,7 +32,8 @@ pub(super) fn enter(
     env: *const *const u8,
     apply_landlock: bool,
     composite: bool,
-    network_none: bool,
+    _network_none: bool,
+    seccomp_filter: &seccomp::PreparedFilter,
     mount_targets: Vec<*const libc::c_char>,
     protected_regular: Vec<i32>,
     device_targets: Vec<*const libc::c_char>,
@@ -87,7 +103,7 @@ pub(super) fn enter(
             libc::_exit(128);
         }
         libc::close(fds[0]);
-        if seccomp::install(composite, network_none) != 0 {
+        if seccomp::install(seccomp_filter) != 0 {
             libc::_exit(124);
         }
         let empty = b"\0";

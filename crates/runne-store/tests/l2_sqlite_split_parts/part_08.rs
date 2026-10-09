@@ -120,7 +120,10 @@ fn receipt_lookup_rejects_changed_fingerprint_and_corrupt_identity() {
         IdempotencyKey::new("receipt-identity").unwrap(),
         0x76,
     );
-    assert!(matches!(store.commit(payload.clone()), Ok(CommitResult::Committed { .. })));
+    assert!(matches!(
+        store.commit(payload.clone()),
+        Ok(CommitResult::Committed { .. })
+    ));
     assert!(matches!(
         store.lookup_receipt(
             payload.command_id,
@@ -178,38 +181,47 @@ fn concurrent_exact_create_double_miss_replays_winner_identity() {
         "018f2e3a-7000-7000-8000-000000000082".parse().unwrap(),
         "018f2e3a-7000-7000-8000-000000000083".parse().unwrap(),
     ];
+    let first_store = validated_reopen::reopen_store(
+        &db_path,
+        identity,
+        RuntimeAuthorityId("test-host".into()),
+        available_guard(),
+    )
+    .unwrap();
+    let second_store = validated_reopen::reopen_store(
+        &db_path,
+        identity,
+        RuntimeAuthorityId("test-host".into()),
+        available_guard(),
+    )
+    .unwrap();
+    let first_payload = direct_taskrun_commit(
+        &first_store,
+        taskrun_ids[0],
+        command_id,
+        IdempotencyKey::new("racing-exact-key").unwrap(),
+        0x84,
+    );
+    let second_payload = direct_taskrun_commit(
+        &second_store,
+        taskrun_ids[1],
+        command_id,
+        IdempotencyKey::new("racing-exact-key").unwrap(),
+        0x85,
+    );
     let barrier = Arc::new(Barrier::new(2));
     let mut handles = Vec::new();
-    for variant in 0..2_u8 {
-        let path = db_path.clone();
+    for (store, payload) in [(first_store, first_payload), (second_store, second_payload)] {
         let barrier = Arc::clone(&barrier);
         handles.push(thread::spawn(move || {
-            let store = validated_reopen::reopen_store(
-                &path,
-                identity,
-                RuntimeAuthorityId("test-host".into()),
-                available_guard(),
-            )
-            .unwrap();
-            let payload = direct_taskrun_commit(
-                &store,
-                taskrun_ids[variant as usize],
+            let lookup = store.lookup_receipt(
                 command_id,
-                IdempotencyKey::new("racing-exact-key").unwrap(),
-                0x84 + variant,
-            );
-            assert_eq!(
-                store
-                    .lookup_receipt(
-                        command_id,
-                        &payload.idempotency_key,
-                        &payload.idempotency_scope,
-                        &payload.command_fingerprint,
-                    )
-                    .unwrap(),
-                ReceiptLookup::Miss
+                &payload.idempotency_key,
+                &payload.idempotency_scope,
+                &payload.command_fingerprint,
             );
             barrier.wait();
+            assert_eq!(lookup.unwrap(), ReceiptLookup::Miss);
             store.commit(payload)
         }));
     }

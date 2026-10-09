@@ -194,6 +194,8 @@ where
         result.actual_length,
     )
     .map_err(|_| CanonicalProviderExecutionError::Uncertain)?;
+    #[cfg(feature = "test-support")]
+    credential_companion_test_support::assert_receipt_and_content_clear(&receipt_bytes, &content);
     inspect_plain_bytes(service, &content)?;
     let name = match binding.tool_name.as_str() {
         "workspace.file.read" => ProviderToolNameV1::WorkspaceFileRead,
@@ -290,6 +292,9 @@ fn validate_arguments(
     ))
 }
 
+#[cfg(feature = "test-support")]
+#[path = "tool_context/credential_companion_test_support.rs"]
+mod credential_companion_test_support;
 #[cfg(test)]
 #[path = "tool_context/tests.rs"]
 mod tests;

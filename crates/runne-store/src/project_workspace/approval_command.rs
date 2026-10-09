@@ -47,7 +47,10 @@ fn decide(
             && row.15.as_deref() == Some(context.idempotency_key.as_str())
             && row.16.as_deref() == Some(context.principal.as_str())
             && row.17 == Some(expected_decision)
+            && row.7.as_slice() == command.action_digest()
+            && row.8 == command.policy_revision()
             && row.9 == command.expected_version().saturating_add(1)
+            && row.10 == command.renderer_generation()
             && matches!(
                 stored_state,
                 ApprovalState::Approved | ApprovalState::Denied

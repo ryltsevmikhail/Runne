@@ -4,7 +4,7 @@ use sha2::{Digest, Sha256};
 
 use super::composite::{
     ChildDelegationScope, CompositeEffectScope, CompositeScopeDigest, ContainmentStrategy,
-    FilesystemPermission, FilesystemPosture, NetworkScope,
+    FilesystemPermission, FilesystemPosture, ManagedPolicyCoverage, NetworkScope,
 };
 use super::scope_error::ScopeError;
 
@@ -12,6 +12,15 @@ impl CompositeEffectScope {
     /// SHA-256 over every scope field after validating canonical scope shape.
     pub fn digest(&self) -> Result<CompositeScopeDigest, ScopeError> {
         self.validate()?;
+        if let ManagedPolicyCoverage::Closed(coverage) = &self.managed_policy {
+            return Ok(
+                if self.containment == ContainmentStrategy::SameUserCompositeV2 {
+                    self.digest_closed_v3(*coverage)
+                } else {
+                    self.digest_closed_v2(*coverage)
+                },
+            );
+        }
         let mut hash = Sha256::new();
         hash.update(b"runne:d21:composite-effect-scope:v1\0");
         put_bytes(
@@ -38,6 +47,70 @@ impl CompositeEffectScope {
         put_option_u64(&mut hash, self.budget.max_bytes);
         hash.update(self.lifetime_ms.to_be_bytes());
         Ok(CompositeScopeDigest::from_bytes(hash.finalize().into()))
+    }
+
+    fn digest_closed_v2(
+        &self,
+        coverage: super::composite::ClosedManagedCoverageV1,
+    ) -> CompositeScopeDigest {
+        let mut hash = Sha256::new();
+        hash.update(b"runne:d21:composite-effect-scope:v2\0");
+        hash.update([0x31]);
+        put_bytes(
+            &mut hash,
+            self.permission_scope.runtime_authority_id.0.as_bytes(),
+        );
+        put_bytes(
+            &mut hash,
+            self.permission_scope.principal_id.as_str().as_bytes(),
+        );
+        hash.update(self.permission_scope.workspace_id.as_bytes());
+        hash.update(self.protected_control_plane_policy_digest.as_bytes());
+        coverage.update_composite_v2_digest(&mut hash);
+        hash.update([containment_tag(self.containment)]);
+        hash_filesystem(&mut hash, &self.filesystem.posture);
+        hash.update((self.filesystem.permissions.len() as u32).to_be_bytes());
+        for permission in &self.filesystem.permissions {
+            hash.update([filesystem_permission_tag(*permission)]);
+        }
+        hash_network_v2(&mut hash, self.network);
+        hash_child_scope(&mut hash, self.children);
+        put_option_u64(&mut hash, self.budget.max_operations);
+        put_option_u64(&mut hash, self.budget.max_bytes);
+        hash.update(self.lifetime_ms.to_be_bytes());
+        CompositeScopeDigest::from_bytes(hash.finalize().into())
+    }
+
+    fn digest_closed_v3(
+        &self,
+        coverage: super::composite::ClosedManagedCoverageV1,
+    ) -> CompositeScopeDigest {
+        let mut hash = Sha256::new();
+        hash.update(b"runne:d21:composite-effect-scope:v3\0");
+        hash.update([0x31]);
+        put_bytes(
+            &mut hash,
+            self.permission_scope.runtime_authority_id.0.as_bytes(),
+        );
+        put_bytes(
+            &mut hash,
+            self.permission_scope.principal_id.as_str().as_bytes(),
+        );
+        hash.update(self.permission_scope.workspace_id.as_bytes());
+        hash.update(self.protected_control_plane_policy_digest.as_bytes());
+        coverage.update_composite_v2_digest(&mut hash);
+        hash.update([containment_tag(self.containment)]);
+        hash_filesystem(&mut hash, &self.filesystem.posture);
+        hash.update((self.filesystem.permissions.len() as u32).to_be_bytes());
+        for permission in &self.filesystem.permissions {
+            hash.update([filesystem_permission_tag(*permission)]);
+        }
+        hash_network_v2(&mut hash, self.network);
+        hash_child_scope(&mut hash, self.children);
+        put_option_u64(&mut hash, self.budget.max_operations);
+        put_option_u64(&mut hash, self.budget.max_bytes);
+        hash.update(self.lifetime_ms.to_be_bytes());
+        CompositeScopeDigest::from_bytes(hash.finalize().into())
     }
 }
 
@@ -70,6 +143,14 @@ fn hash_network(hash: &mut Sha256, network: NetworkScope) {
     }
 }
 
+fn hash_network_v2(hash: &mut Sha256, network: NetworkScope) {
+    match network {
+        NetworkScope::None => hash.update([0x21]),
+        NetworkScope::BroadSameUser => hash.update([0x22]),
+        _ => hash.update([0xff]),
+    }
+}
+
 fn hash_child_scope(hash: &mut Sha256, scope: ChildDelegationScope) {
     match scope {
         ChildDelegationScope::None => hash.update([0]),
@@ -85,6 +166,7 @@ fn containment_tag(strategy: ContainmentStrategy) -> u8 {
     match strategy {
         ContainmentStrategy::WorkspaceBoundV1 => 1,
         ContainmentStrategy::SameUserCompositeV1 => 2,
+        ContainmentStrategy::SameUserCompositeV2 => 3,
     }
 }
 

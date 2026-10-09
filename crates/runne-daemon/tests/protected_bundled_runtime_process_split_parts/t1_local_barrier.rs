@@ -3,6 +3,8 @@ use std::time::Duration;
 
 #[path = "t1_local_barrier/cleanup.rs"]
 mod cleanup;
+#[path = "t1_local_lost_ack.rs"]
+mod lost_ack;
 
 pub(super) async fn exercise_if_requested(context: &mut LocalTaskRunContext<'_>) -> bool {
     match std::env::var("RUNNE_TEST_LOCAL_WORKER_BARRIER")
@@ -11,7 +13,15 @@ pub(super) async fn exercise_if_requested(context: &mut LocalTaskRunContext<'_>)
     {
         Some("pre-release") => cancel_before_release(context).await,
         Some("after-exit") => complete_exit_race(context).await,
-        Some("after-terminal") => super::t1_local_terminal_restart::exercise(context).await,
+        Some("after-terminal") => {
+            if std::env::var_os("RUNNE_TEST_T1_LOCAL_LOST_ACK").as_deref()
+                == Some(std::ffi::OsStr::new("1"))
+            {
+                lost_ack::exercise(context).await
+            } else {
+                super::t1_local_terminal_restart::exercise(context).await
+            }
+        }
         _ => false,
     }
 }

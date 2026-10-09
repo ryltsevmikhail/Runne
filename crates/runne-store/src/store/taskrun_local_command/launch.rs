@@ -47,6 +47,7 @@ impl StoreTransaction {
         let tx = connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(|_| EventStoreError::Unavailable)?;
+        super::permission::require_legacy_bound_route(&tx, identity.taskrun_id)?;
         super::super::taskrun_claim::verify_active_assignment(&tx, identity)
             .map_err(|_| EventStoreError::CorruptData)?;
         let stream = super::super::taskrun_claim::stream_validate::verify_stream(
@@ -90,6 +91,7 @@ impl StoreTransaction {
         let tx = connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(|_| EventStoreError::Unavailable)?;
+        super::permission::require_legacy_bound_route(&tx, identity.taskrun_id)?;
         super::super::taskrun_claim::verify_active_assignment(&tx, identity)
             .map_err(|_| EventStoreError::CorruptData)?;
         let stream = super::super::taskrun_claim::stream_validate::verify_stream(

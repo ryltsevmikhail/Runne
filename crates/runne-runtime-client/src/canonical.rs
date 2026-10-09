@@ -34,6 +34,8 @@ include!("canonical/provider_credentials.rs");
 include!("canonical/provider_credential_enrollment.rs");
 include!("canonical/enrollment_wire.rs");
 
+mod permission_modes;
+
 mod project_workspace;
 pub use project_workspace::*;
 

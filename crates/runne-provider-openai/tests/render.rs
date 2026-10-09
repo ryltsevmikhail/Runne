@@ -113,6 +113,8 @@ fn committed_history_order_and_roles_are_preserved_without_hidden_prompt() {
 
 #[test]
 fn empty_wrong_sequence_developer_and_output_overflow_fail_before_render() {
+    const DEVELOPER_CANARY: &str = "M9-TEXT-RENDER-DEVELOPER-CANARY";
+
     let profile = profile();
     let cases = [
         (Vec::new(), 1, OpenAiRenderError::EmptyCommittedContext),
@@ -130,7 +132,7 @@ fn empty_wrong_sequence_developer_and_output_overflow_fail_before_render() {
             OpenAiRenderError::InvalidCommittedContext,
         ),
         (
-            vec![text(ProviderInputRole::Developer, "hidden")],
+            vec![text(ProviderInputRole::Developer, DEVELOPER_CANARY)],
             1,
             OpenAiRenderError::DeveloperPromptForbidden,
         ),
@@ -147,10 +149,25 @@ fn empty_wrong_sequence_developer_and_output_overflow_fail_before_render() {
             vec![ProviderCapability::Streaming],
             profile.binding_extension(),
         );
-        assert_eq!(
-            OpenAiResponsesTextRenderer::new(profile.clone()).prepare(&call),
-            Err(expected)
-        );
+        let result = OpenAiResponsesTextRenderer::new(profile.clone()).prepare(&call);
+        if expected == OpenAiRenderError::DeveloperPromptForbidden {
+            let Err(error) = result else {
+                panic!("developer prompt must fail before a text request is prepared");
+            };
+            assert_eq!(error, OpenAiRenderError::DeveloperPromptForbidden);
+            let display = error.to_string();
+            let debug = format!("{error:?}");
+            assert!(
+                !display.contains(DEVELOPER_CANARY),
+                "display error exposed developer text"
+            );
+            assert!(
+                !debug.contains(DEVELOPER_CANARY),
+                "debug error exposed developer text"
+            );
+        } else {
+            assert_eq!(result, Err(expected));
+        }
     }
 }
 

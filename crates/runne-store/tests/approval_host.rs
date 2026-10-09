@@ -33,6 +33,24 @@ fn command(approval_id: ApprovalId) -> ApprovalDecisionCommand {
         .unwrap()
 }
 
+fn request_decision(
+    approval_id: ApprovalId,
+    decision: ApprovalDecision,
+) -> ApprovalDecisionCommand {
+    ApprovalDecisionCommand::new(approval_id, 1, decision, [0x52; 32], 7, 3).unwrap()
+}
+
+fn changed_binding_decisions(
+    approval_id: ApprovalId,
+    decision: ApprovalDecision,
+) -> [ApprovalDecisionCommand; 3] {
+    [
+        ApprovalDecisionCommand::new(approval_id, 1, decision, [0x53; 32], 7, 3).unwrap(),
+        ApprovalDecisionCommand::new(approval_id, 1, decision, [0x52; 32], 8, 3).unwrap(),
+        ApprovalDecisionCommand::new(approval_id, 1, decision, [0x52; 32], 7, 4).unwrap(),
+    ]
+}
+
 fn create_command(approval_id: ApprovalId, action: &str) -> ApprovalCreateCommand {
     ApprovalCreateCommand::new(
         approval_id,
@@ -177,4 +195,170 @@ async fn expired_pending_approval_is_reconciled_before_query_results() {
     assert!(pending.is_empty());
     let summary = repository.get_approval(context, approval_id).await.unwrap();
     assert_eq!(summary.state(), ApprovalState::Expired);
+}
+
+fn assert_persisted_decision(
+    database: &support::Database,
+    approval_id: ApprovalId,
+    context: &ApprovalCommandContext,
+    decision: ApprovalDecision,
+) {
+    let connection =
+        validated_reopen::open_validated_reader(database.file.path(), database.identity).unwrap();
+    let actual = connection.query_row(
+        "SELECT decision_command_id, decision_idempotency_key, decision_principal_id, decision, state, request_version FROM approvals WHERE approval_id = ?1",
+        [approval_id.to_string()],
+        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?)),
+    ).unwrap();
+    let (stored_decision, state) = match decision {
+        ApprovalDecision::Approve => (1, 2),
+        ApprovalDecision::Deny => (2, 3),
+    };
+    assert_eq!(
+        actual,
+        (
+            context.command_id.as_bytes().to_vec(),
+            context.idempotency_key.as_str().to_owned(),
+            context.principal.as_str().to_owned(),
+            stored_decision,
+            state,
+            2,
+        )
+    );
+}
+
+async fn assert_decision_conflict(
+    repository: &runne_store::ProjectWorkspaceStore,
+    context: ApprovalCommandContext,
+    command: ApprovalDecisionCommand,
+) {
+    assert_eq!(
+        repository.decide_approval(context, command).await,
+        Err(ApprovalHostError::Conflict)
+    );
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn opposite_approval_decisions_conflict_and_preserve_the_first_decision() {
+    for (case, (winner, opposite)) in [
+        (ApprovalDecision::Approve, ApprovalDecision::Deny),
+        (ApprovalDecision::Deny, ApprovalDecision::Approve),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let approval_id = ApprovalId::from_bytes(id(0x80 + case as u8));
+        let database = support::Database::new("approval-opposite-decisions");
+        let repository = database.repository();
+        repository
+            .create_pending_approval(create_command(approval_id, "execute"))
+            .await
+            .unwrap();
+
+        let winner_context = context(0x90 + case as u8, "approval-winner");
+        let winner_command = request_decision(approval_id, winner);
+        let first_ack = repository
+            .decide_approval(winner_context.clone(), winner_command.clone())
+            .await
+            .unwrap();
+        let winner_state = match winner {
+            ApprovalDecision::Approve => ApprovalState::Approved,
+            ApprovalDecision::Deny => ApprovalState::Denied,
+        };
+        assert_eq!(
+            (
+                first_ack.approval_id(),
+                first_ack.task_run_id(),
+                first_ack.state(),
+                first_ack.new_version()
+            ),
+            (
+                approval_id,
+                TaskRunId::from_bytes(id(0x71)),
+                winner_state,
+                2
+            )
+        );
+        assert_decision_conflict(
+            &repository,
+            winner_context.clone(),
+            request_decision(approval_id, opposite),
+        )
+        .await;
+        assert_decision_conflict(
+            &repository,
+            context(0xa0 + case as u8, "approval-opposite-fresh"),
+            request_decision(approval_id, opposite),
+        )
+        .await;
+        for changed_binding in changed_binding_decisions(approval_id, winner) {
+            assert_decision_conflict(&repository, winner_context.clone(), changed_binding).await;
+        }
+
+        let query_context = ApprovalQueryContext {
+            principal: ApiPrincipalId::new("owner").unwrap(),
+        };
+        let before_replay = repository
+            .get_approval(query_context.clone(), approval_id)
+            .await
+            .unwrap();
+        assert_eq!(
+            (before_replay.state(), before_replay.request_version()),
+            (winner_state, 2)
+        );
+        assert_eq!(
+            repository
+                .decide_approval(winner_context.clone(), winner_command.clone())
+                .await
+                .unwrap(),
+            first_ack
+        );
+        assert_eq!(
+            repository
+                .get_approval(query_context.clone(), approval_id)
+                .await
+                .unwrap(),
+            before_replay
+        );
+        assert_persisted_decision(&database, approval_id, &winner_context, winner);
+
+        drop(repository);
+        let reopened_repository = database.reopen();
+        assert_decision_conflict(
+            &reopened_repository,
+            context(0xb0 + case as u8, "approval-opposite-after-reopen"),
+            request_decision(approval_id, opposite),
+        )
+        .await;
+        for changed_binding in changed_binding_decisions(approval_id, winner) {
+            assert_decision_conflict(
+                &reopened_repository,
+                winner_context.clone(),
+                changed_binding,
+            )
+            .await;
+        }
+        assert_eq!(
+            reopened_repository
+                .get_approval(query_context.clone(), approval_id)
+                .await
+                .unwrap(),
+            before_replay
+        );
+        assert_eq!(
+            reopened_repository
+                .decide_approval(winner_context.clone(), winner_command)
+                .await
+                .unwrap(),
+            first_ack
+        );
+        assert_eq!(
+            reopened_repository
+                .get_approval(query_context, approval_id)
+                .await
+                .unwrap(),
+            before_replay
+        );
+        assert_persisted_decision(&database, approval_id, &winner_context, winner);
+    }
 }

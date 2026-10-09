@@ -19,6 +19,7 @@ pub mod local_session;
 pub mod middleware;
 pub mod opencode;
 pub mod operational_telemetry;
+pub mod permission_modes;
 pub mod processes;
 /// Protected, runtime-owned Project Trust metadata and explicit decision path.
 pub mod project_trust_control;

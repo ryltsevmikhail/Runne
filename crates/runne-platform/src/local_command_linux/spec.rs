@@ -12,10 +12,15 @@ use rustix::process::{Signal, pidfd_send_signal};
 use std::ffi::OsString;
 use std::fs::File;
 use std::os::fd::{AsRawFd, OwnedFd};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 #[path = "spec/containment.rs"]
 mod containment;
-pub use containment::LinuxCommandContainmentV1;
+#[path = "spec/exit_status.rs"]
+mod exit_status;
+#[path = "spec/waiting.rs"]
+mod waiting;
+pub use containment::{LinuxCommandContainmentV1, LinuxCommandContainmentV2};
+pub use exit_status::{LinuxLeaderExitKindV1, LinuxLeaderExitObservationV1};
 
 /// Structured argv/environment plus caller-opened executable, workspace, and cwd.
 /// The caller must already have approved this exact command and canonical workspace.
@@ -77,6 +82,7 @@ impl LinuxCommandSpec<'_> {
             stdio: CommandStdio::discard()?,
             composite: None,
             network_none: false,
+            filesystem_profile: None,
         })
     }
 
@@ -104,6 +110,7 @@ impl LinuxCommandSpec<'_> {
             stdio,
             composite: None,
             network_none: false,
+            filesystem_profile: None,
         })
     }
 }
@@ -118,6 +125,7 @@ pub struct GatedLinuxChild<'a> {
     pub(super) go_written: bool,
     pub(super) reaped: bool,
     pub(super) exit_code: Option<i32>,
+    pub(super) leader_exit: Option<LinuxLeaderExitObservationV1>,
     pub(super) output: Option<child::output::OutputCapture>,
 }
 impl GatedLinuxChild<'_> {
@@ -151,51 +159,6 @@ impl GatedLinuxChild<'_> {
         self.area.terminate(grace)?;
         self.reap(Duration::from_secs(3))?;
         Ok(())
-    }
-
-    /// Waits for the direct command leader. Area emptiness remains a separate proof.
-    pub fn wait(mut self, timeout: Duration) -> Result<i32, LinuxCommandError> {
-        if timeout > Duration::from_secs(3600) {
-            return Err(LinuxCommandError::Invalid);
-        }
-        let deadline = Instant::now() + timeout;
-        loop {
-            self.poll_output()?;
-            if let Some(status) = self.try_wait()? {
-                return Ok(status);
-            }
-            if Instant::now() >= deadline {
-                return Err(LinuxCommandError::Timeout);
-            }
-            std::thread::sleep(Duration::from_millis(5));
-        }
-    }
-
-    /// Polls the direct command leader without relinquishing this child handle.
-    /// The caller must still prove that the complete managed area is empty.
-    pub fn try_wait(&mut self) -> Result<Option<i32>, LinuxCommandError> {
-        if self.reaped {
-            return self
-                .exit_code
-                .map(Some)
-                .ok_or(LinuxCommandError::Unverified);
-        }
-        let mut status = 0;
-        // SAFETY: status points to writable storage and pid is our unreaped child.
-        let got = unsafe { libc::waitpid(self.pid, &mut status, libc::WNOHANG) };
-        if got == self.pid {
-            self.reaped = true;
-            let exit_code = decode_status(status)?;
-            self.exit_code = Some(exit_code);
-            return Ok(Some(exit_code));
-        }
-        if got == 0 {
-            return Ok(None);
-        }
-        if std::io::Error::last_os_error().raw_os_error() == Some(libc::EINTR) {
-            return Ok(None);
-        }
-        Err(LinuxCommandError::Unverified)
     }
 
     /// Nonblocking bounded drain of configured stdout/stderr, at most 8 KiB.
@@ -232,31 +195,6 @@ impl GatedLinuxChild<'_> {
         }
         let _ = self.reap(timeout)?;
         Ok(())
-    }
-
-    fn reap(&mut self, timeout: Duration) -> Result<i32, LinuxCommandError> {
-        if self.reaped || timeout > Duration::from_secs(3600) {
-            return Err(LinuxCommandError::Invalid);
-        }
-        let deadline = Instant::now() + timeout;
-        loop {
-            if let Some(status) = self.try_wait()? {
-                return Ok(status);
-            }
-            if Instant::now() >= deadline {
-                return Err(LinuxCommandError::Timeout);
-            }
-            std::thread::sleep(Duration::from_millis(5));
-        }
-    }
-}
-fn decode_status(status: i32) -> Result<i32, LinuxCommandError> {
-    if libc::WIFEXITED(status) {
-        Ok(libc::WEXITSTATUS(status))
-    } else if libc::WIFSIGNALED(status) {
-        Ok(128 + libc::WTERMSIG(status))
-    } else {
-        Err(LinuxCommandError::Unverified)
     }
 }
 impl Drop for GatedLinuxChild<'_> {

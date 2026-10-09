@@ -97,14 +97,15 @@ def find_native_writer_bootstrap_dependency_violations(
     )
 
     cli = by_name.get(CLI_PACKAGE, {})
+    cli_dependencies = cli.get("dependencies", [])
+    violations += _exact_cli_rustix_dependencies(cli_dependencies)
     relevant_cli = [
         dependency
-        for dependency in cli.get("dependencies", [])
+        for dependency in cli_dependencies
         if dependency.get("name")
         in {
             NATIVE_ENROLLMENT_AUTHORITY_PACKAGE,
             MACOS_PROCESS_IDENTITY_PACKAGE,
-            RUSTIX_PACKAGE,
         }
     ]
     expected_cli = {
@@ -116,18 +117,61 @@ def find_native_writer_bootstrap_dependency_violations(
             "local",
             _package_directory(by_name, NATIVE_ENROLLMENT_AUTHORITY_PACKAGE),
         ),
-        RUSTIX_PACKAGE: (
+    }
+    violations += _exact_dependencies(CLI_PACKAGE, relevant_cli, expected_cli)
+    return violations
+
+
+def _exact_cli_rustix_dependencies(dependencies: list[dict]) -> list[str]:
+    """Keep the legacy dev edge and the narrow regular Linux IO edge exact."""
+    actual = [
+        dependency
+        for dependency in dependencies
+        if dependency.get("name") == RUSTIX_PACKAGE
+    ]
+    expected = (
+        (
             "dev",
             NATIVE_WRITER_TARGET,
             "=1.1.4",
-            # The test-only "process" feature covers the headless SIGINT tests'
+            # The test-only process feature covers headless SIGINT tests'
             # safe kill_process wrapper (D1.4b, 2026-09-28; unsafe_code=forbid).
             ("net", "pipe", "process"),
+            True,
+        ),
+        (
+            None,
+            'cfg(target_os = "linux")',
+            "=1.1.4",
+            ("fs", "process"),
+            False,
+        ),
+    )
+    violations = []
+    if len(actual) != len(expected):
+        violations.append(
+            f"{CLI_PACKAGE} must have exactly two rustix dependency edges"
+        )
+    for kind, target, requirement, features, uses_default_features in expected:
+        matches = [
+            dependency
+            for dependency in actual
+            if dependency.get("kind") == kind and dependency.get("target") == target
+        ]
+        shape = (
+            kind,
+            target,
+            requirement,
+            features,
             "registry",
             None,
-        ),
-    }
-    violations += _exact_dependencies(CLI_PACKAGE, relevant_cli, expected_cli)
+            uses_default_features,
+        )
+        if len(matches) != 1 or not _dependency_has_shape(matches[0], *shape):
+            violations.append(
+                f"{CLI_PACKAGE} must have one exact rustix edge for "
+                f"{kind or 'regular'} {target}"
+            )
     return violations
 
 
@@ -159,6 +203,7 @@ def _dependency_has_shape(
     features: tuple[str, ...],
     source_kind: str,
     expected_path: str | None,
+    uses_default_features: bool = True,
 ) -> bool:
     return (
         dependency.get("kind") == kind
@@ -167,7 +212,7 @@ def _dependency_has_shape(
         and tuple(sorted(dependency.get("features", []))) == tuple(sorted(features))
         and dependency.get("rename") is None
         and dependency.get("optional") is False
-        and dependency.get("uses_default_features") is True
+        and dependency.get("uses_default_features") is uses_default_features
         and _dependency_source_is_exact(dependency, source_kind, expected_path)
     )
 

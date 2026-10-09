@@ -12,6 +12,10 @@
           "pattern": "^[0-9a-f]{64}$",
           "type": "string"
         },
+        "approvalGeneration": {
+          "minimum": 1,
+          "type": "integer"
+        },
         "approvalId": {
           "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
           "type": "string"
@@ -80,7 +84,8 @@
         "requestVersion",
         "expiresAt",
         "riskSummary",
-        "state"
+        "state",
+        "approvalGeneration"
       ],
       "type": "object"
     },

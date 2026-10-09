@@ -5,6 +5,7 @@ mod invocations;
 pub(super) use invocations::invocation_count;
 
 pub(super) async fn wait_results(
+    client: &runne_runtime_client::AuthenticatedRuntimeClient,
     database: &std::path::Path,
     task: runne_runtime_client::CanonicalId,
     count: usize,
@@ -12,11 +13,17 @@ pub(super) async fn wait_results(
 ) {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
     while result_count(database, task) < count {
-        assert!(
-            tokio::time::Instant::now() < deadline,
-            "D2 result count did not reach {count}: {}",
-            diagnostic(database, task, runtime_root)
-        );
+        if tokio::time::Instant::now() >= deadline {
+            let task_run = client
+                .get_task_run(task)
+                .await
+                .expect("read public TaskRun after D2 result timeout");
+            let state_and_terminal = (task_run.state(), task_run.terminal_result());
+            panic!(
+                "D2 result count did not reach {count}; state/terminal={state_and_terminal:?}: {}",
+                diagnostic(database, task, runtime_root)
+            );
+        }
         tokio::time::sleep(Duration::from_millis(40)).await;
     }
     assert_eq!(result_count(database, task), count);

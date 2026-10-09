@@ -3,6 +3,7 @@ import { PanelRight } from 'lucide-vue-next'
 
 import type { CanonicalWorkspace } from '@/entities/project'
 import { translate } from '@/shared/i18n'
+import WorkspacePermissionMode from './WorkspacePermissionMode.vue'
 
 defineProps<{
   project: CanonicalWorkspace
@@ -29,4 +30,8 @@ defineProps<{
       }) }}
     </dd>
   </dl>
+  <WorkspacePermissionMode
+    :workspace-id="project.workspaceId"
+    :runtime-ready="runtimeStatus === 'live'"
+  />
 </template>

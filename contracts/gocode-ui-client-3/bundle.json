@@ -55,7 +55,7 @@
     },
     {
       "path": "schemas/approval-v1.schema.json",
-      "sha256": "3ef34c6ef6c6d5ed3de95e5a5d673757a47e7bd726a7cb03b3f6939de3e3285d"
+      "sha256": "88cf38597289bf122f30bc1dafc074800b10d69ac36be51c50395c1972764baf"
     },
     {
       "path": "schemas/local-runtime-profile-v3.schema.json",

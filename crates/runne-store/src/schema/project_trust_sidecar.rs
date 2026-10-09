@@ -1,7 +1,34 @@
 use crate::project_trust_store::{
-    PROJECT_TRUST_IDENTITY_SQL, PROJECT_TRUST_SCHEMA_KIND, PROJECT_TRUST_SCHEMA_VERSION,
-    PROJECT_TRUST_SIDECAR_VERSION, PROJECT_TRUST_TRUST_SQL,
+    PROJECT_TRUST_IDENTITY_V2_SQL, PROJECT_TRUST_IDENTITY_V3_SQL, PROJECT_TRUST_SCHEMA_KIND,
+    PROJECT_TRUST_SCHEMA_V2_VERSION, PROJECT_TRUST_SCHEMA_VERSION, PROJECT_TRUST_SIDECAR_VERSION,
+    PROJECT_TRUST_TRUST_SQL,
 };
+
+#[path = "project_trust_sidecar/admin_catalog.rs"]
+mod project_trust_sidecar_admin_catalog;
+#[path = "project_trust_sidecar/catalog.rs"]
+mod project_trust_sidecar_catalog;
+#[path = "project_trust_sidecar/migration_v3.rs"]
+mod project_trust_sidecar_migration_v3;
+
+pub(crate) const PROJECT_TRUST_EFFECT_POLICY_V1_SQL: &str =
+    include_str!("project_trust_sidecar/schema_v3.sql");
+pub(crate) const PROJECT_TRUST_EFFECT_POLICY_DEFAULT_TRIGGER_SQL: &str =
+    "CREATE TRIGGER project_trust_default_effect_policy AFTER INSERT ON project_trust
+     BEGIN
+       INSERT OR IGNORE INTO managed_effect_policies
+       (project_id, policy_version, fs_read, fs_create, fs_write, fs_delete,
+        process_start, network_use)
+       VALUES (NEW.project_id, 1, 0, 0, 0, 0, 0, 0);
+     END";
+pub(crate) const PROJECT_TRUST_ADMIN_ROLE_SQL: &str =
+    project_trust_sidecar_admin_catalog::ADMIN_ROLE_SQL;
+pub(crate) const PROJECT_TRUST_ADMIN_COMMANDS_SQL: &str =
+    project_trust_sidecar_admin_catalog::ADMIN_COMMANDS_SQL;
+pub(crate) const PROJECT_TRUST_ADMIN_RECEIPTS_SQL: &str =
+    project_trust_sidecar_admin_catalog::ADMIN_RECEIPTS_SQL;
+pub(crate) const PROJECT_TRUST_ADMIN_TRIGGERS_SQL: &str =
+    project_trust_sidecar_admin_catalog::ADMIN_TRIGGERS_SQL;
 
 pub(crate) fn reopen_managed_project_trust_sidecar(
     path: &Path,
@@ -23,8 +50,36 @@ pub(crate) fn reopen_managed_project_trust_sidecar(
         identity.retain_created_sidecars()?;
         identity.verify(&connection)?;
         connection.execute_batch("PRAGMA query_only = ON;")?;
-        classify_project_trust_sidecar(&connection)?;
-        let instance_epoch = validate_project_trust_authority(&connection, expected_authority)?;
+        let layout = project_trust_sidecar_catalog::classify(&connection)?;
+        let instance_epoch = project_trust_sidecar_catalog::validate_authority(
+            &connection,
+            expected_authority,
+            layout,
+        )?;
+        if layout == project_trust_sidecar_catalog::CatalogVersion::V2 {
+            project_trust_sidecar_catalog::validate_v2_records(&connection)?;
+        }
+        identity.retain_created_sidecars()?;
+        identity.verify_with_sidecar_handle(&connection)?;
+        if layout == project_trust_sidecar_catalog::CatalogVersion::V2 {
+            connection.execute_batch("PRAGMA query_only = OFF;")?;
+            project_trust_sidecar_migration_v3::migrate(
+                &connection,
+                &mut identity,
+                instance_epoch,
+                expected_authority,
+            )?;
+        }
+        connection.execute_batch("PRAGMA query_only = ON;")?;
+        project_trust_sidecar_catalog::classify_v3(&connection)?;
+        let current_epoch = project_trust_sidecar_catalog::validate_authority(
+            &connection,
+            expected_authority,
+            project_trust_sidecar_catalog::CatalogVersion::V3,
+        )?;
+        if current_epoch != instance_epoch {
+            return Err(rusqlite::Error::InvalidQuery);
+        }
         identity.retain_created_sidecars()?;
         identity.verify_with_sidecar_handle(&connection)?;
         connection.execute_batch("PRAGMA query_only = OFF;")?;
@@ -36,65 +91,4 @@ pub(crate) fn reopen_managed_project_trust_sidecar(
         )?;
         Ok((managed, instance_epoch))
     }
-}
-
-fn classify_project_trust_sidecar(connection: &Connection) -> SqliteResult<()> {
-    let version: i64 = connection.pragma_query_value(None, "user_version", |row| row.get(0))?;
-    if version != PROJECT_TRUST_SIDECAR_VERSION {
-        return Err(rusqlite::Error::InvalidQuery);
-    }
-    let catalog = connection
-        .prepare(
-            "SELECT type, name, sql FROM sqlite_master
-             WHERE name NOT LIKE 'sqlite_%' ORDER BY type, name",
-        )?
-        .query_map([], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
-            ))
-        })?
-        .collect::<SqliteResult<Vec<_>>>()?;
-    let expected = [
-        ("table", "project_trust", PROJECT_TRUST_TRUST_SQL),
-        ("table", "project_trust_schema", PROJECT_TRUST_IDENTITY_SQL),
-    ];
-    if catalog.len() != expected.len()
-        || catalog.iter().zip(expected).any(
-            |((kind, name, sql), (expected_kind, expected_name, expected_sql))| {
-                kind != expected_kind || name != expected_name || sql != expected_sql
-            },
-        )
-    {
-        return Err(rusqlite::Error::InvalidQuery);
-    }
-    Ok(())
-}
-
-fn validate_project_trust_authority(
-    connection: &Connection,
-    expected_authority: [u8; 16],
-) -> SqliteResult<u64> {
-    let identity = connection.query_row(
-        "SELECT schema_kind, schema_version, instance_epoch, authority_id
-         FROM project_trust_schema WHERE id = 1",
-        [],
-        |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, i64>(1)?,
-                row.get::<_, i64>(2)?,
-                row.get::<_, Vec<u8>>(3)?,
-            ))
-        },
-    )?;
-    if identity.0 != PROJECT_TRUST_SCHEMA_KIND
-        || identity.1 != PROJECT_TRUST_SCHEMA_VERSION
-        || identity.2 <= 0
-        || identity.3 != expected_authority
-    {
-        return Err(rusqlite::Error::InvalidQuery);
-    }
-    u64::try_from(identity.2).map_err(|_| rusqlite::Error::InvalidQuery)
 }

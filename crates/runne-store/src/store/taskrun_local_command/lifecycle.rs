@@ -162,6 +162,7 @@ impl StoreTransaction {
         let tx = connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(|_| EventStoreError::Unavailable)?;
+        super::permission::require_legacy_bound_route(&tx, taskrun_id)?;
         let current: Option<ApprovalBindingRow> = tx.query_row(
             "SELECT state,command_digest,executable_digest,workspace_version,admitted_root_version,admitted_root_identity,trust_epoch,trust_revision,source_policy_version,command_policy_version,approval_id FROM taskrun_local_command_attempts WHERE taskrun_id=?1",
             [taskrun_id.as_bytes()],
