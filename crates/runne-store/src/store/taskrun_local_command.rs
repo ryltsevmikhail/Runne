@@ -17,7 +17,7 @@ pub use permission::{
     LocalCommandPermissionCaptureV1, LocalCommandPermissionRoute, PermissionRootFenceGuardV1,
     PermissionRootFenceOwnerV1, PermissionRootFenceRequestV1,
 };
-pub use recovery::LocalCommandRecoveryCandidate;
+pub use recovery::{LocalCommandCancellationStopEvidence, LocalCommandRecoveryCandidate};
 
 pub(super) fn insert_preflight(
     tx: &Transaction<'_>,

@@ -1,5 +1,7 @@
 use super::super::{LocalCommandAttemptState, LocalCommandRecoveryCandidate};
-use super::helpers::{now_millis, read_exact_state};
+use super::cancel_settled::settled_cancellation_matches;
+use super::cancel_support::{record_recovery_stop, settle_cancellation_receipt_and_release};
+use super::helpers::read_exact_state;
 use super::verify_recovery_owner;
 use runne_application::ports::{EventStoreError, ExecutionNodeId};
 use runne_domain::event::{Actor, Sensitivity, UncommittedEvent};
@@ -16,8 +18,11 @@ impl super::super::super::StoreTransaction {
     /// is the only writer of this terminal, and only after the durable
     /// cancellation stop evidence, the recovery owner, the empty area, and the
     /// still-active claimed attempt have all been revalidated in one commit.
-    /// No process exit is invented; the cancelled attempt keeps `exit_code`
-    /// NULL exactly like the legacy recovery completion.
+    /// The attempt keeps its exact terminal facts: a factual exit recorded
+    /// before the cancellation stays authoritative (no exit is invented into
+    /// the event, none is erased from the row), and a stop without an observed
+    /// exit keeps `exit_code` NULL. An exactly settled candidate returns
+    /// without any new write, independent of the recovery epoch.
     #[cfg(target_os = "linux")]
     pub fn complete_local_command_cancellation_recovery(
         &self,
@@ -26,9 +31,6 @@ impl super::super::super::StoreTransaction {
         current_epoch: u64,
         empty: VerifiedEmptyManagedArea<'_>,
     ) -> Result<(), EventStoreError> {
-        if empty.identity_bytes().as_slice() != candidate.area_identity {
-            return Err(EventStoreError::CorruptData);
-        }
         let mut writer = self
             .inner
             .writer
@@ -37,9 +39,6 @@ impl super::super::super::StoreTransaction {
         let tx = writer
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(|_| EventStoreError::Unavailable)?;
-        empty
-            .revalidate()
-            .map_err(|_| EventStoreError::CorruptData)?;
         verify_recovery_owner(
             &tx,
             candidate,
@@ -47,6 +46,15 @@ impl super::super::super::StoreTransaction {
             current_epoch,
             &self.runtime_authority_id,
         )?;
+        if settled_cancellation_matches(&tx, candidate)? {
+            return tx.commit().map_err(|_| EventStoreError::Unavailable);
+        }
+        if empty.identity_bytes().as_slice() != candidate.area_identity {
+            return Err(EventStoreError::CorruptData);
+        }
+        empty
+            .revalidate()
+            .map_err(|_| EventStoreError::CorruptData)?;
         let stream = crate::store::taskrun_claim::stream_validate::verify_stream(
             &tx,
             candidate.identity.taskrun_id,
@@ -71,7 +79,9 @@ impl super::super::super::StoreTransaction {
         let state = read_exact_state(&tx, candidate)?;
         if !matches!(
             state,
-            LocalCommandAttemptState::CancelRequested | LocalCommandAttemptState::Cancelled
+            LocalCommandAttemptState::CancelRequested
+                | LocalCommandAttemptState::Cancelled
+                | LocalCommandAttemptState::Completed
         ) {
             return Err(EventStoreError::CorruptData);
         }
@@ -107,12 +117,19 @@ impl super::super::super::StoreTransaction {
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .map_err(|_| EventStoreError::CorruptData)?;
-        if route != Some((2, 3, 68))
-            || !durable_cancel_stop
-            || exit_code.is_some()
-            || command_digest.len() != 32
-        {
+        let exit_shape_ok = match (&state, exit_code) {
+            (LocalCommandAttemptState::Completed, Some(code)) => (0..=255).contains(&code),
+            (
+                LocalCommandAttemptState::CancelRequested | LocalCommandAttemptState::Cancelled,
+                exit,
+            ) => exit.is_none_or(|code| (0..=255).contains(&code)),
+            _ => false,
+        };
+        if route != Some((2, 3, 68)) || !exit_shape_ok || command_digest.len() != 32 {
             return Err(EventStoreError::CorruptData);
+        }
+        if !durable_cancel_stop {
+            record_recovery_stop(&tx, candidate)?;
         }
         let node = uuid::Uuid::parse_str(&candidate.identity.node_id.0)
             .map_err(|_| EventStoreError::CorruptData)?;
@@ -131,7 +148,7 @@ impl super::super::super::StoreTransaction {
         let aggregate = AggregateId::TaskRun(candidate.identity.taskrun_id);
         let command_id = CommandId::from_bytes(*uuid::Uuid::now_v7().as_bytes());
         let key = IdempotencyKey::new(format!(
-            "local-command-recovery-cancel-v1:{}:{}:{current_epoch}",
+            "local-command-recovery-cancel-v1:{}:{}",
             candidate.identity.taskrun_id, candidate.identity.fence.0
         ))
         .map_err(|_| EventStoreError::CorruptData)?;
@@ -149,7 +166,7 @@ impl super::super::super::StoreTransaction {
             Sensitivity::Public,
             TaskRunEvent::CancellationCompleted,
         );
-        let timestamp = now_millis()
+        let timestamp = super::helpers::now_millis()
             .checked_mul(1_000)
             .ok_or(EventStoreError::CorruptData)?
             .max(last_timestamp);
@@ -226,54 +243,14 @@ impl super::super::super::StoreTransaction {
         if changed != 1 {
             return Err(EventStoreError::CorruptData);
         }
-        let _ = tx
-            .execute(
-                "UPDATE taskrun_local_command_attempts SET state='cancelled',updated_at=?1
-                 WHERE taskrun_id=?2 AND attempt_id=?3 AND fence=?4 AND managed_area_identity=?5
-                   AND state='cancel_requested'",
-                params![
-                    now_millis(),
-                    taskrun,
-                    attempt,
-                    candidate.identity.fence.0 as i64,
-                    candidate.area_identity
-                ],
-            )
-            .map_err(|_| EventStoreError::CorruptData)?;
-        tx.execute(
-            "INSERT INTO taskrun_terminal_settlement_receipts
-             (taskrun_id,fence,attempt_id,node_id,node_epoch,terminal_event_id,terminal_version)
-             VALUES(?1,?2,?3,?4,?5,?6,?7)",
-            params![
-                taskrun,
-                candidate.identity.fence.0 as i64,
-                attempt,
-                node.as_bytes(),
-                candidate.identity.node_epoch as i64,
-                terminal.event_id().as_bytes(),
-                sequence
-            ],
-        )
-        .map_err(|_| EventStoreError::CorruptData)?;
-        let released = tx
-            .execute(
-                "UPDATE taskrun_assignment_occupations SET state='released',release_event_id=?1
-                 WHERE taskrun_id=?2 AND fence=?3 AND attempt_id=?4 AND node_id=?5
-                   AND node_epoch=?6 AND state='active' AND dispatch_intent='absent'
-                   AND release_event_id IS NULL",
-                params![
-                    terminal.event_id().as_bytes(),
-                    taskrun,
-                    candidate.identity.fence.0 as i64,
-                    attempt,
-                    node.as_bytes(),
-                    candidate.identity.node_epoch as i64
-                ],
-            )
-            .map_err(|_| EventStoreError::CorruptData)?;
-        if released != 1 {
-            return Err(EventStoreError::CorruptData);
-        }
+        settle_cancellation_receipt_and_release(
+            &tx,
+            candidate,
+            node,
+            terminal.event_id(),
+            sequence,
+            matches!(state, LocalCommandAttemptState::CancelRequested),
+        )?;
         empty
             .revalidate()
             .map_err(|_| EventStoreError::CorruptData)?;

@@ -117,7 +117,8 @@ pub(super) fn v49_matches(connection: &Connection, version: i64) -> SqliteResult
         return Ok(false);
     }
     let mut stmt = connection.prepare(
-        "SELECT e.payload,o.dispatch_intent,r.taskrun_id,r.attempt_id,r.node_id,r.node_epoch,r.fence
+        "SELECT e.payload,o.dispatch_intent,r.taskrun_id,r.attempt_id,r.node_id,r.node_epoch,
+                r.fence,r.terminal_event_id,r.terminal_version
          FROM taskrun_terminal_settlement_receipts r JOIN events e ON e.event_id=r.terminal_event_id JOIN taskrun_assignment_occupations o USING(taskrun_id,fence)",
     )?;
     let rows = stmt.query_map([], |row| {
@@ -129,10 +130,13 @@ pub(super) fn v49_matches(connection: &Connection, version: i64) -> SqliteResult
             row.get::<_, Vec<u8>>(4)?,
             row.get::<_, i64>(5)?,
             row.get::<_, i64>(6)?,
+            row.get::<_, Vec<u8>>(7)?,
+            row.get::<_, i64>(8)?,
         ))
     })?;
     for row in rows {
-        let (payload, intent, taskrun_id, attempt_id, node_id, node_epoch, fence) = row?;
+        let (payload, intent, taskrun_id, attempt_id, node_id, node_epoch, fence, terminal_event_id, terminal_version) =
+            row?;
         let Ok(event) = TaskRunEventCodec.decode(&payload) else {
             return Ok(false);
         };
@@ -203,7 +207,12 @@ pub(super) fn v49_matches(connection: &Connection, version: i64) -> SqliteResult
                             connection,
                             &taskrun_id,
                             &attempt_id,
+                            &node_id,
+                            node_epoch,
                             fence,
+                            &terminal_event_id,
+                            terminal_version,
+                            &event,
                         )?)
             }
             _ => false,
@@ -216,37 +225,4 @@ pub(super) fn v49_matches(connection: &Connection, version: i64) -> SqliteResult
         return Ok(false);
     }
     Ok(true)
-}
-
-/// Accepts a V68 CurrentPermission local command whose terminal receipt was
-/// written by the permission-side settlement: the cancelled attempt row keeps
-/// the leader's legacy exit code, which the V68 sidecar invariants validate
-/// (x2_permission_terminal exit linkage), so only the route and that exact
-/// terminal sidecar linkage are rechecked here.
-fn v68_current_route_terminal_matches(
-    connection: &Connection,
-    taskrun_id: &[u8],
-    attempt_id: &[u8],
-    fence: i64,
-) -> SqliteResult<bool> {
-    let Ok(taskrun_bytes) = <[u8; 16]>::try_from(taskrun_id) else {
-        return Ok(false);
-    };
-    let taskrun_key = runne_domain::id::TaskRunId::from_bytes(taskrun_bytes);
-    match crate::store::taskrun_local_command::permission::no_effect::current_route(
-        connection, taskrun_key,
-    ) {
-        Ok(true) => {}
-        _ => return Ok(false),
-    }
-    let linked: bool = connection.query_row(
-        "SELECT EXISTS(SELECT 1 FROM x2_permission_terminal x
-           JOIN taskrun_assignment_occupations o
-             ON o.taskrun_id=x.taskrun_id AND o.fence=x.fence AND o.attempt_id=x.attempt_id
-          WHERE x.taskrun_id=?1 AND x.attempt_id=?2 AND x.fence=?3 AND x.terminal_kind=1
-            AND o.state='released' AND o.release_event_id=x.event_id)",
-        rusqlite::params![taskrun_id, attempt_id, fence],
-        |row| row.get(0),
-    )?;
-    Ok(linked)
 }

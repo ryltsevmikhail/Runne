@@ -6,6 +6,8 @@ use runne_platform::process_managed_area::LinuxManagedAreaRoot;
 use runne_store::store::{LocalCommandAttemptState, LocalCommandRecoveryCandidate};
 use std::time::Duration;
 
+#[path = "local/cancellation.rs"]
+mod cancellation;
 #[path = "local/tool_areas.rs"]
 mod tool_areas;
 
@@ -116,60 +118,7 @@ impl DaemonAutomaticTaskRuns {
             return Ok(());
         }
         if task.state() == TaskRunState::Cancelling {
-            let stop_already_proven = matches!(
-                candidate.state,
-                LocalCommandAttemptState::Completed | LocalCommandAttemptState::Cancelled
-            );
-            if !stop_already_proven {
-                self.store
-                    .request_local_command_stop_recovery(candidate, &self.node_id, self.epoch)
-                    .map_err(|_| "request_stop")?;
-            }
-            if area.terminate(Duration::from_secs(2)).is_err()
-                || area.is_populated().map_err(|_| "check_area")?
-            {
-                self.store
-                    .mark_local_command_recovery_unconfirmed(candidate, &self.node_id, self.epoch)
-                    .map_err(|_| "mark_unconfirmed")?;
-                return Ok(());
-            }
-            if !stop_already_proven {
-                let empty = area.prove_empty().map_err(|_| "prove_empty")?;
-                self.store
-                    .confirm_local_command_stopped_recovery(
-                        candidate,
-                        &self.node_id,
-                        self.epoch,
-                        empty,
-                    )
-                    .map_err(|_| "confirm_stop")?;
-            }
-            if matches!(
-                self.store
-                    .local_command_permission_route(candidate.identity.taskrun_id)
-                    .map_err(|_| "complete_cancellation")?,
-                runne_store::store::LocalCommandPermissionRoute::CurrentPermission
-            ) {
-                let empty = area.prove_empty().map_err(|_| "prove_empty")?;
-                self.store
-                    .complete_local_command_cancellation_recovery(
-                        candidate,
-                        &self.node_id,
-                        self.epoch,
-                        empty,
-                    )
-                    .map_err(|_| "complete_cancellation")?;
-            } else {
-                complete_cancelled(
-                    &self.taskruns,
-                    &self.store,
-                    candidate,
-                    stream.current_version,
-                )
-                .map_err(|_| "complete_cancellation")?;
-            }
-            area.remove_empty().map_err(|_| "remove_area")?;
-            return Ok(());
+            return cancellation::recover_cancelling(self, candidate, stream, area);
         }
         let mut settled_task = task.clone();
         let mut settled_stream_version = stream.current_version;
@@ -199,14 +148,29 @@ impl DaemonAutomaticTaskRuns {
                     .map_err(|_| "load_stream")?;
                 let latest_task = TaskRun::replay(&latest.events).map_err(|_| "replay_stream")?;
                 if latest_task.state() == TaskRunState::Cancelling {
+                    // Single-writer startup recovery cannot observe the stream
+                    // advancing between the two loads above, so this arm is a
+                    // defense-in-depth check, not an expected route. It stays
+                    // route-aware: a CurrentPermission attempt must never fall
+                    // back to the legacy terminal service.
                     area.prove_empty().map_err(|_| "prove_empty")?;
+                    let route = self
+                        .store
+                        .local_command_permission_route(candidate.identity.taskrun_id)
+                        .map_err(|_| "complete_route_lookup")?;
+                    if matches!(
+                        route,
+                        runne_store::store::LocalCommandPermissionRoute::CurrentPermission
+                    ) {
+                        return Err("complete_current");
+                    }
                     complete_cancelled(
                         &self.taskruns,
                         &self.store,
                         candidate,
                         latest.current_version,
                     )
-                    .map_err(|_| "complete_cancellation")?;
+                    .map_err(|_| "complete_legacy")?;
                     area.remove_empty().map_err(|_| "remove_area")?;
                     return Ok(());
                 }

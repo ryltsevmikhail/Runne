@@ -166,6 +166,7 @@ include!("schema/migrations/v65_permission_modes.rs");
 include!("schema/migrations/v66_permission_confirmation.rs");
 include!("schema/migrations/v67_permission_managed_identity.rs");
 include!("schema/migrations/v68_taskrun_permission.rs");
+include!("schema/migrations/v68_terminal_reopen_match.rs");
 include!("schema/taskrun_permission.rs");
 #[cfg(feature = "test-support")]
 include!("schema/test_support_matcher_diagnosis.rs");
@@ -267,6 +268,7 @@ mod tests {
     #[path = "v67_permission_managed_identity.rs"]
     mod v67_permission_managed_identity;
     include!("schema/tests/v68_taskrun_permission.rs");
+    include!("schema/tests/v68_permission_terminal_reopen.rs");
     include!("schema/tests/recovery_compatibility.rs");
     include!("schema/tests/recovery_compatibility_v24.rs");
     include!("schema/tests/credential_v24.rs");

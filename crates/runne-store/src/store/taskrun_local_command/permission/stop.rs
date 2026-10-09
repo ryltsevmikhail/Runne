@@ -157,7 +157,7 @@ pub(crate) fn record_stop(
     Ok(())
 }
 
-pub(super) fn read_stop(
+pub(crate) fn read_stop(
     tx: &rusqlite::Connection,
     taskrun_id: &[u8],
     attempt_id: &[u8],

@@ -25,6 +25,7 @@ mod project_workspace_sqlite {
     mod history;
     mod integrity;
     mod legacy_local_command_fixture;
+    mod local_command_cancellation_recovery_uow;
     mod local_command_effects_proof;
     mod local_command_lifecycle;
     mod local_command_outcome_unknown;

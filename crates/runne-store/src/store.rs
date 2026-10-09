@@ -178,10 +178,10 @@ pub use permission_modes::{
     PermissionModeSelectionSnapshot, PermissionModeStoreError, ProtectedNativeLaunchContext,
 };
 pub use taskrun_local_command::{
-    LocalCommandApprovalBinding, LocalCommandAttemptState, LocalCommandPermissionCaptureV1,
-    LocalCommandPermissionRoute, LocalCommandPermissionTerminalOutputV1,
-    LocalCommandRecoveryCandidate, PermissionRootFenceGuardV1, PermissionRootFenceOwnerV1,
-    PermissionRootFenceRequestV1,
+    LocalCommandApprovalBinding, LocalCommandAttemptState, LocalCommandCancellationStopEvidence,
+    LocalCommandPermissionCaptureV1, LocalCommandPermissionRoute,
+    LocalCommandPermissionTerminalOutputV1, LocalCommandRecoveryCandidate,
+    PermissionRootFenceGuardV1, PermissionRootFenceOwnerV1, PermissionRootFenceRequestV1,
 };
 mod taskrun_no_effect_proof;
 pub(crate) use taskrun_no_effect_proof::authenticated_local_denial;
