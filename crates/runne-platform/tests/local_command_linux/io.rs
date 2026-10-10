@@ -169,7 +169,16 @@ fn pipe_eof_is_reported_after_leader_exit_and_descendant_close() {
     assert!(saw_leader_before_eof, "leader exit must not imply pipe EOF");
     assert!(streams_eof);
     drop(child);
-    assert!(!area.is_populated().expect("descendant exited"));
+    // The orphaned descendant can stay listed in the area cgroup for a short
+    // window after its exit until the reaper observes it; wait it out bounded.
+    let empty_deadline = Instant::now() + Duration::from_secs(2);
+    while area.is_populated().expect("descendant exited") {
+        assert!(
+            Instant::now() < empty_deadline,
+            "descendant stayed in the area after exit"
+        );
+        std::thread::sleep(Duration::from_millis(2));
+    }
     area.remove();
 }
 

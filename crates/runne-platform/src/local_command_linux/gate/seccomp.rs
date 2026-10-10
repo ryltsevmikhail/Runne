@@ -59,11 +59,12 @@ impl Program {
             filter: self.0.as_ptr() as *mut libc::sock_filter,
         };
         unsafe {
-            libc::prctl(
+            libc::syscall(
+                libc::SYS_prctl,
                 libc::PR_SET_SECCOMP,
                 libc::SECCOMP_MODE_FILTER,
                 &mut program,
-            )
+            ) as i32
         }
     }
 }

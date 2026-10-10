@@ -104,7 +104,7 @@ while True: time.sleep(10)
         .spawn_gated_with_containment_with_io(&fixture.area, b"", limits(), containment(&fixture))
         .expect("stopped cancellation test child");
     child.release().expect("release cancellation test child");
-    wait_for_file(&denied);
+    wait_for_file(&denied, b"network-denied");
     assert_eq!(std::fs::read(before).unwrap(), b"partial-effect");
     assert_eq!(std::fs::read(&denied).unwrap(), b"network-denied");
     child
@@ -114,10 +114,20 @@ while True: time.sleep(10)
     fixture.area.remove();
 }
 
-fn wait_for_file(path: &std::path::Path) {
+fn wait_for_file(path: &std::path::Path, expected: &[u8]) {
+    // The descendant creates the marker before its buffered write lands, so
+    // waiting for existence alone races the exact content; wait for the bytes.
     let deadline = Instant::now() + Duration::from_secs(5);
-    while !path.exists() && Instant::now() < deadline {
+    loop {
+        if let Ok(bytes) = std::fs::read(path)
+            && bytes == expected
+        {
+            return;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "descendant never recorded network denial"
+        );
         std::thread::sleep(Duration::from_millis(10));
     }
-    assert!(path.exists(), "descendant never recorded network denial");
 }

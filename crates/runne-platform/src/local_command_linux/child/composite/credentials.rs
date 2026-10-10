@@ -3,14 +3,16 @@
 pub(super) unsafe fn lock_securebits() -> i32 {
     const SECBIT_NOROOT_LOCKED: libc::c_int = 0x01 | 0x02;
     const SECBIT_NO_SETUID_FIXUP_LOCKED: libc::c_int = 0x04 | 0x08;
+    // Child-side helper of a multi-threaded parent: raw syscall only.
     unsafe {
-        libc::prctl(
+        libc::syscall(
+            libc::SYS_prctl,
             libc::PR_SET_SECUREBITS,
             SECBIT_NOROOT_LOCKED | SECBIT_NO_SETUID_FIXUP_LOCKED,
             0,
             0,
             0,
-        )
+        ) as i32
     }
 }
 
