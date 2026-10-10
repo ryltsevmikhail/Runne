@@ -18,9 +18,11 @@ POLICIES = {
     # The Linux composite containment admission binds invocation scopes with
     # sha2 protected-control-plane policy digests and workspace identity
     # digests (same reviewed crate already allowed for the authority slices).
+    # The reviewed D2.1 safe-tool-helper Linux decode strictly parses bounded
+    # serde_json/base64 and binds the typed runne-domain command (37ea5c77).
     "runne-platform": {
-        "runne-application", "runne-platform-ports", "libc", "rustix", "sha2",
-        "thiserror", "uuid",
+        "base64", "runne-application", "runne-domain", "runne-platform-ports",
+        "libc", "rustix", "serde", "serde_json", "sha2", "thiserror", "uuid",
     },
     "runne-macos-process-identity": {
         "core-foundation", "libc", "nix", "runne-api", "runne-provider", "security-framework", "security-framework-sys", "sha2",
@@ -89,49 +91,12 @@ def main() -> int:
     metadata = json.loads(result.stdout)
     workspace_manifest = (pathlib.Path(__file__).parents[1] / "Cargo.toml").read_text(encoding="utf-8")
 
-    found: set[str] = set()
     errors: list[str] = []
     if 'argon2 = { version = "=0.5.3", features = ["zeroize"] }' not in workspace_manifest:
         errors.append("FAIL: project-owner authority requires argon2 zeroize feature")
 
-    for pkg in metadata["packages"]:
-        name = pkg["name"]
-        if name not in POLICIES:
-            continue
-        found.add(name)
-
-        deps = pkg.get("dependencies", [])
-        production_deps = {
-            dep["name"]
-            for dep in deps
-            if dep.get("kind") != "dev"
-        }
-        disallowed = production_deps - POLICIES[name]
-        if disallowed:
-            errors.append(
-                f"FAIL: {name} has disallowed production dependencies: "
-                f"{sorted(disallowed)}"
-            )
-        if name == "runne-project-owner-authority":
-            forbidden = production_deps & FORBIDDEN_PROJECT_OWNER_AUTHORITY_EDGES
-            if forbidden:
-                errors.append(
-                    "FAIL: runne-project-owner-authority has forbidden core edges: "
-                    f"{sorted(forbidden)}"
-                )
-        if name in EXACT_VERSION_POLICIES:
-            non_exact = sorted(
-                dep["name"]
-                for dep in deps
-                if dep.get("kind") != "dev"
-                and dep["name"] in EXACT_VERSION_POLICIES[name]
-                and (name, dep["name"]) not in INTERNAL_AUTHORITY_EDGES
-                and not dep["req"].startswith("=")
-            )
-            if non_exact:
-                errors.append(
-                    f"FAIL: {name} has non-exact production dependencies: {non_exact}"
-                )
+    policy_errors, found = package_policy_errors(metadata["packages"])
+    errors.extend(policy_errors)
 
     errors.extend(project_owner_store_declaration_errors(metadata["packages"]))
     errors.extend(macos_process_identity_dependency_errors(metadata["packages"]))
@@ -169,6 +134,49 @@ def main() -> int:
         f"OK: {len(found)}/{len(POLICIES)} workspace packages satisfy dependency policies"
     )
     return 0
+
+
+def package_policy_errors(packages: list[dict]) -> tuple[list[str], set[str]]:
+    """Return per-crate dependency policy errors and policed names found."""
+    errors: list[str] = []
+    found: set[str] = set()
+    for pkg in packages:
+        name = pkg["name"]
+        if name not in POLICIES:
+            continue
+        found.add(name)
+        production_deps = {
+            dep["name"]
+            for dep in pkg.get("dependencies", [])
+            if dep.get("kind") != "dev"
+        }
+        disallowed = production_deps - POLICIES[name]
+        if disallowed:
+            errors.append(
+                f"FAIL: {name} has disallowed production dependencies: "
+                f"{sorted(disallowed)}"
+            )
+        if name == "runne-project-owner-authority":
+            forbidden = production_deps & FORBIDDEN_PROJECT_OWNER_AUTHORITY_EDGES
+            if forbidden:
+                errors.append(
+                    "FAIL: runne-project-owner-authority has forbidden core edges: "
+                    f"{sorted(forbidden)}"
+                )
+        if name in EXACT_VERSION_POLICIES:
+            non_exact = sorted(
+                dep["name"]
+                for dep in pkg.get("dependencies", [])
+                if dep.get("kind") != "dev"
+                and dep["name"] in EXACT_VERSION_POLICIES[name]
+                and (name, dep["name"]) not in INTERNAL_AUTHORITY_EDGES
+                and not dep["req"].startswith("=")
+            )
+            if non_exact:
+                errors.append(
+                    f"FAIL: {name} has non-exact production dependencies: {non_exact}"
+                )
+    return errors, found
 
 
 def project_owner_store_declaration_errors(packages: list[dict]) -> list[str]:

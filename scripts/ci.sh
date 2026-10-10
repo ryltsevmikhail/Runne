@@ -157,6 +157,7 @@ if [ "$MODE" = "pinned" ]; then
     "$PYTHON_BIN" -m unittest \
         scripts.tests.test_check_deps \
         scripts.tests.test_check_deps_macos_process_identity \
+        scripts.tests.test_check_deps_platform \
         scripts.tests.test_check_source_file_length \
         scripts.desktop.tests.test_validate_architecture \
         scripts.tests.test_macos_ci_keychain \
