@@ -22,6 +22,10 @@ mod policy_io;
 mod policy_known_shapes_tests;
 #[path = "closure/policy_macros.rs"]
 mod policy_macros;
+#[path = "closure/policy_permission.rs"]
+mod policy_permission;
+#[path = "closure/policy_permission_tests.rs"]
+mod policy_permission_tests;
 #[path = "closure/policy_runtime_client.rs"]
 mod policy_runtime_client;
 #[path = "closure/policy_startup.rs"]

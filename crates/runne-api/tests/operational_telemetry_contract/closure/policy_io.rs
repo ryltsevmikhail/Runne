@@ -1,7 +1,7 @@
 use super::policy_helpers;
 use super::{
     lexer::Token, policy_composition, policy_helpers::in_attribute, policy_macros,
-    policy_runtime_client, policy_startup, policy_uuid,
+    policy_permission, policy_runtime_client, policy_startup, policy_uuid,
 };
 
 const RUNTIME_CLIENT: &str = "crates/runne-runtime-client/src/canonical/operational_telemetry.rs";
@@ -94,6 +94,9 @@ fn audit_io_identifier(
     if name == "TcpListener" && !is_tcp_listener(path, tokens, index) {
         return reject(index, "unaudited TCP listener");
     }
+    if name == "Command" && !policy_permission::is_store_command_variant(path, tokens, index) {
+        return reject(index, "filesystem, standard stream, or process access");
+    }
     if matches!(
         name,
         "fs" | "File"
@@ -104,7 +107,6 @@ fn audit_io_identifier(
             | "BufWriter"
             | "BufReader"
             | "Stdio"
-            | "Command"
     ) {
         return reject(index, "filesystem, standard stream, or process access");
     }

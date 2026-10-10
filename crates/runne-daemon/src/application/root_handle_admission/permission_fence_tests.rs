@@ -154,3 +154,90 @@ fn paired_store_open_failure_is_not_retried_ownerless() {
         ))
     ));
 }
+
+fn root_state_binding() -> runne_api::RuntimeSessionBinding {
+    let authority = [
+        0x01, 0x8f, 0x2e, 0x3a, 0x70, 0x00, 0x70, 0x00, 0x80, 0x00, 0, 0, 0, 0, 0, 1,
+    ];
+    let daemon = [
+        0x01, 0x8f, 0x2e, 0x3a, 0x70, 0x00, 0x70, 0x00, 0x80, 0x00, 0, 0, 0, 0, 0, 2,
+    ];
+    let session = [
+        0x01, 0x8f, 0x2e, 0x3a, 0x70, 0x00, 0x70, 0x00, 0x80, 0x00, 0, 0, 0, 0, 0, 3,
+    ];
+    runne_api::RuntimeSessionBinding::new(
+        runne_api::StableRuntimeBinding::new(
+            authority,
+            runne_api::ApiPrincipalId::new("local-owner").unwrap(),
+            runne_domain::id::EventLogLineageId::from_bytes([
+                0x01, 0x8f, 0x2e, 0x3a, 0x70, 0x00, 0x70, 0x00, 0x80, 0x00, 0, 0, 0, 0, 0, 4,
+            ]),
+            "gocode-ui-client/2",
+            [0x33; 32],
+            [0x44; 32],
+        )
+        .unwrap(),
+        runne_api::DaemonInstanceId::from_bytes(daemon),
+        7,
+        session,
+        3,
+        runne_domain::event::Sensitivity::Internal,
+        [0x77; 32],
+    )
+    .unwrap()
+}
+
+/// The composition sanity (previously an inline `debug_assert` in
+/// `command_hosts.rs`) as a real regression: `root_state()` handouts and
+/// their clones keep the single authoritative allocation identity, and the
+/// identity check discriminates independent states.
+#[test]
+fn root_state_handouts_share_the_single_authoritative_allocation() {
+    let bundle = PermissionStartupBundle::new(None).expect("ownerless startup bundle");
+
+    let handout = bundle.root_state();
+    assert!(bundle.shares_root_state(&handout));
+    assert!(handout.same_allocation(&bundle.root_state()));
+    let composed = handout.clone();
+    assert!(Arc::ptr_eq(&composed.state, &bundle.root_state().state));
+    assert!(!bundle.shares_root_state(&SharedRootAdmissionState::new()));
+}
+
+/// The security invariant behind the binding: an admission authority built
+/// from the startup handout mutates the same authoritative root state that
+/// the startup bundle (and its store fence adapter) shares.
+#[test]
+fn admission_authority_binds_the_shared_root_state_allocation() {
+    let directory = tempfile::tempdir().expect("temporary store");
+    let (path, writer, reader) = managed_connections(&directory);
+    let bundle = PermissionStartupBundle::new(None).expect("ownerless startup bundle");
+    let store = bundle
+        .open_store(
+            &path,
+            writer,
+            reader,
+            runne_application::ports::RuntimeAuthorityId("root-state-pin".into()),
+            content_guard(),
+            None,
+        )
+        .expect("ownerless store");
+    let keys = runne_api::LaunchSecret::from_bytes([0x0a; 32])
+        .expect("launch secret")
+        .derive_keys();
+    let sessions = Arc::new(Mutex::new(LocalSessionService::new(
+        root_state_binding(),
+        [0x0b; 32],
+    )));
+    let shared = bundle.root_state();
+    let authority = RootHandleAdmissionAuthority::new_with_state(
+        &keys,
+        ProjectWorkspaceStore::from_store(store.clone()),
+        "root-state-pin".into(),
+        Arc::clone(&sessions),
+        TrustGate::closed(),
+        shared.clone(),
+    );
+
+    assert!(Arc::ptr_eq(&authority.state, &shared.state));
+    assert!(bundle.shares_root_state(&shared));
+}

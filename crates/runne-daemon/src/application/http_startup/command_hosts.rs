@@ -107,7 +107,6 @@ pub(super) fn compose(
     };
     let repository = ProjectWorkspaceStore::from_store(store.clone());
     let root_state = permission_startup.root_state();
-    debug_assert!(permission_startup.shares_root_state(&root_state));
     let authority = root_admission_keys
         .filter(|_| protected_activation)
         .map(|keys| {

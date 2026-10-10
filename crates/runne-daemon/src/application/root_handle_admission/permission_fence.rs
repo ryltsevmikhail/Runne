@@ -40,6 +40,7 @@ impl SharedRootAdmissionState {
             })),
         }
     }
+    #[cfg(all(test, target_os = "linux"))]
     pub(super) fn same_allocation(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.state, &other.state)
     }
@@ -274,6 +275,11 @@ impl PermissionRootFenceGuardV1 for HeldPermissionRoot<'_> {
     }
 }
 
+/// Regression-only sanity surface for the shared root-state binding: the
+/// composition path keeps the invariant structurally (`root_state()` hands
+/// out `Arc` clones of the single authoritative allocation), so these checks
+/// live in the test build instead of production diagnostics.
+#[cfg(all(test, target_os = "linux"))]
 impl PermissionStartupBundle {
     pub(crate) fn shares_root_state(&self, state: &SharedRootAdmissionState) -> bool {
         self.root_state.same_allocation(state)
