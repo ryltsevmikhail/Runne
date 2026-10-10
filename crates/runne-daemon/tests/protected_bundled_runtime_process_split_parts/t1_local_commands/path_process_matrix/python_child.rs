@@ -2,10 +2,6 @@ pub(super) fn python_literal(value: &str) -> String {
     serde_json::to_string(value).expect("encode fixture path as a Python string literal")
 }
 
-pub(super) fn shell_quote(value: &str) -> String {
-    format!("'{}'", value.replace('\'', "'\\''"))
-}
-
 pub(super) const PYTHON_MATRIX: &str = r#"
 import errno
 import os

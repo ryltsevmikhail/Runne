@@ -12,6 +12,17 @@ const STAGES: &[&str] = &[
     "current_legacy_identity_rejected",
     "ready",
     "current_approval_wait",
+    "current_effective_mode_rejected",
+    "current_invocation_scope_rejected",
+    "current_managed_disposition_missing",
+    "current_policy_denied",
+    "current_admission_store_failed",
+    "current_approval_request_invalid",
+    "current_approval_review_rejected",
+    "current_approval_summary_invalid",
+    "current_approval_state_rejected",
+    "current_approval_expired",
+    "current_approval_task_not_running",
     "current_approval_rejected",
     "current_release_before",
     "current_release_failed",
@@ -112,7 +123,13 @@ pub(super) fn stage(stage: &'static str) {
         return;
     }
     if let Some(path) = marker_path() {
-        let _ = std::fs::write(path, stage.as_bytes());
+        // Test-support only: keep the whole stage trace (bounded) so a failed
+        // fixture can report the exact branch sequence, not just the last
+        // stage. Each daemon writes at most one line per stage.
+        let trace = std::fs::read_to_string(&path).unwrap_or_default();
+        if trace.len() < 2048 {
+            let _ = std::fs::write(&path, format!("{trace}{stage}\n"));
+        }
     }
 }
 

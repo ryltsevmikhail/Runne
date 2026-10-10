@@ -4,16 +4,18 @@ use runne_domain::id::{AttemptId, TaskRunId};
 /// Whether a CurrentPermission cancellation recovery can complete durably.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LocalCommandCancellationStopEvidence {
-    /// A valid durable permission stop row with the cancellation reason
-    /// already exists.
+    /// A durable permission stop row exists whose reason is a valid
+    /// cancellation-compatible stop observation (`1..=5`, exactly the set the
+    /// live terminal validation accepts for `CancellationCompleted`).
     Proven,
     /// No stop row exists at all, and the fully validated binding plus the
     /// durable `CancellationRequested` event let the completion unit of work
     /// record the canonical cancellation stop itself.
     Recordable,
-    /// A durable stop row exists with a non-cancellation reason: another stop
-    /// class owns this attempt. Recovery must neither overwrite the reason
-    /// nor complete the cancellation as proven through this pathway.
+    /// The retained stop row carries reason `6` — the live terminal
+    /// validation rejects it as cancellation proof, so recovery must neither
+    /// overwrite the reason nor complete the cancellation through this
+    /// pathway.
     ConflictingStop,
     /// No validated binding (or no `CancellationRequested` event): the
     /// completion unit of work cannot possibly prove the stop, so recovery
@@ -52,7 +54,7 @@ impl super::super::super::StoreTransaction {
             attempt_id.as_bytes(),
             &digest,
         )? {
-            Some(1) => Ok(LocalCommandCancellationStopEvidence::Proven),
+            Some(1..=5) => Ok(LocalCommandCancellationStopEvidence::Proven),
             Some(_) => Ok(LocalCommandCancellationStopEvidence::ConflictingStop),
             None => {
                 if super::cancel_support::cancellation_stop_reference(&reader, taskrun_id)?

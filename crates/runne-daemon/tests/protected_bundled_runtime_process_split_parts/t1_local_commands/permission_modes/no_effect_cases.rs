@@ -49,7 +49,7 @@ pub(super) async fn exercise_local_no_effect_case(
         .await
         .expect("submit local command awaiting a public approval decision")
         .task_run_id();
-    let approval = wait_for_approval(client, task).await;
+    let approval = wait_for_approval(client, task, database).await;
     assert_eq!(approval.action(), "local_command.execute");
     assert!(!before.exists() && !after.exists());
     match resolution {

@@ -55,20 +55,22 @@ impl NetworkMatrix {
         }
     }
 
-    pub(super) fn shell_script(&self) -> String {
+    pub(super) fn shell_script(&self, cwd: &Path) -> String {
+        let quote_relative =
+            |path: &Path| -> String { super::filesystem_matrix::shell_quote_relative(cwd, path) };
         format!(
             "python3 {} {} {} {} {} {} {} {} {} {} 2> {}",
-            shell_quote(&self.script_path),
+            quote_relative(&self.script_path),
             if self.broad { "broad" } else { "none" },
             self.endpoints.dns.port(),
             self.endpoints.http_a.port(),
             self.endpoints.http_b.port(),
             self.endpoints.read_timeout.port(),
             self.endpoints.closed.port(),
-            shell_quote(&self.result_path),
-            shell_quote(&self.append_path),
+            quote_relative(&self.result_path),
+            quote_relative(&self.append_path),
             shell_quote(Path::new(&self.marker)),
-            shell_quote(&self.stderr_path),
+            quote_relative(&self.stderr_path),
         )
     }
 

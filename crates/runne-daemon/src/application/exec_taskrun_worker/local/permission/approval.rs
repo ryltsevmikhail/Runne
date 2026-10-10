@@ -30,15 +30,22 @@ pub(super) async fn admit(
         binding.scope(),
         port,
     )
-    .map_err(|_| AutomaticTaskRunError::RejectedBeforeEffect)?;
-    let receipt = admit_invocation_scope(binding.scope(), port)
-        .map_err(|_| AutomaticTaskRunError::RejectedBeforeEffect)?;
+    .map_err(|_| {
+        reject_stage("current_effective_mode_rejected");
+        AutomaticTaskRunError::RejectedBeforeEffect
+    })?;
+    let receipt = admit_invocation_scope(binding.scope(), port).map_err(|_| {
+        reject_stage("current_invocation_scope_rejected");
+        AutomaticTaskRunError::RejectedBeforeEffect
+    })?;
     let managed = match binding
         .scope()
         .managed_policy
         .scope_minimum_disposition(binding.scope())
-        .ok_or(AutomaticTaskRunError::RejectedBeforeEffect)?
-    {
+        .ok_or_else(|| {
+            reject_stage("current_managed_disposition_missing");
+            AutomaticTaskRunError::RejectedBeforeEffect
+        })? {
         ManagedEffectDecision::Allow => ManagedDisposition::Allow,
         ManagedEffectDecision::Ask => ManagedDisposition::Ask,
         ManagedEffectDecision::Deny => ManagedDisposition::Deny,
@@ -82,7 +89,10 @@ pub(super) async fn admit(
             worker
                 .store
                 .admit_local_command_permission(binding, None)
-                .map_err(|_| AutomaticTaskRunError::RejectedBeforeEffect)?;
+                .map_err(|_| {
+                    reject_stage("current_admission_store_failed");
+                    AutomaticTaskRunError::RejectedBeforeEffect
+                })?;
             Ok(native_admission)
         }
         PolicyDecision::RequireApproval { .. } => {
@@ -91,12 +101,26 @@ pub(super) async fn admit(
             worker
                 .store
                 .admit_local_command_permission(binding, Some(id))
-                .map_err(|_| AutomaticTaskRunError::RejectedBeforeEffect)?;
+                .map_err(|_| {
+                    reject_stage("current_admission_store_failed");
+                    AutomaticTaskRunError::RejectedBeforeEffect
+                })?;
             Ok(receipt)
         }
-        PolicyDecision::Deny(_) => Err(AutomaticTaskRunError::RejectedBeforeEffect),
+        PolicyDecision::Deny(_) => {
+            reject_stage("current_policy_denied");
+            Err(AutomaticTaskRunError::RejectedBeforeEffect)
+        }
     }
 }
+
+#[cfg(feature = "test-support")]
+fn reject_stage(stage: &'static str) {
+    super::super::diagnostic::stage(stage);
+}
+
+#[cfg(not(feature = "test-support"))]
+fn reject_stage(_: &'static str) {}
 
 async fn await_exact_approval(
     worker: &DaemonAutomaticTaskRuns,
@@ -108,7 +132,8 @@ async fn await_exact_approval(
     let query = ApprovalQueryContext {
         principal: prepared.principal.clone(),
     };
-    let review = super::approval_review_summary_for_scope(&prepared.command, binding.scope())?;
+    let review = super::approval_review_summary_for_scope(&prepared.command, binding.scope())
+        .inspect_err(|_| reject_stage("current_approval_review_rejected"))?;
     let resource = super::approval_resource(prepared.identity.taskrun_id, prepared.workspace);
     let mut summary = match approvals.get_approval(query.clone(), id).await {
         Ok(value) => value,
@@ -127,7 +152,10 @@ async fn await_exact_approval(
                 binding.approval().expires_at_unix_ms,
                 review,
             )
-            .map_err(|_| AutomaticTaskRunError::RejectedBeforeEffect)?;
+            .map_err(|_| {
+                reject_stage("current_approval_request_invalid");
+                AutomaticTaskRunError::RejectedBeforeEffect
+            })?;
             approvals
                 .create_pending_approval(request)
                 .await
@@ -136,15 +164,18 @@ async fn await_exact_approval(
         Err(_) => return Err(AutomaticTaskRunError::Unavailable),
     };
     loop {
-        validate_summary(&summary, prepared, id, &resource)?;
+        validate_summary(&summary, prepared, id, &resource)
+            .inspect_err(|_| reject_stage("current_approval_summary_invalid"))?;
         match summary.state() {
             ApprovalState::Approved => return Ok(()),
             ApprovalState::Denied | ApprovalState::Expired | ApprovalState::Cancelled => {
+                reject_stage("current_approval_state_rejected");
                 return Err(AutomaticTaskRunError::RejectedBeforeEffect);
             }
             ApprovalState::Pending => {}
         }
         if super::now_millis() >= binding.approval().expires_at_unix_ms {
+            reject_stage("current_approval_expired");
             return Err(AutomaticTaskRunError::RejectedBeforeEffect);
         }
         let stream = worker
@@ -158,6 +189,7 @@ async fn await_exact_approval(
                 .load(std::sync::atomic::Ordering::Acquire)
                 != prepared.identity.node_epoch
         {
+            reject_stage("current_approval_task_not_running");
             return Err(AutomaticTaskRunError::RejectedBeforeEffect);
         }
         tokio::time::sleep(Duration::from_millis(200)).await;

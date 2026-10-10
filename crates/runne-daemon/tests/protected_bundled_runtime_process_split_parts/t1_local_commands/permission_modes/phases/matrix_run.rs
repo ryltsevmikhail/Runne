@@ -1,5 +1,6 @@
 use std::path::{Path, PathBuf};
 
+use super::filesystem_matrix::shell_quote_relative;
 use super::network_matrix::NetworkMatrix;
 use super::path_process_matrix::PathProcessMatrix;
 use super::shell_corpus::ShellCorpus;
@@ -44,15 +45,30 @@ pub(super) async fn run(
         &payload,
         mode == runne_api::PermissionModeV1::FullAccess,
     );
+    let fixture_cwd = path_process.cwd();
     let script = format!(
         "set -e; {}; {}; {}; {}; printf '%s\\n' '{payload}' >> {}; exec 3<>/dev/tcp/127.0.0.1/{} 2>/dev/null || exit 42; printf '%s\\n' '{payload}' >&3; exec 3>&-; printf '%s\\n' after >> {}",
-        filesystem.shell_script(),
+        filesystem.shell_script(fixture_cwd),
         path_process.shell_script(),
-        shell_corpus.shell_script(),
-        network.shell_script(),
-        shell_quote_path(&before_network),
+        shell_corpus.shell_script(fixture_cwd),
+        network.shell_script(fixture_cwd),
+        shell_quote_relative(fixture_cwd, &before_network),
         listener.port,
-        shell_quote_path(&after_network)
+        shell_quote_relative(fixture_cwd, &after_network)
+    );
+    // Deterministic regression: the daemon renders this argv verbatim into a
+    // bounded (4096-byte) approval review. The script therefore must never
+    // embed absolute fixture paths (whose depth varies between a dev shell
+    // and the canonical CI execution namespace) nor grow unbounded.
+    assert!(
+        !script.contains(&project_directory.display().to_string()),
+        "matrix script must stay independent of the fixture temp-path depth"
+    );
+    assert!(
+        script.len() < 3072,
+        "matrix script must keep the rendered approval review below the \
+         4096-byte bound (4096 minus the ~1 KiB JSON wrapper); len={}",
+        script.len()
     );
     let request = path_process.request(conversation_id, workspace_id, &payload, &script);
     let changed_intents = path_process.changed_intent_requests(&request, &script);
@@ -68,7 +84,7 @@ pub(super) async fn run(
         path_process.assert_effects();
         shell_corpus.assert_effects();
     } else {
-        let approval = wait_for_approval(client, task).await;
+        let approval = wait_for_approval(client, task, database).await;
         assert_eq!(approval.action(), "local_command.execute");
         filesystem.assert_pending(&before_network, &after_network);
         path_process.assert_pending();

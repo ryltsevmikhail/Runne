@@ -107,7 +107,17 @@ pub(super) async fn assert_restarted_cancel_finishes(
         if snapshot.state() == runne_runtime_client::TaskRunState::Cancelled {
             break snapshot;
         }
-        assert!(tokio::time::Instant::now() < deadline);
+        if tokio::time::Instant::now() >= deadline {
+            restarted_cancel_deadline_snapshot(
+                recovered,
+                task_id,
+                ack_version,
+                snapshot.state(),
+                snapshot.stream_version(),
+                database,
+            )
+            .await;
+        }
         tokio::time::sleep(std::time::Duration::from_millis(25)).await;
     };
     assert_replayed_cancel_and_durable_proof(
@@ -120,6 +130,74 @@ pub(super) async fn assert_restarted_cancel_finishes(
         database,
     )
     .await;
+}
+
+/// Fails with the exact durable recovery state at the wait deadline: whether
+/// the restarted daemon settled the cancellation, parked it unconfirmed, or
+/// never made progress at all.
+async fn restarted_cancel_deadline_snapshot(
+    recovered: &runne_runtime_client::AuthenticatedRuntimeClient,
+    task_id: runne_runtime_client::CanonicalId,
+    ack_version: u64,
+    state: runne_runtime_client::TaskRunState,
+    stream_version: u64,
+    database: &std::path::Path,
+) -> ! {
+    let history = read_taskrun_history(recovered, task_id)
+        .await
+        .into_iter()
+        .map(|event| format!("{}:{}:{:?}", event.sequence, event.event_type, event.kind))
+        .collect::<Vec<_>>();
+    let durable = durable_recovery_facts(database, task_id);
+    let startup = database
+        .parent()
+        .and_then(std::path::Path::parent)
+        .map(crate::t1_startup_diagnostic::startup_diagnostic)
+        .unwrap_or_else(|| "unrecognized".to_owned());
+    panic!(
+        "restarted cancellation never settled: state={state:?}; stream_version={stream_version} (ack={ack_version}); events=[{}]; durable={durable:?}; startup_diagnostic={startup}",
+        history.join(", ")
+    );
+}
+
+fn durable_recovery_facts(
+    database: &std::path::Path,
+    task_id: runne_runtime_client::CanonicalId,
+) -> Option<String> {
+    let connection =
+        rusqlite::Connection::open_with_flags(database, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+            .ok()?;
+    let id = uuid::Uuid::parse_str(&task_id.to_string())
+        .ok()?
+        .into_bytes();
+    let row = connection
+        .query_row(
+            "SELECT (SELECT a.state FROM taskrun_local_command_attempts a WHERE a.taskrun_id=?1),
+                    (SELECT COUNT(*) FROM taskrun_terminal_settlement_receipts WHERE taskrun_id=?1),
+                    (SELECT COUNT(*) FROM taskrun_assignment_occupations o
+                       JOIN taskrun_local_command_attempts a USING(taskrun_id)
+                      WHERE o.taskrun_id=?1 AND o.attempt_id=a.attempt_id AND o.state='released'),
+                    (SELECT COUNT(*) FROM x2_permission_stop WHERE taskrun_id=?1),
+                    (SELECT MAX(reason) FROM x2_permission_stop WHERE taskrun_id=?1),
+                    (SELECT current_version FROM aggregate_streams
+                      WHERE aggregate_type=1 AND aggregate_id=?1)",
+            [id.as_slice()],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, i64>(2)?,
+                    row.get::<_, i64>(3)?,
+                    row.get::<_, Option<i64>>(4)?,
+                    row.get::<_, i64>(5)?,
+                ))
+            },
+        )
+        .ok()?;
+    Some(format!(
+        "attempt_state={}; receipts={}; released={}; stops={}; stop_reason={:?}; stream_version={}",
+        row.0, row.1, row.2, row.3, row.4, row.5
+    ))
 }
 
 fn verify_cancelled_attempt_and_receipt(

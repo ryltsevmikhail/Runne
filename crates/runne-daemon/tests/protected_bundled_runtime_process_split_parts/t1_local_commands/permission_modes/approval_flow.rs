@@ -42,6 +42,7 @@ pub(super) fn unix_millis() -> u64 {
 pub(super) async fn wait_for_approval(
     client: &runne_runtime_client::AuthenticatedRuntimeClient,
     task: runne_runtime_client::CanonicalId,
+    database: &Path,
 ) -> runne_runtime_client::ApprovalSummaryDto {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
     loop {
@@ -57,7 +58,28 @@ pub(super) async fn wait_for_approval(
         if tokio::time::Instant::now() >= deadline {
             let task_run = client.get_task_run(task).await.expect("public TaskRun");
             let state_reason = (task_run.state(), task_run.terminal_result());
-            panic!("state+reason: {state_reason:?}");
+            let durable = durable_local_diagnostic(database, task);
+            let effects = client
+                .get_task_run_effects(task)
+                .await
+                .map(|effects| {
+                    effects
+                        .local_command()
+                        .map(|local| (local.outcome(), local.stop(), local.exit_code()))
+                })
+                .map_err(|error| error.kind());
+            let runtime_root = database.parent().and_then(Path::parent);
+            let preapproval_stage = runtime_root
+                .map(crate::t1_startup_diagnostic::local_preapproval_diagnostic)
+                .unwrap_or_else(|| "unrecognized".to_owned());
+            let review_size = runtime_root
+                .and_then(|root| {
+                    std::fs::read_to_string(root.join(".runne-test-local-review-size")).ok()
+                })
+                .unwrap_or_else(|| "not-written".to_owned());
+            panic!(
+                "approval never became pending: state+reason: {state_reason:?}; effects={effects:?}; durable={durable:?}; local_preapproval_stage={preapproval_stage}; review_size={review_size}"
+            );
         }
         tokio::time::sleep(Duration::from_millis(50)).await;
     }

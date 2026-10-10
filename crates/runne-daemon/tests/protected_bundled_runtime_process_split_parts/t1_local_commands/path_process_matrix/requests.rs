@@ -1,7 +1,7 @@
 use std::{os::unix::fs::MetadataExt as _, path::Path};
 
 use super::PathProcessMatrix;
-use super::python_child::{PYTHON_MATRIX, python_literal, shell_quote};
+use super::python_child::{PYTHON_MATRIX, python_literal};
 use super::{
     CHILD_ARGUMENT_WITH_QUOTES, CHILD_ARGUMENT_WITH_SPACES, CHILD_ENV_NAME, CHILD_ENV_VALUE,
     CROSS_VOLUME_SEED,
@@ -88,11 +88,21 @@ impl PathProcessMatrix {
         matrix
     }
 
+    pub(in crate::t1_local_commands::permission_modes) fn cwd(&self) -> &Path {
+        &self.fixture_cwd
+    }
+
     pub(in crate::t1_local_commands::permission_modes) fn shell_script(&self) -> String {
         format!(
             "python3 {} \"$0\" \"$1\" 2> {}",
-            shell_quote(&self.python_script.display().to_string()),
-            shell_quote(&self.python_stderr.display().to_string())
+            super::super::filesystem_matrix::shell_quote_relative(
+                &self.fixture_cwd,
+                &self.python_script
+            ),
+            super::super::filesystem_matrix::shell_quote_relative(
+                &self.fixture_cwd,
+                &self.python_stderr
+            )
         )
     }
 

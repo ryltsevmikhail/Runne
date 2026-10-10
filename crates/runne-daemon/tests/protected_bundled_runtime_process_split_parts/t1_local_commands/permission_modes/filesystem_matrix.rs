@@ -54,15 +54,15 @@ impl PermissionModeFilesystemMatrix {
         matrix
     }
 
-    pub(super) fn shell_script(&self) -> String {
-        let workspace_read = shell_quote_path(&self.workspace_read);
-        let workspace_append = shell_quote_path(&self.workspace_append);
-        let workspace_create = shell_quote_path(&self.workspace_create);
-        let workspace_delete = shell_quote_path(&self.workspace_delete);
-        let sibling_read = shell_quote_path(&self.sibling_read);
-        let sibling_append = shell_quote_path(&self.sibling_append);
-        let sibling_create = shell_quote_path(&self.sibling_create);
-        let sibling_delete = shell_quote_path(&self.sibling_delete);
+    pub(super) fn shell_script(&self, cwd: &Path) -> String {
+        let workspace_read = shell_quote_relative(cwd, &self.workspace_read);
+        let workspace_append = shell_quote_relative(cwd, &self.workspace_append);
+        let workspace_create = shell_quote_relative(cwd, &self.workspace_create);
+        let workspace_delete = shell_quote_relative(cwd, &self.workspace_delete);
+        let sibling_read = shell_quote_relative(cwd, &self.sibling_read);
+        let sibling_append = shell_quote_relative(cwd, &self.sibling_append);
+        let sibling_create = shell_quote_relative(cwd, &self.sibling_create);
+        let sibling_delete = shell_quote_relative(cwd, &self.sibling_delete);
         format!(
             "test \"$(cat -- {workspace_read})\" = '{WORKSPACE_READ_PROOF}'; cat -- {workspace_read} >> {workspace_append}; printf '%s\\n' 'workspace-created-content' > {workspace_create}; rm -- {workspace_delete}; test \"$(cat -- {sibling_read})\" = '{SIBLING_READ_PROOF}'; cat -- {sibling_read} >> {sibling_append}; printf '%s\\n' 'sibling-created-content' > {sibling_create}; rm -- {sibling_delete}"
         )
@@ -139,4 +139,34 @@ impl PermissionModeFilesystemMatrix {
 
 pub(super) fn shell_quote_path(path: &Path) -> String {
     format!("'{}'", path.to_string_lossy().replace('\'', "'\\''"))
+}
+
+/// Renders a fixture path relative to the structured command's working
+/// directory. The approval review embeds the argv verbatim, so fixture
+/// scripts must stay independent of the absolute temp-path depth (the
+/// canonical CI namespace nests TMPDIR far deeper than a dev shell while the
+/// runtime keeps a fixed 4096-byte review bound).
+pub(crate) fn shell_quote_relative(cwd: &Path, target: &Path) -> String {
+    let mut prefix = cwd;
+    let mut ups = 0_usize;
+    loop {
+        if let Ok(rest) = target.strip_prefix(prefix) {
+            let relative = if rest.as_os_str().is_empty() {
+                ".".to_owned()
+            } else {
+                format!("{}{}", "../".repeat(ups), rest.display())
+            };
+            return shell_quote_path(Path::new(&relative));
+        }
+        match prefix.parent() {
+            Some(parent) if ups < 8 => {
+                prefix = parent;
+                ups += 1;
+            }
+            _ => panic!(
+                "fixture target {target:?} shares no root with the command cwd {cwd:?}; \
+                 cross-device fixtures must stay inside the python child source"
+            ),
+        }
+    }
 }

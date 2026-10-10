@@ -20,7 +20,7 @@ mod approval_flow;
 #[path = "permission_modes/facts.rs"]
 mod facts;
 #[path = "permission_modes/filesystem_matrix.rs"]
-mod filesystem_matrix;
+pub(crate) mod filesystem_matrix;
 #[path = "permission_modes/phases/matrix_run.rs"]
 mod matrix_run;
 #[path = "permission_modes/no_effect_cases.rs"]

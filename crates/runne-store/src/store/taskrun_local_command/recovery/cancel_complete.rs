@@ -96,14 +96,25 @@ impl super::super::super::StoreTransaction {
             )
             .optional()
             .map_err(|_| EventStoreError::CorruptData)?;
-        let durable_cancel_stop: bool = tx
+        // Live-path parity (`stop::validate_duplicate_terminal` accepts stop
+        // reasons 1..=5 as `CancellationCompleted` proof): an existing stop
+        // row with any cancellation-compatible reason completes without being
+        // touched; a missing row is recorded canonically (reason 1) inside
+        // this unit of work; reason 6 never authorizes a completion.
+        let durable_stop_reason: Option<i64> = tx
             .query_row(
-                "SELECT EXISTS(SELECT 1 FROM x2_permission_stop
-                  WHERE taskrun_id=?1 AND attempt_id=?2 AND reason=1)",
+                "SELECT reason FROM x2_permission_stop
+                  WHERE taskrun_id=?1 AND attempt_id=?2",
                 params![taskrun, attempt],
                 |row| row.get(0),
             )
+            .optional()
             .map_err(|_| EventStoreError::CorruptData)?;
+        match durable_stop_reason {
+            None => record_recovery_stop(&tx, candidate)?,
+            Some(1..=5) => {}
+            Some(_) => return Err(EventStoreError::CorruptData),
+        }
         let (exit_code, command_digest): (Option<i32>, Vec<u8>) = tx
             .query_row(
                 "SELECT exit_code,command_digest FROM taskrun_local_command_attempts
@@ -127,9 +138,6 @@ impl super::super::super::StoreTransaction {
         };
         if route != Some((2, 3, 68)) || !exit_shape_ok || command_digest.len() != 32 {
             return Err(EventStoreError::CorruptData);
-        }
-        if !durable_cancel_stop {
-            record_recovery_stop(&tx, candidate)?;
         }
         let node = uuid::Uuid::parse_str(&candidate.identity.node_id.0)
             .map_err(|_| EventStoreError::CorruptData)?;

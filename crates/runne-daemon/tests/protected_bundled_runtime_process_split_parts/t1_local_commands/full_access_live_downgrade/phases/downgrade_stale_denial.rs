@@ -44,9 +44,9 @@ pub(super) async fn run(
         &stale_late,
     )
     .await;
-    assert_eq!(
-        super::super::super::t1_startup_diagnostic::local_preapproval_diagnostic(runtime_root),
-        "current_managed_identity_mismatch",
+    assert!(
+        super::super::super::t1_startup_diagnostic::local_preapproval_diagnostic(runtime_root)
+            .ends_with("current_managed_identity_mismatch"),
         "the stale managed identity was rejected before local permission capture"
     );
     assert_stale_selection_failed(
@@ -192,7 +192,7 @@ pub(super) async fn run(
         .await
         .expect("submit a distinct refreshed Ask Always local command")
         .task_run_id();
-    let approval = super::wait_for_approval(&reopened_again_client, fresh_task).await;
+    let approval = super::wait_for_approval(&reopened_again_client, fresh_task, database).await;
     assert_eq!(approval.task_run_id(), fresh_task);
     assert_eq!(approval.action(), "local_command.execute");
     assert!(

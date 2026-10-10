@@ -20,10 +20,10 @@ impl ShellCorpus {
         }
     }
 
-    pub(super) fn shell_script(&self) -> String {
+    pub(super) fn shell_script(&self, cwd: &Path) -> String {
         format!(
             "printf '%s\\n' \"arg0:$0\" \"arg1:$1\" \"env:$RUNNE_TEST_PATH_MATRIX_ONLY\" 'unicode:café 東京' 'brackets:[alpha] {{beta}} (gamma)' 'attack:{ATTACK_LOOKING_VALUE}' >> {}",
-            super::shell_quote_path(&self.output)
+            super::filesystem_matrix::shell_quote_relative(cwd, &self.output)
         )
     }
 

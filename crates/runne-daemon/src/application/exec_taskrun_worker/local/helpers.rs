@@ -168,6 +168,19 @@ fn approval_review_summary_inner(
     let rendered =
         serde_json::to_string(&details).map_err(|_| AutomaticTaskRunError::RejectedBeforeEffect)?;
     if rendered.len() > 4096 {
+        #[cfg(feature = "test-support")]
+        {
+            eprintln!(
+                "runne-local-review-oversized rendered_len={rendered_len} cap=4096",
+                rendered_len = rendered.len()
+            );
+            if let Some(root) = std::env::var_os("RUNNE_TEST_PROTECTED_RUNTIME_ROOT") {
+                let _ = std::fs::write(
+                    std::path::Path::new(&root).join(".runne-test-local-review-size"),
+                    format!("rendered_len={}", rendered.len()),
+                );
+            }
+        }
         return Err(AutomaticTaskRunError::RejectedBeforeEffect);
     }
     Ok(rendered)

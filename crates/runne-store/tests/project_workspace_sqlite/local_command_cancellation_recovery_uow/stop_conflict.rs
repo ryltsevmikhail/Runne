@@ -1,7 +1,7 @@
 use super::fixture::{
     RecoveryFixture, attempt_row, reopen_recovery_candidate, scalar, taskrun_event_count,
 };
-use runne_application::ports::ExecutionNodeId;
+use runne_application::ports::{EventStore, ExecutionNodeId};
 use runne_store::store::LocalCommandCancellationStopEvidence;
 
 /// Inserts a durable permission stop row with the given reason, anchored at
@@ -38,10 +38,14 @@ fn insert_stop_row(fixture: &RecoveryFixture, reason: i64) {
 }
 
 #[tokio::test(flavor = "current_thread")]
-async fn non_cancellation_stop_reasons_block_recovery_completion() {
-    for reason in 2..=6 {
+async fn compatible_stop_reasons_complete_while_reason_six_blocks() {
+    // Reasons 2..=5 are cancellation-compatible stop observations exactly as
+    // the live terminal validation accepts them; recovery must complete the
+    // durable cancellation WITHOUT touching the retained reason. Reason 6 is
+    // the only conflicting class: it never authorizes a completion.
+    for (reason, completes) in [(2, true), (3, true), (4, true), (5, true), (6, false)] {
         let fixture = super::fixture::prepare_recovery_fixture(
-            &format!("cancel-stop-conflict-{reason}"),
+            &format!("cancel-stop-reason-{reason}"),
             0x80 + reason as u8,
             true,
             "cancel_requested",
@@ -50,18 +54,14 @@ async fn non_cancellation_stop_reasons_block_recovery_completion() {
         .await;
         insert_stop_row(&fixture, reason);
         let (store, node_id, epoch, candidate) = reopen_recovery_candidate(&fixture);
-        assert_eq!(
-            store
-                .local_command_cancellation_stop_evidence(
-                    fixture.taskrun_id,
-                    candidate.identity.attempt_id
-                )
-                .unwrap(),
-            LocalCommandCancellationStopEvidence::ConflictingStop,
-            "reason {reason} owns the attempt; it is neither proven nor recordable"
-        );
-        let events_before = taskrun_event_count(&fixture);
-        assert!(
+        let evidence = store
+            .local_command_cancellation_stop_evidence(
+                fixture.taskrun_id,
+                candidate.identity.attempt_id,
+            )
+            .unwrap();
+        if completes {
+            assert_eq!(evidence, LocalCommandCancellationStopEvidence::Proven);
             store
                 .complete_local_command_cancellation_recovery(
                     &candidate,
@@ -69,26 +69,57 @@ async fn non_cancellation_stop_reasons_block_recovery_completion() {
                     epoch,
                     fixture.area.prove_empty().unwrap(),
                 )
-                .is_err(),
-            "reason {reason} must not complete the cancellation as proven"
-        );
-        assert_eq!(taskrun_event_count(&fixture), events_before);
-        assert_eq!(
-            scalar(
-                &fixture,
-                "SELECT COUNT(*) FROM taskrun_terminal_settlement_receipts WHERE taskrun_id=?1"
-            ),
-            0
-        );
-        assert_eq!(
-            scalar(
-                &fixture,
-                "SELECT COUNT(*) FROM taskrun_assignment_occupations WHERE taskrun_id=?1 AND state='active'"
-            ),
-            1,
-            "the occupation is never released by a fabricated completion"
-        );
-        assert_eq!(attempt_row(&fixture).0, "cancel_requested");
+                .unwrap();
+            assert_eq!(
+                scalar(
+                    &fixture,
+                    "SELECT COUNT(*) FROM taskrun_terminal_settlement_receipts WHERE taskrun_id=?1"
+                ),
+                1,
+                "reason {reason} completes the cancellation (live-path parity)"
+            );
+            assert_eq!(
+                scalar(
+                    &fixture,
+                    "SELECT COUNT(*) FROM taskrun_assignment_occupations WHERE taskrun_id=?1 AND state='released'"
+                ),
+                1
+            );
+            let run = store.load_task_run(fixture.taskrun_id).unwrap();
+            assert!(run.events.last().is_some_and(|event| {
+                matches!(
+                    event.payload(),
+                    runne_domain::task_run::TaskRunEvent::CancellationCompleted
+                )
+            }));
+        } else {
+            assert_eq!(
+                evidence,
+                LocalCommandCancellationStopEvidence::ConflictingStop,
+                "reason {reason} owns the attempt without a cancellation proof"
+            );
+            let events_before = taskrun_event_count(&fixture);
+            assert!(
+                store
+                    .complete_local_command_cancellation_recovery(
+                        &candidate,
+                        &ExecutionNodeId(node_id),
+                        epoch,
+                        fixture.area.prove_empty().unwrap(),
+                    )
+                    .is_err(),
+                "reason {reason} must not complete the cancellation"
+            );
+            assert_eq!(taskrun_event_count(&fixture), events_before);
+            assert_eq!(
+                scalar(
+                    &fixture,
+                    "SELECT COUNT(*) FROM taskrun_terminal_settlement_receipts WHERE taskrun_id=?1"
+                ),
+                0
+            );
+            assert_eq!(attempt_row(&fixture).0, "cancel_requested");
+        }
         let retained_reason: i64 = fixture
             .database
             .connection()

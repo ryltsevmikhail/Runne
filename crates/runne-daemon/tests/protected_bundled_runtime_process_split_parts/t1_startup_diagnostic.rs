@@ -6,7 +6,28 @@ pub(crate) fn local_preapproval_diagnostic(runtime_root: &Path) -> String {
     else {
         return "unavailable".to_owned();
     };
-    if [
+    let stages: Vec<&str> = stage
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .collect();
+    if stages.is_empty() {
+        return "unavailable".to_owned();
+    }
+    // Test-support daemon keeps an accumulated stage trace (one stage per
+    // line); older daemons wrote exactly one stage name. Both shapes stay
+    // readable, unknown stages stay visible instead of being masked.
+    if stages.len() == 1 && is_preapproval_stage(stages[0]) {
+        return stages[0].to_owned();
+    }
+    if stages.iter().all(|stage| is_preapproval_stage(stage)) {
+        return stages.join(">");
+    }
+    "unrecognized".to_owned()
+}
+
+fn is_preapproval_stage(stage: &str) -> bool {
+    [
         "admission",
         "open_held_files",
         "sealed_snapshot",
@@ -17,6 +38,17 @@ pub(crate) fn local_preapproval_diagnostic(runtime_root: &Path) -> String {
         "current_legacy_identity_rejected",
         "ready",
         "current_approval_wait",
+        "current_effective_mode_rejected",
+        "current_invocation_scope_rejected",
+        "current_managed_disposition_missing",
+        "current_policy_denied",
+        "current_admission_store_failed",
+        "current_approval_request_invalid",
+        "current_approval_review_rejected",
+        "current_approval_summary_invalid",
+        "current_approval_state_rejected",
+        "current_approval_expired",
+        "current_approval_task_not_running",
         "current_approval_rejected",
         "current_release_before",
         "current_release_failed",
@@ -24,12 +56,7 @@ pub(crate) fn local_preapproval_diagnostic(runtime_root: &Path) -> String {
         "current_rejection_stale",
         "current_approval_other_error",
     ]
-    .contains(&stage.as_str())
-    {
-        stage
-    } else {
-        "unrecognized".to_owned()
-    }
+    .contains(&stage)
 }
 
 pub(crate) fn startup_diagnostic(runtime_root: &Path) -> String {
