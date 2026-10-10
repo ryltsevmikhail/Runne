@@ -22,12 +22,6 @@ use std::sync::{Arc, Mutex};
 #[path = "protected_runtime_ensure.rs"]
 mod protected_runtime_ensure;
 
-macro_rules! lifecycle_test_barrier {
-    ($name:literal) => {
-        #[cfg(test)]
-        super::protected_runtime_tests::barrier($name);
-    };
-}
 pub fn run(
     arguments: Vec<OsString>,
     scheduler: Arc<dyn NativePermissionWarningMainThreadScheduler>,
@@ -101,7 +95,8 @@ async fn run_owned(
     let daemon = discover_bundled_runtime(&executable).map_err(|_| CliError::Runtime)?;
     let spec =
         ProtectedBundledRuntimeLaunchSpec::new(&daemon, &root).map_err(|_| CliError::Runtime)?;
-    lifecycle_test_barrier!("before_start");
+    #[cfg(test)]
+    super::protected_runtime_tests::barrier("before_start");
     let supervisor = Mutex::new(ProtectedBundledRuntimeSupervisor::new(
         DevelopmentBundledRuntimeLauncher::new(),
         spec,

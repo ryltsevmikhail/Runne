@@ -28,7 +28,8 @@ impl PermissionModeRuntime for ProtectedPermissionsRuntime<'_> {
         request: runne_runtime_client::PermissionModeChangeRequestV1,
     ) -> ModeFuture<'_, PermissionModeCommandStatusV2> {
         Box::pin(async move {
-            lifecycle_test_barrier!("before_post");
+            #[cfg(test)]
+            super::protected_runtime_tests::barrier("before_post");
             let validated = request
                 .clone()
                 .validate()
@@ -61,7 +62,8 @@ impl PermissionModeRuntime for ProtectedPermissionsRuntime<'_> {
                     return Err(error);
                 }
             }
-            lifecycle_test_barrier!("after_commit");
+            #[cfg(test)]
+            super::protected_runtime_tests::barrier("after_commit");
             let workspace_id = CanonicalId::parse(&validated.workspace_id().to_string())
                 .map_err(|_| unavailable_mode_error())?;
             let command_id = CanonicalId::parse(&validated.command_id().to_string())
