@@ -1,7 +1,7 @@
 use std::sync::mpsc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use gtk::prelude::*;
+use gtk::prelude::{ContainerExt, DialogExt, GtkWindowExt, LabelExt, WidgetExt};
 use runne_api::{
     PermissionControlContextV1, PermissionControlModeChallengeV1, PermissionModeSelectionV1,
 };

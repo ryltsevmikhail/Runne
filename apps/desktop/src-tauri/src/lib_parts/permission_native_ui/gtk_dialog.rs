@@ -3,7 +3,7 @@ use std::rc::Rc;
 use std::sync::mpsc;
 use std::time::Duration;
 
-use gtk::prelude::*;
+use gtk::prelude::{ContainerExt, DialogExt, EntryExt, LabelExt, WidgetExt};
 use runne_platform_desktop::permission_reauth_linux::{
     PamCancellation, PamConversationHandler, PamInteractionError, PamMessageKind,
 };

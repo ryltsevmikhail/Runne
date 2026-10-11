@@ -2,7 +2,7 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use gtk::prelude::*;
+use gtk::prelude::{ContainerExt, DialogExt, GtkWindowExt, LabelExt, WidgetExt};
 use runne_runtime_client::{ApprovalDecisionDto, CanonicalId};
 
 const MAX_DISCLOSURE_BYTES: usize = 4096;

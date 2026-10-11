@@ -8,7 +8,10 @@ use std::rc::Rc;
 use std::sync::{Arc, mpsc};
 use std::time::Duration;
 
-use gtk::prelude::*;
+use gtk::prelude::{
+    ApplicationExt, ApplicationExtManual, ContainerExt, DialogExt, EntryExt, GtkWindowExt,
+    LabelExt, WidgetExt,
+};
 use runne_platform_desktop::permission_reauth_linux::{
     NativePermissionWarningMainThreadScheduler, NativePermissionWarningUiTask, PamCancellation,
     PamConversationHandler, PamInteractionError, PamMessageKind,
