@@ -113,11 +113,11 @@ async fn require_trusted_root_admission(
 /// Fail-closed `--project-root` shape check for the re-bind path.
 ///
 /// Argument-shaped violations (non-absolute path, `..` or `.` components,
-/// missing or non-directory target) report [`CliError::Usage`]; confinement
+/// missing or non-directory target) report [`super::super::CliError::Usage`]; confinement
 /// violations (the target and the protected runtime root resolving inside one
 /// another) and ownership violations (foreign owner, group/other-writable
 /// directory, parent that is not 0700-compatible) fail closed as
-/// [`CliError::Runtime`].
+/// [`super::super::CliError::Runtime`].
 fn validate_rebind_root(
     runtime_root: &Path,
     project_root: &Path,
