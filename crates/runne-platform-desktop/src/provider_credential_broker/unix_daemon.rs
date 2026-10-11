@@ -146,7 +146,7 @@ pub(super) fn test_spawn_linux_writer(
     control_end: UnixStream,
     handshake_end: UnixStream,
     address: &linux_spawn::SessionBusAddress,
-) -> Result<UnixRetainedWriterProcess, BrokerHandoffError> {
+) -> Result<UnixRetainedWriterProcess, linux_spawn::TestSpawnFailure> {
     linux_spawn::spawn_with_pidfd_acquisition_for_tests(spec, control_end, handshake_end, address)
 }
 

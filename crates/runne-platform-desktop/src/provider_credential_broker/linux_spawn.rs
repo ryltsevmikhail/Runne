@@ -40,6 +40,8 @@ mod control_only;
 mod pair;
 #[path = "linux_spawn/plan.rs"]
 mod plan;
+#[path = "linux_spawn/provenance.rs"]
+mod provenance;
 #[cfg(all(
     test,
     feature = "linux-native-enrollment-qualification",
@@ -47,6 +49,11 @@ mod plan;
 ))]
 #[path = "linux_spawn/qualification_env_tests.rs"]
 mod qualification_env_tests;
+#[path = "linux_spawn/session_bus.rs"]
+mod session_bus;
+#[cfg(all(test, target_os = "linux"))]
+#[path = "linux_spawn/test_entries.rs"]
+mod test_entries;
 #[cfg(target_os = "linux")]
 pub use control_only::spawn_linux_writer_from_prepared_handoff;
 pub use pair::spawn_linux_pair_writer_from_prepared_handoff;
@@ -55,6 +62,18 @@ pub(in crate::provider_credential_broker) use plan::SpawnPlan;
 #[cfg(test)]
 pub(in crate::provider_credential_broker) use plan::build_plan_for_tests;
 use plan::{apply_plan, build_plan, close_inventory, duplicate_above_reserved, open_null};
+#[cfg(not(test))]
+use provenance::SpawnOperation;
+#[cfg(test)]
+pub(in crate::provider_credential_broker) use provenance::SpawnOperation;
+#[cfg(all(test, target_os = "linux"))]
+pub(in crate::provider_credential_broker) use provenance::TestSpawnFailure;
+use provenance::{SpawnDiagnostic, injected};
+pub use session_bus::SessionBusAddress;
+#[cfg(all(test, target_os = "linux"))]
+pub(in crate::provider_credential_broker) use test_entries::spawn_with_injected_fault_for_tests;
+#[cfg(all(test, target_os = "linux"))]
+pub(in crate::provider_credential_broker) use test_entries::spawn_with_pidfd_acquisition_for_tests;
 
 #[cfg(any(
     feature = "test-support",
@@ -72,43 +91,21 @@ fn opted_in_fixture_root() -> Result<Option<std::path::PathBuf>, BrokerHandoffEr
     Ok(None)
 }
 
-/// Strictly validated session-bus address. Production uses only the
-/// euid-derived canonical socket; tests may validate a private fixture
-/// socket through the same strict checks (absolute path, socket type,
-/// own-euid ownership).
-#[derive(Clone, Eq, PartialEq)]
-pub struct SessionBusAddress(String);
-
-impl SessionBusAddress {
-    /// Production derivation: `/run/user/<euid>/bus`, validated before use.
-    pub fn for_production() -> Result<Self, BrokerHandoffError> {
-        let address = format!("unix:path=/run/user/{}/bus", effective_uid());
-        let path = address
-            .strip_prefix("unix:path=")
-            .ok_or(BrokerHandoffError::Rejected)?;
-        probe_path_socket(std::path::Path::new(path))?;
-        Ok(Self(address))
-    }
-
-    #[cfg(any(test, feature = "test-support"))]
-    pub fn for_tests(socket_path: &std::path::Path) -> Result<Self, BrokerHandoffError> {
-        probe_path_socket(socket_path)?;
-        Ok(Self(format!("unix:path={}", socket_path.to_string_lossy())))
-    }
-
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
 /// B2: proves pidfd support before any child exists.
 pub fn pidfd_capability_probe() -> Result<(), BrokerHandoffError> {
+    pidfd_capability_probe_faulted(&|_| None).map_err(SpawnDiagnostic::into_public)
+}
+
+fn pidfd_capability_probe_faulted(
+    fault: &impl Fn(SpawnOperation) -> Option<i32>,
+) -> Result<(), SpawnDiagnostic> {
+    if let Some(failure) = injected(fault, SpawnOperation::PidfdCapabilityProbe) {
+        return Err(failure);
+    }
     let pid = rustix::process::getpid();
-    drop(
-        rustix::process::pidfd_open(pid, rustix::process::PidfdFlags::empty())
-            .map_err(|_| BrokerHandoffError::Unavailable)?,
-    );
-    Ok(())
+    rustix::process::pidfd_open(pid, rustix::process::PidfdFlags::empty())
+        .map(drop)
+        .map_err(|error| SpawnDiagnostic::unavailable(SpawnOperation::PidfdCapabilityProbe, &error))
 }
 
 /// Production Linux spawn entry for the exact retained writer child.
@@ -166,13 +163,49 @@ fn spawn_with_secret(
     handshake_end: UnixStream,
     address: &SessionBusAddress,
     secret_reader: Option<OwnedFd>,
-    mut acquire_pidfd: impl FnMut(i32) -> std::io::Result<OwnedFd>,
+    acquire_pidfd: impl FnMut(i32) -> std::io::Result<OwnedFd>,
 ) -> Result<UnixRetainedWriterProcess, BrokerHandoffError> {
-    pidfd_capability_probe()?;
-    let channel = duplicate_above_reserved(&control_end)?;
-    let handshake = duplicate_above_reserved(&handshake_end)?;
-    let stderr_null = duplicate_above_reserved(&open_null(OFlag::O_WRONLY)?)?;
-    let mut reserved_fd = Some(open_null(OFlag::O_RDONLY)?);
+    spawn_with_secret_faulted(
+        spec,
+        control_end,
+        handshake_end,
+        address,
+        secret_reader,
+        acquire_pidfd,
+        &|_| None,
+    )
+    .map_err(SpawnDiagnostic::into_public)
+}
+
+/// Parent-side spawn sequence with per-operation provenance: every
+/// `Unavailable` mapping records its exact stage plus the raw OS errno the
+/// failing error itself carried. The `fault` injector is production-neutral
+/// (`&|_| None`) and exists only so tests can prove each mapping; every
+/// injected stage preempts its operation, so no synthetic fault spawns a
+/// child or touches real host resources.
+fn spawn_with_secret_faulted(
+    spec: &VerifiedWriterLaunchSpec,
+    control_end: UnixStream,
+    handshake_end: UnixStream,
+    address: &SessionBusAddress,
+    secret_reader: Option<OwnedFd>,
+    mut acquire_pidfd: impl FnMut(i32) -> std::io::Result<OwnedFd>,
+    fault: &impl Fn(SpawnOperation) -> Option<i32>,
+) -> Result<UnixRetainedWriterProcess, SpawnDiagnostic> {
+    pidfd_capability_probe_faulted(fault)?;
+    let channel = duplicate_above_reserved(&control_end, SpawnOperation::DuplicateControl, fault)?;
+    let handshake =
+        duplicate_above_reserved(&handshake_end, SpawnOperation::DuplicateHandshake, fault)?;
+    let stderr_null = duplicate_above_reserved(
+        &open_null(OFlag::O_WRONLY, SpawnOperation::OpenNullWritable, fault)?,
+        SpawnOperation::DuplicateNullWritable,
+        fault,
+    )?;
+    let mut reserved_fd = Some(open_null(
+        OFlag::O_RDONLY,
+        SpawnOperation::OpenNullReadable,
+        fault,
+    )?);
     let fixture_root = opted_in_fixture_root()?;
     let plan = build_plan(
         spec,
@@ -183,12 +216,22 @@ fn spawn_with_secret(
         secret_reader.as_ref().map(AsRawFd::as_raw_fd),
         fixture_root.as_deref(),
     )?;
-    let mut actions = apply_plan(&plan)?;
-    close_inventory(&mut actions, &channel, secret_reader.is_some())?;
-    let mut attributes = PosixSpawnAttr::init().map_err(|_| BrokerHandoffError::Unavailable)?;
+    let mut actions = apply_plan(&plan, fault)?;
+    close_inventory(&mut actions, &channel, secret_reader.is_some(), fault)?;
+    if let Some(failure) = injected(fault, SpawnOperation::SpawnAttrInit) {
+        return Err(failure);
+    }
+    let mut attributes = PosixSpawnAttr::init()
+        .map_err(|error| SpawnDiagnostic::unavailable(SpawnOperation::SpawnAttrInit, &error))?;
+    if let Some(failure) = injected(fault, SpawnOperation::SpawnAttrSetFlags) {
+        return Err(failure);
+    }
     attributes
         .set_flags(PosixSpawnFlags::empty())
-        .map_err(|_| BrokerHandoffError::Unavailable)?;
+        .map_err(|error| SpawnDiagnostic::unavailable(SpawnOperation::SpawnAttrSetFlags, &error))?;
+    if let Some(failure) = injected(fault, SpawnOperation::PosixSpawn) {
+        return Err(failure);
+    }
     let spawned = posix_spawn(
         plan.argv[0].as_c_str(),
         &actions,
@@ -200,12 +243,14 @@ fn spawn_with_secret(
             .map(CString::as_c_str)
             .collect::<Vec<_>>(),
     )
-    .map_err(|_| BrokerHandoffError::Unavailable);
+    .map_err(|error| SpawnDiagnostic::unavailable(SpawnOperation::PosixSpawn, &error));
     drop((control_end, handshake_end, stderr_null, secret_reader));
     let spawned_pid = spawned?;
     let pid = spawned_pid.as_raw();
     match acquire_pidfd(pid) {
-        Ok(pidfd) => UnixRetainedWriterProcess::from_spawned(pid, pidfd),
+        Ok(pidfd) => {
+            UnixRetainedWriterProcess::from_spawned(pid, pidfd).map_err(SpawnDiagnostic::from)
+        }
         Err(first) => {
             // Bounded cleanup of the OWN unreaped child through the REAL
             // retained kernel handle; no raw-PID fallback, no silent success.
@@ -222,41 +267,13 @@ fn spawn_with_secret(
                             rustix::process::WaitIdOptions::EXITED,
                         );
                     }
-                    Err(BrokerHandoffError::Rejected)
+                    Err(BrokerHandoffError::Rejected.into())
                 }
                 Err(second) => {
                     drop((first, second, pid));
-                    Err(BrokerHandoffError::Rejected)
+                    Err(BrokerHandoffError::Rejected.into())
                 }
             }
         }
     }
-}
-
-pub(super) fn probe_path_socket(path: &std::path::Path) -> Result<(), BrokerHandoffError> {
-    use std::os::unix::fs::{FileTypeExt as _, MetadataExt as _};
-    if !path.is_absolute() {
-        return Err(BrokerHandoffError::Rejected);
-    }
-    let metadata = std::fs::metadata(path).map_err(|_| BrokerHandoffError::Unavailable)?;
-    if !metadata.file_type().is_socket() || metadata.uid() != effective_uid() {
-        return Err(BrokerHandoffError::Unavailable);
-    }
-    Ok(())
-}
-
-fn effective_uid() -> u32 {
-    use std::os::unix::fs::MetadataExt as _;
-    // /proc/self ownership mirrors our effective uid; not a secret read.
-    std::fs::metadata("/proc/self").map_or(u32::MAX, |metadata| metadata.uid())
-}
-
-#[cfg(all(test, target_os = "linux"))]
-pub(in crate::provider_credential_broker) fn spawn_with_pidfd_acquisition_for_tests(
-    spec: &VerifiedWriterLaunchSpec,
-    control_end: UnixStream,
-    handshake_end: UnixStream,
-    address: &SessionBusAddress,
-) -> Result<UnixRetainedWriterProcess, BrokerHandoffError> {
-    spawn_with_pidfd_acquisition(spec, control_end, handshake_end, address, open_child_pidfd)
 }

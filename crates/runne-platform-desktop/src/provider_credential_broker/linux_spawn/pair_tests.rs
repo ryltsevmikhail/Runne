@@ -87,7 +87,9 @@ fn spawned_pair_reader_receives_pipe_bytes_and_eof_on_fd3() {
         .set_read_timeout(Some(std::time::Duration::from_secs(2)))
         .unwrap();
     let (reader, writer) = rustix::pipe::pipe_with(rustix::pipe::PipeFlags::CLOEXEC).unwrap();
-    let reader = super::super::duplicate_above_reserved(&reader).unwrap();
+    // Same primitive the production pair path uses in macos_secret_pipe:
+    // lift the secret reader above the reserved descriptors.
+    let reader = rustix::io::fcntl_dupfd_cloexec(&reader, 4).unwrap();
     let mut child = super::super::spawn_with_secret(
         &spec,
         control_child,
