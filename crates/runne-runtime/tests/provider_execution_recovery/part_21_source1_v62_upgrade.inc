@@ -83,13 +83,17 @@ async fn populated_v62_snapshot_upgrades_and_commits_unknown_with_and_without_v1
         )
         .unwrap();
         drop(store);
+        // The production opener migrates to whatever the pinned schema
+        // currently ships (68 today); the public constant avoids hardcoding
+        // a version that stales again on the next schema bump. The pre-open
+        // 62 above stays literal: it is the legacy source under test.
         assert_eq!(
             validated_connection(&fixture)
                 .query_row("SELECT MAX(version) FROM schema_version", [], |row| {
                     row.get::<_, i64>(0)
                 })
                 .unwrap(),
-            65
+            runne_store::schema::CURRENT_SCHEMA_VERSION
         );
         assert_eq!(v62_preserved_rows(&fixture), before);
 
@@ -107,6 +111,25 @@ async fn populated_v62_snapshot_upgrades_and_commits_unknown_with_and_without_v1
                 )
                 .unwrap(),
             1
+        );
+
+        // Negative canary: the rewind above must not be able to hide a V68
+        // object from the same production admission that just accepted the
+        // clean v62 catalog. Rewind again, keep one stray V68-owned table
+        // among otherwise lawful v62 markers, and require rejection.
+        let canary = rusqlite::Connection::open(&fixture.path).unwrap();
+        v62_provider_terminal_upgrade::remove_v63_for_v62_upgrade(&canary, false);
+        canary
+            .execute_batch("CREATE TABLE x2_permission_bindings (stray INTEGER PRIMARY KEY)")
+            .unwrap();
+        drop(canary);
+        assert!(
+            validated_reopen::open_validated_connection(
+                fixture.path.to_str().unwrap(),
+                fixture.identity,
+            )
+            .is_err(),
+            "validated admission must reject a hidden v68 table in a v62 catalog"
         );
     }
 }
