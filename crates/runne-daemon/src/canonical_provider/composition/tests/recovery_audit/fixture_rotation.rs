@@ -114,7 +114,7 @@ impl Harness {
             CredentialReadinessDisposition::Ready,
             Some(CredentialBindingDigest::from_measured(*version.ref_digest()).unwrap()),
             release_digest,
-            now,
+            chrono::Utc::now().timestamp(),
         )
         .expect("replacement readiness");
         ProviderCredentialEnrollmentStore::complete(
