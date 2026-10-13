@@ -1,6 +1,10 @@
 use super::*;
 pub(super) fn recovery_fixture() -> (Fixture, AcceptedCredentialCleanupRecovery) {
-    let f = prepared_cleanup_fixture();
+    cleanup_recovery_chain(FIXTURE_NOW_SECONDS)
+}
+
+fn cleanup_recovery_chain(now: i64) -> (Fixture, AcceptedCredentialCleanupRecovery) {
+    let f = prepared_cleanup_fixture_at(Some(now));
     let head = f.store.lifecycle_snapshot(f.operation.provider()).unwrap();
     let accepted = f
         .store
@@ -22,19 +26,38 @@ pub(super) fn recovery_fixture() -> (Fixture, AcceptedCredentialCleanupRecovery)
     (f, accepted)
 }
 
-pub(crate) fn prepared_cleanup_fixture() -> Fixture {
-    let mut f = completed_pair_fixture();
+/// Wall-clock twin for the control-facade recovery session, whose production
+/// offer path mixes `SystemTime::now` into its high-water by design.
+pub(crate) fn prepared_cleanup_fixture_wall_clock() -> Fixture {
+    prepared_cleanup_fixture_at(None)
+}
+
+fn prepared_cleanup_fixture_at(store_now: Option<i64>) -> Fixture {
+    let mut f = completed_pair_fixture_at(store_now);
     let version = f.operation.allocated_credential_version().unwrap().clone();
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_secs() as i64;
+    // Anchored to the fixture clock when deterministic; the wall-clock twin
+    // keeps the historical real-time anchor.
+    let now = store_now.unwrap_or_else(unix_now_seconds);
     prepare_revoke(&mut f, version, now);
     f
 }
 
-pub(crate) fn completed_pair_fixture() -> Fixture {
-    let f = fixture();
+fn unix_now_seconds() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64
+}
+
+fn completed_pair_fixture_at(store_now: Option<i64>) -> Fixture {
+    let f = match store_now {
+        Some(now) => fixture_with_action_at(
+            runne_provider::CredentialOperationAction::Pair,
+            "broker-ticket",
+            Some(now),
+        ),
+        None => wall_clock_fixture(),
+    };
     let mut channel = RecordingChannel::default();
     let context = issue_context(&f);
     let receipt = f
@@ -92,10 +115,7 @@ pub(crate) fn completed_pair_fixture() -> Fixture {
         )
         .unwrap();
     let version = f.operation.allocated_credential_version().unwrap();
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_secs() as i64;
+    let now = store_now.unwrap_or_else(unix_now_seconds);
     let readiness = CredentialReadinessObservation::new(
         CredentialOperationId::from_bytes([41; 16]).unwrap(),
         Some(id),

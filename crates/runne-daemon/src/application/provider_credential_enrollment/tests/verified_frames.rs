@@ -1,6 +1,9 @@
 use super::super::coordinator::ProviderCredentialBeginAdmission;
 use super::begin_admission_support::context;
-use super::verified_frames_support::{command, fixture, session, session_with, snapshot};
+use super::verified_frames_support::{
+    FIXTURE_NOW_SECONDS, command, fixture, fixture_with_store_clock, session, session_with,
+    snapshot,
+};
 use runne_api::{
     BeginProviderCredentialEnrollment, ProviderCredentialEnrollmentActionV2,
     ProviderCredentialEnrollmentHostError, ProviderCredentialProviderV2,
@@ -93,6 +96,46 @@ fn expired_verified_frames_are_rejected_before_the_store() {
     assert!(matches!(
         error,
         ProviderCredentialEnrollmentHostError::AccessDenied
+    ));
+}
+
+#[test]
+fn live_frames_with_a_stale_store_clock_are_refused_at_the_durable_begin() {
+    // Frames decode as live at the fixture decode instant, but the store's
+    // verification clock already covers the begin high-water expiry: the
+    // mixed clock domain must surface as Conflict (StaleLease mapped by the
+    // effect authority), never as a second durable effect.
+    let session = session([19; 32]);
+    let bound = fixture_with_store_clock([19; 32], FIXTURE_NOW_SECONDS + 21);
+    let context = context();
+
+    let error = bound
+        .gate
+        .admit(&session, &command(), &context, snapshot(), &bound.store)
+        .err()
+        .expect("a store clock past the begin high-water must refuse the begin");
+    assert!(matches!(
+        error,
+        ProviderCredentialEnrollmentHostError::Conflict
+    ));
+}
+
+#[test]
+fn live_frames_at_the_exact_ttl_edge_are_refused_at_the_durable_begin() {
+    // effective_now == begin high-water expiry is already expired: the store
+    // refuses at the exact 20-second fixture TTL edge.
+    let session = session([20; 32]);
+    let bound = fixture_with_store_clock([20; 32], FIXTURE_NOW_SECONDS + 20);
+    let context = context();
+
+    let error = bound
+        .gate
+        .admit(&session, &command(), &context, snapshot(), &bound.store)
+        .err()
+        .expect("the exact TTL edge must refuse the begin");
+    assert!(matches!(
+        error,
+        ProviderCredentialEnrollmentHostError::Conflict
     ));
 }
 

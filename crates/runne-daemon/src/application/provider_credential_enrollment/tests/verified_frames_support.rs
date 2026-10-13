@@ -1,5 +1,3 @@
-use std::time::{SystemTime, UNIX_EPOCH};
-
 use runne_api::{
     BeginProviderCredentialEnrollment, LaunchSecret, ProtectedCredentialEnrollmentAdmissionBinding,
     ProtectedCredentialEnrollmentAuthenticator, ProtectedCredentialEnrollmentControlFrame,
@@ -26,14 +24,17 @@ pub(crate) struct Session {
     pub(crate) expires_at: u64,
 }
 
-pub(crate) fn now_millis() -> u64 {
-    u64::try_from(
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_millis(),
-    )
-    .unwrap()
+/// Deterministic fixture clock base, shared by every clock domain of one
+/// fixture: the store's fixed verification clock runs in seconds and the
+/// frame issuance/decode domain runs in milliseconds derived from the same
+/// base. Anchoring both domains to one constant removes wall-clock races
+/// between fixture build and the durable begin CAS; each fixture owns its
+/// own store instance, so an immutable shared base stays race-free under
+/// concurrent test execution.
+pub(crate) const FIXTURE_NOW_SECONDS: i64 = 100;
+
+pub(crate) fn fixture_now_millis() -> u64 {
+    u64::try_from(FIXTURE_NOW_SECONDS * 1_000).unwrap()
 }
 
 fn uuid(value: u8) -> [u8; 16] {
@@ -65,7 +66,10 @@ pub(crate) fn session_with(
     let authenticator =
         ProtectedCredentialEnrollmentAuthenticator::from_protected_activation(&keys);
     let intent = ProviderCredentialBeginIntentBinding::new(command, context);
-    let issued_at = now_millis();
+    // Frames are anchored to the deterministic fixture clock so expiry and
+    // replay negatives stay exact: advancing the decode instant or the store
+    // clock moves the same base instead of racing the wall clock.
+    let issued_at = fixture_now_millis();
     let expires_at = issued_at + 20_000;
     let request_binding = ProtectedCredentialEnrollmentRequestBinding::new(
         uuid(1),
@@ -140,21 +144,30 @@ pub(crate) struct Fixture {
 }
 
 pub(crate) fn fixture(key: [u8; 32]) -> Fixture {
+    fixture_with_store_clock(key, FIXTURE_NOW_SECONDS)
+}
+
+/// Opens the fixture store at an explicit verification clock so begin
+/// high-water expiry boundaries are exercised against a controlled store
+/// domain. The store self-generates its enrollment authority; the verified
+/// begin path only persists the gate-issued tuple digest, so pairing the
+/// store authority with the gate measurement authority is not required.
+pub(crate) fn fixture_with_store_clock(key: [u8; 32], store_now_seconds: i64) -> Fixture {
     let keys = LaunchSecret::from_bytes(key).unwrap().derive_keys();
     let authenticator =
         ProtectedCredentialEnrollmentAuthenticator::from_protected_activation(&keys);
     let directory = tempfile::tempdir().unwrap();
     let (lifecycle_authority, _) = CredentialAuthorityPair::new().split();
-    let (enrollment_authority, measurements) = CredentialEnrollmentAuthorityPair::new().split();
+    let (_, measurements) = CredentialEnrollmentAuthorityPair::new().split();
     let store =
-        runne_store::provider::SqliteProviderCredentialLifecycleStore::open_with_authorities(
+        runne_store::provider::SqliteProviderCredentialLifecycleStore::open_at_with_authority(
             &{
                 let daemon = directory.path().join("runne-daemon");
                 std::fs::create_dir_all(&daemon).unwrap();
                 daemon.join("frames.sqlite")
             },
             lifecycle_authority,
-            enrollment_authority,
+            store_now_seconds,
         )
         .unwrap();
     Fixture {
