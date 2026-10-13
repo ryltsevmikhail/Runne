@@ -32,32 +32,10 @@ else
     EXPECTED="1.95.0"
 fi
 
-# Resolve the mode's exact toolchain ourselves. The root rust-toolchain.toml
-# pins the interactive default, and toolchain files take precedence over the
-# RUSTUP_TOOLCHAIN env var (rustup >= 1.28), so an env override is not enough.
-# `rustup which --toolchain` outranks the toolchain file; putting the resolved
-# real bin dir first in PATH makes every later cargo/rustc call exact.
-if command -v rustup &>/dev/null; then
-    if TOOLCHAIN_BIN="$(rustup which --toolchain "$EXPECTED" cargo 2>/dev/null)"; then
-        export PATH="$(dirname "$TOOLCHAIN_BIN"):$PATH"
-    else
-        echo "ERROR: rustup is present but toolchain $EXPECTED is not installed"
-        echo "Run: rustup toolchain install $EXPECTED --profile minimal"
-        exit 1
-    fi
-fi
-
-RUSTC_VER=$(rustc --version 2>/dev/null | sed 's/rustc //' | cut -d' ' -f1)
-if [ -z "$RUSTC_VER" ]; then
-    echo "ERROR: rustc not found"
-    exit 1
-fi
-
-if [ "$RUSTC_VER" != "$EXPECTED" ]; then
-    echo "ERROR: Expected rustc $EXPECTED, got $RUSTC_VER"
-    echo "Run: rustup run $EXPECTED bash scripts/ci.sh $MODE"
-    exit 1
-fi
+# Resolve the mode's exact toolchain ourselves (PATH-first, offline,
+# fail-closed; see scripts/ci-toolchain-select.sh for the full protocol).
+# The helper is sourced into this shell and may exit it on mismatch.
+source scripts/ci-toolchain-select.sh
 
 # This is a separate workspace; root --workspace does not test its members.
 # Its current descriptor transport is Unix-only, not a Windows qualification.
@@ -159,6 +137,8 @@ if [ "$MODE" = "pinned" ]; then
         scripts.tests.test_check_deps_macos_process_identity \
         scripts.tests.test_check_deps_platform \
         scripts.tests.test_check_source_file_length \
+        scripts.tests.test_ci_toolchain_offline \
+        scripts.tests.test_ci_toolchain_selection \
         scripts.desktop.tests.test_validate_architecture \
         scripts.tests.test_macos_ci_keychain \
         scripts.tests.test_verify_task_6c_release_exclusion \

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import builtins
+import os
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -8,6 +10,7 @@ from unittest import mock
 
 from scripts import ci_local_receipt
 from scripts.ci_local_receipt_common import LocalInputReceiptError, atomic_write
+from scripts.ci_local_receipt_runtime import resolve_trusted_runtime
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -87,6 +90,46 @@ class LocalInputReceiptCompatibilityTests(unittest.TestCase):
                 self.fail(f"receipt validation requires unsupported zip keyword: {error}")
 
         self.assertTrue(valid)
+
+
+class CiToolchainPairCompatibilityTests(unittest.TestCase):
+    """The binaries the receipt namespace binds must satisfy scripts/ci.sh.
+
+    scripts/ci.sh accepts a PATH-resolved rustc/cargo pair only when both
+    report exactly the lane's expected version, so the lane shims the
+    receipt namespace symlinks (the same binaries `resolve_trusted_runtime`
+    hashes) must report that exact pair under a clean environment.
+    """
+
+    def test_receipt_bound_toolchains_report_exact_lane_versions(self) -> None:
+        runtime = resolve_trusted_runtime(ROOT)
+        environment = {"PATH": "/usr/bin:/bin", "LANG": "C.UTF-8"}
+        for lane, version in (("pinned", "1.97.1"), ("msrv", "1.95.0")):
+            with self.subTest(lane=lane):
+                for tool in ("rustc", "cargo"):
+                    completed = subprocess.run(
+                        (os.fspath(runtime.rust_commands[lane][tool]), "--version"),
+                        env=environment, capture_output=True, text=True, check=True,
+                    )
+                    self.assertEqual(completed.stdout.split()[1], version)
+
+    def test_ci_sh_source_orders_path_pair_before_rustup(self) -> None:
+        ci_sh = (ROOT / "scripts/ci.sh").read_text(encoding="utf-8")
+        helper = (ROOT / "scripts/ci-toolchain-select.sh").read_text(
+            encoding="utf-8")
+        markers = (
+            "export RUSTUP_AUTO_INSTALL=0",
+            'if [ "$PATH_RUSTC_VER" = "$EXPECTED" ]',
+            'TOOLCHAIN_NAME="$(_rustup_exact_toolchain)"',
+            'rustup which --toolchain "$TOOLCHAIN_NAME" cargo',
+            'if [ "$RUSTC_VER" != "$EXPECTED" ]',
+            'if [ "$CARGO_VER" != "$EXPECTED" ]',
+        )
+        for marker in markers:
+            self.assertIn(marker, helper)
+        positions = [helper.index(marker) for marker in markers]
+        self.assertEqual(positions, sorted(positions))
+        self.assertIn("source scripts/ci-toolchain-select.sh", ci_sh)
 
 
 if __name__ == "__main__":
