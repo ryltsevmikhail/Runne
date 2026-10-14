@@ -154,3 +154,13 @@ pub(super) fn same_fingerprint(expected: [u8; 32], current: [u8; 32]) -> bool {
 pub(super) const fn test_secure_mode(uid: u32, mode: u32) -> bool {
     uid == 0 && mode & 0o022 == 0
 }
+
+#[cfg(test)]
+pub(super) fn test_require_secure_file(metadata: &fs::Metadata) -> Result<(), ()> {
+    require_secure_file(metadata)
+}
+
+#[cfg(test)]
+pub(super) fn test_require_secure_directory(metadata: &fs::Metadata) -> Result<(), ()> {
+    require_secure_directory(metadata)
+}
