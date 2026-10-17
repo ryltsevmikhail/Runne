@@ -22,6 +22,10 @@ pub(super) struct Fixture {
     pub(super) mock_log: PathBuf,
     pub(super) approval_mock_log: PathBuf,
     pub(super) barrier_dir: PathBuf,
+    /// Owned so the fixture tree is removed when the test drops the fixture
+    /// (the daemons are reaped by their supervisors before then). Declared
+    /// last so the path fields drop first.
+    _cleanup: tempfile::TempDir,
 }
 
 fn private_directory(path: &Path) {
@@ -31,23 +35,15 @@ fn private_directory(path: &Path) {
 }
 
 pub(super) fn fixture() -> Fixture {
-    let temporary = std::env::var_os("RUNNE_CLI_OWNER_ARTIFACT_ROOT")
-        .map_or_else(
-            || {
-                let parent = PathBuf::from(std::env::var_os("HOME").expect("fixture HOME"));
-                tempfile::Builder::new()
-                    .prefix(".protected-cli-process-")
-                    .tempdir_in(parent)
-                    .expect("private fixture root")
-            },
-            |artifact_root| {
-                tempfile::Builder::new()
-                    .prefix(".protected-cli-process-")
-                    .tempdir_in(artifact_root)
-                    .expect("private fixture root")
-            },
-        )
-        .keep();
+    let parent = std::env::var_os("RUNNE_CLI_OWNER_ARTIFACT_ROOT").map_or_else(
+        || PathBuf::from(std::env::var_os("HOME").expect("fixture HOME")),
+        PathBuf::from,
+    );
+    let cleanup = tempfile::Builder::new()
+        .prefix(".protected-cli-process-")
+        .tempdir_in(parent)
+        .expect("private fixture root");
+    let temporary = cleanup.path().to_path_buf();
     let bundle = temporary.join("bundle");
     private_directory(&bundle);
     let enrollment = bundle.join(".runne-native-enrollment");
@@ -90,6 +86,7 @@ pub(super) fn fixture() -> Fixture {
         home,
         state,
         barrier_dir,
+        _cleanup: cleanup,
     }
 }
 
