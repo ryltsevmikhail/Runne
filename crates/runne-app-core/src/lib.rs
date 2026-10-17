@@ -106,6 +106,7 @@ mod tests {
         include!("lib_parts/canonical_project_pagination_tests.rs");
     }
     include!("lib_parts/operational_telemetry_tests.rs");
+    include!("lib_parts/runtime_state_tests.rs");
     include!("lib_parts/mutation_dispatch_tests.rs");
     include!("lib_parts/text_only_dispatch_tests.rs");
     include!("lib_parts/mutation_adversarial_tests.rs");

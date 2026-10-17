@@ -142,6 +142,22 @@ impl AppCore {
     }
 
     fn set_runtime_failure(&self, availability: RuntimeAvailability) -> Result<(), AppCoreError> {
+        // A bundled rotation fences the prior-epoch client before installing
+        // its replacement, so an Unauthorized observed while the rotation is
+        // still Starting/Restarting is the expected death of the old epoch,
+        // not a terminal revocation: the rotation's own install or failure
+        // path records the authoritative terminal state. Downgrading here
+        // would latch the session terminal right before the replacement
+        // client lands.
+        if availability == RuntimeAvailability::Revoked
+            && self.runtime_mode == RuntimeMode::Bundled
+            && matches!(
+                self.runtime_lifecycle()?,
+                RuntimeLifecycleStatus::Starting | RuntimeLifecycleStatus::Restarting
+            )
+        {
+            return Ok(());
+        }
         self.set_runtime_availability(availability)?;
         if self.runtime_mode == RuntimeMode::Bundled {
             let lifecycle = match availability {
