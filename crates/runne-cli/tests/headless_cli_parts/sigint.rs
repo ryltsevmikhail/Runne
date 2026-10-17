@@ -253,6 +253,15 @@ pub mod sigint_scenario {
             ReplayAggregateKind::TaskRun,
             runne_runtime_client::CanonicalId::parse(&task_run_id).expect("taskrun ID"),
         );
+        // Read the snapshot BEFORE the history: a "Cancelled" snapshot proves
+        // the terminal event was committed before this read, so the catch-up
+        // below must observe it. The opposite order races - the snapshot can
+        // see the commit that the earlier history read missed under load.
+        let snapshots = client.list_task_runs().await.expect("list task runs");
+        let run = snapshots
+            .iter()
+            .find(|snapshot| snapshot.task_run_id().to_string() == task_run_id)
+            .expect("submitted run found");
         let mut history = Vec::new();
         let _live = client
             .catch_up(scope, None, |delivery| {
@@ -266,11 +275,6 @@ pub mod sigint_scenario {
             })
             .await
             .expect("read verified TaskRun history after CLI exit");
-        let snapshots = client.list_task_runs().await.expect("list task runs");
-        let run = snapshots
-            .iter()
-            .find(|snapshot| snapshot.task_run_id().to_string() == task_run_id)
-            .expect("submitted run found");
         let cancellation = history
             .iter()
             .filter(|(_, _, event_type)| event_type == "taskRun.cancellation.requested")
