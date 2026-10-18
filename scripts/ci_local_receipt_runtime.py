@@ -234,6 +234,7 @@ def _node_and_pnpm(home: Path, environment: dict[str, str]) -> tuple[Path, Path]
     root = home / ".nvm/versions/node"
     _trusted_directory(root)
     candidates: list[tuple[tuple[int, ...], Path, Path]] = []
+    rejections: list[str] = []
     for node_path in root.glob("*/bin/node"):
         try:
             node, pnpm = _trusted_file(node_path), _trusted_file(node_path.parent / "pnpm")
@@ -249,10 +250,13 @@ def _node_and_pnpm(home: Path, environment: dict[str, str]) -> tuple[Path, Path]
                 (node, pnpm, "--version"), probe_environment
             ) == "11.10.0":
                 candidates.append((parsed, node, pnpm))
-        except (LocalInputReceiptError, OSError, ValueError):
+        except (LocalInputReceiptError, OSError, ValueError) as error:
+            rejections.append(f"{node_path.parent.parent.name}: {error}")
             continue
     if not candidates:
-        raise LocalInputReceiptError("canonical Node.js and pnpm are unavailable")
+        detail = "; ".join(rejections) or "no node installations found"
+        raise LocalInputReceiptError(
+            f"canonical Node.js and pnpm are unavailable ({detail})")
     _, node, pnpm = max(candidates, key=lambda candidate: candidate[0])
     return node, pnpm
 
