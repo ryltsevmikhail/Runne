@@ -22,10 +22,7 @@ use runne_application::{
 #[cfg(target_os = "linux")]
 use runne_domain::id::ProjectId;
 #[cfg(target_os = "linux")]
-use runne_store::store::{
-    ClosedRulesManagedIdentityV2, ManagedIdentityMetadata, PermissionModeAuthorityContext,
-    PermissionModeSelectionManagedIdentity,
-};
+use runne_store::store::PermissionModeAuthorityContext;
 #[cfg(target_os = "linux")]
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -204,58 +201,10 @@ fn observe_current_target_linux(
     Ok(observation)
 }
 
-pub(super) fn workspace_binding_matches(
-    version: u64,
-    open: bool,
-    project_id: [u8; 16],
-    expected: (u64, [u8; 16]),
-) -> bool {
-    open && version == expected.0 && project_id == expected.1
-}
-
 #[cfg(target_os = "linux")]
-fn closed_identity(
-    current: &PermissionModeSelectionManagedIdentity,
-) -> Result<&ClosedRulesManagedIdentityV2, NotReadyReason> {
-    match &current.identity {
-        ManagedIdentityMetadata::ClosedRulesV2(value) => Ok(value),
-        ManagedIdentityMetadata::LegacyRecordV1(_) => {
-            Err(NotReadyReason::CompositePolicyUnenforceable)
-        }
-    }
-}
-
-#[cfg(target_os = "linux")]
-pub(super) fn selected_target(
-    target: &ProjectionTarget,
-    current: &PermissionModeSelectionManagedIdentity,
-    managed: &ClosedRulesManagedIdentityV2,
-) -> Result<ModeSelection, NotReadyReason> {
-    match target {
-        ProjectionTarget::Current {
-            selection,
-            managed_policy_version,
-        } if selection == &current.selection
-            && *managed_policy_version == managed.snapshot.record.revision =>
-        {
-            Ok(current.selection.clone())
-        }
-        ProjectionTarget::Candidate {
-            selection,
-            expected_revision,
-            managed_policy_version,
-            managed_policy_digest,
-        } if current.selection.authorization_revision == *expected_revision
-            && selection.scope == current.selection.scope
-            && selection.authorization_revision == expected_revision.saturating_add(1)
-            && *managed_policy_version == managed.snapshot.record.revision
-            && *managed_policy_digest == managed.canonical_digest =>
-        {
-            Ok(selection.clone())
-        }
-        _ => Err(NotReadyReason::NativeContainment),
-    }
-}
+pub(super) use super::permission_projection_targets::closed_identity;
+pub(crate) use super::permission_projection_targets::selected_target;
+pub(super) use super::permission_projection_targets::workspace_binding_matches;
 
 #[cfg(target_os = "linux")]
 fn selection_is_live(selection: &ModeSelection, now: i64) -> bool {

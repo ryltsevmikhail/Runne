@@ -118,6 +118,7 @@ mod native_process_registry;
 pub(crate) mod permission_projection;
 #[cfg(feature = "desktop-protected")]
 pub(crate) mod permission_projection_runtime;
+pub(crate) mod permission_projection_targets;
 #[cfg(all(feature = "test-support", feature = "desktop-protected"))]
 #[cfg(any(test, feature = "test-support"))]
 pub mod process_gate_fixture;

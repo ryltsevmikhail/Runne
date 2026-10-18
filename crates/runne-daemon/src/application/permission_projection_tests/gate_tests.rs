@@ -204,3 +204,53 @@ fn candidate_projection_rejects_revision_and_managed_policy_drift() {
         Err(NotReadyReason::NativeContainment)
     );
 }
+
+#[test]
+#[cfg(target_os = "linux")]
+fn current_projection_accepts_missing_selection_with_stale_snapshot_policy_version() {
+    // No durable row exists: the status snapshot reports managed_policy_version 0
+    // while the identity loader pairs the same missing selection with the live
+    // closed-rules revision; the stale snapshot constant must not fence the
+    // projection (regression: bare `permissions status` was pinned notReady).
+    let missing = selection(PermissionMode::AskAlways, 0, None);
+    let managed = managed_identity(missing.clone(), 1, digest(61));
+    let ManagedIdentityMetadata::ClosedRulesV2(managed_rules) = &managed.identity else {
+        unreachable!();
+    };
+    let target = ProjectionTarget::Current {
+        selection: missing.clone(),
+        managed_policy_version: 0,
+    };
+    assert_eq!(
+        crate::application::permission_projection_runtime::selected_target(
+            &target,
+            &managed,
+            managed_rules,
+        ),
+        Ok(missing)
+    );
+}
+
+#[test]
+#[cfg(target_os = "linux")]
+fn current_projection_still_rejects_committed_revision_with_stale_policy_version() {
+    // A committed row always persists revision >= 1; for those the strict
+    // managed-policy version fence must keep rejecting drift.
+    let committed = selection(PermissionMode::AskAlways, 2, None);
+    let managed = managed_identity(committed.clone(), 7, digest(62));
+    let ManagedIdentityMetadata::ClosedRulesV2(managed_rules) = &managed.identity else {
+        unreachable!();
+    };
+    let target = ProjectionTarget::Current {
+        selection: committed,
+        managed_policy_version: 6,
+    };
+    assert_eq!(
+        crate::application::permission_projection_runtime::selected_target(
+            &target,
+            &managed,
+            managed_rules,
+        ),
+        Err(NotReadyReason::NativeContainment)
+    );
+}
