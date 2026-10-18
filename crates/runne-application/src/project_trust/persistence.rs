@@ -1,6 +1,6 @@
 use super::{
-    ProjectTrustProjectId, ProjectTrustRecord, ProjectTrustStatus, TrustPersistenceError,
-    TrustToken,
+    ProjectTrustEffectPolicySnapshot, ProjectTrustProjectId, ProjectTrustRecord,
+    ProjectTrustStatus, TrustPersistenceError, TrustToken,
 };
 
 /// Owned durable lease keeping one project trust record current until drop.
@@ -10,6 +10,12 @@ use super::{
 pub trait ProjectTrustEffectLease: Send {
     /// The immutable record checked while the persistence fence is held.
     fn record(&self) -> ProjectTrustRecord;
+
+    /// The immutable record and managed rules captured under that same fence.
+    /// Implementations without a verified same-fence snapshot fail closed.
+    fn snapshot(&self) -> Result<ProjectTrustEffectPolicySnapshot, TrustPersistenceError> {
+        Err(TrustPersistenceError::Unavailable)
+    }
 }
 
 /// Administrative trust-control lease. It holds the same durable writer

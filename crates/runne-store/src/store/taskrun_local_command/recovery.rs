@@ -7,12 +7,18 @@ use runne_domain::id::{AttemptId, TaskRunId};
 use runne_domain::task_run::TaskRunState;
 use rusqlite::{TransactionBehavior, params};
 #[cfg(target_os = "linux")]
+mod cancel_complete;
+mod cancel_settled;
+mod cancel_support;
+#[cfg(target_os = "linux")]
 mod confirm;
 mod helpers;
 #[cfg(target_os = "linux")]
 mod outcome_unknown;
 #[cfg(target_os = "linux")]
 mod outcome_unknown_replay;
+mod stop_evidence;
+pub use stop_evidence::LocalCommandCancellationStopEvidence;
 mod terminal_cleanup;
 #[cfg(target_os = "linux")]
 pub(super) use helpers::verify_recovery_owner;

@@ -72,6 +72,7 @@ pub struct ApprovalSummary {
     action_digest: [u8; 32],
     policy_revision: u64,
     request_version: u64,
+    approval_generation: u64,
     expires_at: i64,
     risk_summary: String,
     state: ApprovalState,
@@ -96,6 +97,7 @@ impl ApprovalSummary {
         action_digest: [u8; 32],
         policy_revision: u64,
         request_version: u64,
+        approval_generation: u64,
         expires_at: i64,
         risk_summary: impl Into<String>,
     ) -> Result<Self, ApprovalValidationError> {
@@ -107,6 +109,9 @@ impl ApprovalSummary {
         }
         if policy_revision == 0 || request_version == 0 {
             return Err(ApprovalValidationError::InvalidVersion);
+        }
+        if approval_generation == 0 {
+            return Err(ApprovalValidationError::InvalidRendererGeneration);
         }
         if expires_at <= 0 {
             return Err(ApprovalValidationError::InvalidExpiry);
@@ -124,6 +129,7 @@ impl ApprovalSummary {
             action_digest,
             policy_revision,
             request_version,
+            approval_generation,
             expires_at,
             risk_summary,
             state: ApprovalState::Pending,
@@ -164,6 +170,11 @@ impl ApprovalSummary {
     #[must_use]
     pub const fn request_version(&self) -> u64 {
         self.request_version
+    }
+    /// Returns the durable generation bound to this approval request.
+    #[must_use]
+    pub const fn approval_generation(&self) -> u64 {
+        self.approval_generation
     }
     /// Returns the policy revision bound to the request.
     #[must_use]

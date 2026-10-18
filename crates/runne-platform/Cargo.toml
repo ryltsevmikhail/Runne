@@ -4,14 +4,20 @@ version = "0.1.0"
 edition.workspace = true
 rust-version.workspace = true
 
+[features]
+test-support = []
+
 [dev-dependencies]
-runne-domain = { path = "../runne-domain" }
 runne-api = { path = "../runne-api" }
 tempfile = "3.17.0"
 
 [dependencies]
+runne-domain = { path = "../runne-domain" }
 runne-application = { path = "../runne-application" }
 runne-platform-ports = { path = "../runne-platform-ports" }
+base64 = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
 sha2 = { workspace = true }
 thiserror = "2"
 

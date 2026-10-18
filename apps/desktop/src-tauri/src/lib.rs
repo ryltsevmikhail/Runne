@@ -10,6 +10,9 @@ mod gui_qualification;
 mod notifications;
 mod open_selected_workspace_request;
 mod operational_telemetry_command;
+#[cfg(target_os = "linux")]
+#[path = "lib_parts/permission_native_ui.rs"]
+mod permission_native_ui;
 mod prepare_workspace_request;
 mod prepared_workspace;
 pub(crate) mod provider_credential_enrollment;

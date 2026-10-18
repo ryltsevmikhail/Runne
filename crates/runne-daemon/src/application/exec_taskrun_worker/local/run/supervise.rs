@@ -60,6 +60,7 @@ pub(super) fn supervise(
             return Ok(());
         }
         Ok(X2Outcome::Complete(code)) => code,
+        Ok(X2Outcome::PermissionComplete(_)) => return Err(AutomaticTaskRunError::Uncertain),
         Err(()) => return Err(mark_unconfirmed(store, identity, area_identity)),
     };
     let latest = store

@@ -1,4 +1,4 @@
-use super::D2_TOOL_PROPOSAL_RESPONSE;
+use super::{D2_PENDING_CREATE_RESPONSE, D2_TOOL_PROPOSAL_RESPONSE};
 
 const CREATE_RESPONSE: &str = concat!(
     "event: response.created\ndata: {\"type\":\"response.created\",\"sequence_number\":0,\"response\":{\"id\":\"resp_d2_create\",\"object\":\"response\",\"model\":\"gpt-5.5-2026-04-23\",\"service_tier\":\"default\",\"status\":\"in_progress\",\"output\":[],\"usage\":null,\"background\":false,\"tools\":[]}}\n\n",
@@ -34,6 +34,7 @@ pub(crate) fn response(round: usize) -> Option<&'static str> {
 pub(crate) fn scenario_response(scenario: &str) -> Option<String> {
     let proposal = D2_TOOL_PROPOSAL_RESPONSE;
     match scenario {
+        "approved-target-create-race" => Some(D2_PENDING_CREATE_RESPONSE.to_owned()),
         "unknown-tool-proposal" => {
             Some(proposal.replace("workspace_file_read", "workspace_file_unknown"))
         }

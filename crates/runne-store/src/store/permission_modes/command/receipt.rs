@@ -3,26 +3,27 @@ use runne_application::permission_modes::{
     SetPermissionModeCommand,
 };
 use runne_domain::id::CommandId;
+use runne_domain::id::IntegrityDigest;
 use rusqlite::{OptionalExtension, Transaction, params};
 
 use super::super::{identity, model::PermissionModeStoreError, receipt_codec};
 
 #[derive(Debug)]
-struct StoredReceipt {
-    command_id: Vec<u8>,
-    runtime_authority_id: String,
-    principal_id: String,
-    workspace_id: Vec<u8>,
-    project_id: Vec<u8>,
-    idempotency_key: String,
-    intent_digest: Vec<u8>,
-    selected_mode: i64,
-    preset_version: i64,
-    authorization_revision: i64,
-    managed_policy_version: i64,
-    managed_policy_digest: Vec<u8>,
-    expires_at: Option<i64>,
-    history_projection: Vec<u8>,
+pub(super) struct StoredReceipt {
+    pub(super) command_id: Vec<u8>,
+    pub(super) runtime_authority_id: String,
+    pub(super) principal_id: String,
+    pub(super) workspace_id: Vec<u8>,
+    pub(super) project_id: Vec<u8>,
+    pub(super) idempotency_key: String,
+    pub(super) intent_digest: Vec<u8>,
+    pub(super) selected_mode: i64,
+    pub(super) preset_version: i64,
+    pub(super) authorization_revision: i64,
+    pub(super) managed_policy_version: i64,
+    pub(super) managed_policy_digest: Vec<u8>,
+    pub(super) expires_at: Option<i64>,
+    pub(super) history_projection: Vec<u8>,
 }
 
 pub(super) fn lookup(
@@ -121,6 +122,46 @@ pub(super) fn insert(
     committed_at: i64,
     history: &PermissionModeHistoryProjection,
 ) -> Result<(), PermissionModeStoreError> {
+    insert_with_digest(
+        tx,
+        command,
+        project_id,
+        revision,
+        committed_at,
+        history,
+        command.managed_policy_digest,
+    )
+}
+
+pub(super) fn insert_v2(
+    tx: &Transaction<'_>,
+    command: &SetPermissionModeCommand,
+    project_id: [u8; 16],
+    revision: i64,
+    committed_at: i64,
+    history: &PermissionModeHistoryProjection,
+    legacy_managed_digest: IntegrityDigest,
+) -> Result<(), PermissionModeStoreError> {
+    insert_with_digest(
+        tx,
+        command,
+        project_id,
+        revision,
+        committed_at,
+        history,
+        legacy_managed_digest,
+    )
+}
+
+fn insert_with_digest(
+    tx: &Transaction<'_>,
+    command: &SetPermissionModeCommand,
+    project_id: [u8; 16],
+    revision: i64,
+    committed_at: i64,
+    history: &PermissionModeHistoryProjection,
+    managed_policy_digest: IntegrityDigest,
+) -> Result<(), PermissionModeStoreError> {
     let bytes = receipt_codec::encode_history(history)?;
     tx.execute(
         "INSERT INTO permission_mode_command_receipts (
@@ -141,7 +182,7 @@ pub(super) fn insert(
             revision,
             i64::try_from(command.managed_policy_version)
                 .map_err(|_| PermissionModeStoreError::ManagedPolicyStale)?,
-            command.managed_policy_digest.as_bytes().as_slice(),
+            managed_policy_digest.as_bytes().as_slice(),
             command.expires_at_unix_ms,
             bytes,
             committed_at
@@ -151,7 +192,7 @@ pub(super) fn insert(
     Ok(())
 }
 
-fn find_by_id(
+pub(super) fn find_by_id(
     tx: &Transaction<'_>,
     id: CommandId,
 ) -> Result<Option<StoredReceipt>, PermissionModeStoreError> {
@@ -173,7 +214,7 @@ fn find_by_key(
        stored_from_sql).optional().map_err(|_| PermissionModeStoreError::Unavailable)
 }
 
-fn stored_from_sql(row: &rusqlite::Row<'_>) -> rusqlite::Result<StoredReceipt> {
+pub(super) fn stored_from_sql(row: &rusqlite::Row<'_>) -> rusqlite::Result<StoredReceipt> {
     Ok(StoredReceipt {
         command_id: row.get(0)?,
         runtime_authority_id: row.get(1)?,

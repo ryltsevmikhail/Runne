@@ -108,6 +108,8 @@ pub(super) fn assert_interrupted_by_restart_projection(database: &Path, task: Ca
     );
 }
 
+type TerminalConversationRow = (Vec<u8>, Vec<u8>, Vec<u8>, i64);
+
 fn assert_terminal_failure_projection(
     database: &Path,
     task: CanonicalId,
@@ -143,23 +145,47 @@ fn assert_terminal_failure_projection(
             conversation_id.as_bytes().to_vec()
         })
         .expect("read submitted TaskRun");
-    let (_, failed_payload, command_id, sequence): (Vec<u8>, Vec<u8>, Vec<u8>, i64) = connection
-        .query_row(
-            "SELECT event_id,payload,command_id,sequence FROM events WHERE aggregate_type=2 AND aggregate_id=?1 ORDER BY sequence DESC LIMIT 1",
-            [conversation_bytes.as_slice()],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
-        )
-        .expect("read terminal Conversation event");
-    let terminal = ConversationEventCodec
-        .decode(&failed_payload)
-        .expect("decode Conversation terminal");
-    let failed_attempt = match terminal {
-        ConversationEvent::GenerationFailed {
-            taskrun_id,
-            attempt_id,
-            reason,
-        } if taskrun_id.as_bytes() == &task_bytes && reason == expected_reason => attempt_id,
-        _ => panic!("original Conversation has exact D2 failure event"),
+    // The conversation-side failure projection settles asynchronously after
+    // the public TaskRun terminal; under a loaded default-thread run the DB
+    // read can race it. Bounded settle wait until the conversation's latest
+    // durable event IS the exact expected failure terminal; the decode/reason
+    // match itself stays the settle condition, so exactness is unchanged.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    let ((command_id, sequence), failed_attempt) = loop {
+        let row: Option<TerminalConversationRow> = connection
+            .query_row(
+                "SELECT event_id,payload,command_id,sequence FROM events WHERE aggregate_type=2 AND aggregate_id=?1 ORDER BY sequence DESC LIMIT 1",
+                [conversation_bytes.as_slice()],
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                    ))
+                },
+            )
+            .ok();
+        if let Some((_, failed_payload, command_id, sequence)) = row {
+            let terminal = ConversationEventCodec
+                .decode(&failed_payload)
+                .expect("decode Conversation terminal");
+            if let ConversationEvent::GenerationFailed {
+                taskrun_id,
+                attempt_id,
+                reason,
+            } = terminal
+                && taskrun_id.as_bytes() == &task_bytes
+                && reason == expected_reason
+            {
+                break ((command_id, sequence), attempt_id);
+            }
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "conversation failure projection never settled (task head {task_head})"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(25));
     };
     let outcome: Vec<u8> = connection
         .query_row(

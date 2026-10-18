@@ -1,25 +1,32 @@
-use std::{
-    collections::VecDeque,
-    sync::Arc,
-    time::{SystemTime, UNIX_EPOCH},
-};
+use std::sync::Arc;
 
-use runne_api::ProviderCredentialEnrollmentHostError;
 use runne_domain::id::{CommandId, IdempotencyKey};
-use runne_provider::daemon_credential_publication::CredentialWriterSessionAttestationSigner;
 use runne_provider::{
     BeginCredentialOperation, BeginCredentialOperationOutcome, ClaimCredentialOperation,
-    CredentialAuthorityPair, CredentialBrokerCommand, CredentialEnrollmentAuthorityPair,
-    CredentialFence, CredentialLifecycleRevision, CredentialMeasurementSnapshot,
-    CredentialOperationAction, CredentialOperationId, CredentialSecretClaimOffer,
-    CredentialWriterSessionAttestationClaimsV1, ProviderCredentialEnrollmentStore, ProviderId,
+    CredentialBrokerCommand, CredentialFence, CredentialLifecycleRevision,
+    CredentialMeasurementSnapshot, CredentialOperationAction, CredentialOperationId,
+    CredentialSecretClaimOffer, ProviderCredentialEnrollmentStore, ProviderId,
 };
-use zeroize::Zeroizing;
+use runne_store::provider::online_claim_test_support::open_test_store_with_authorities;
 
+use super::super::broker::ProviderCredentialBroker;
 use super::super::broker::issue::ClaimIssueContext;
-use super::super::broker::writer_session_test_support::writer_session_claims;
-use super::super::broker::{CredentialBrokerChannel, ProviderCredentialBroker};
 use super::nested_db;
+
+#[path = "broker_support/recording_channel.rs"]
+mod recording_channel;
+pub(crate) use recording_channel::RecordingChannel;
+
+/// Deterministic clock base for the broker fixtures: the paired-authority
+/// store's fixed verification clock, the begin expiry margin, and the cleanup
+/// recovery lease all anchor here, so no fixture domain reads the wall clock.
+/// Each fixture owns its store instance; the shared immutable base cannot
+/// race under concurrent test execution.
+pub(crate) const FIXTURE_NOW_SECONDS: i64 = 100;
+
+/// Begin high-water margin over the fixture clock, kept at the historical
+/// fixture margin but anchored to the deterministic base.
+pub(crate) const BEGIN_EXPIRY_MARGIN_SECONDS: i64 = 600;
 
 pub(crate) struct Fixture {
     // Read by the unix broker transport scenarios only.
@@ -37,6 +44,14 @@ pub(crate) fn fixture() -> Fixture {
     fixture_with_action(CredentialOperationAction::Pair, "broker-ticket")
 }
 
+/// Wall-clock twin for consumers whose production path itself anchors on the
+/// real clock (the control-facade recovery session mixes
+/// `SystemTime::now` into its offer high-water); keeps their historical
+/// semantics while the broker tests run on the deterministic fixture clock.
+pub(crate) fn wall_clock_fixture() -> Fixture {
+    fixture_with_action_at(CredentialOperationAction::Pair, "broker-ticket", None)
+}
+
 /// Fixture for one claimed migrate operation: the same begin shape as Pair
 /// (allocated version, no target) but no secret offer, so the claimed effect
 /// carries no secret relay.
@@ -45,32 +60,53 @@ pub(crate) fn migrate_fixture() -> Fixture {
 }
 
 fn fixture_with_action(action: CredentialOperationAction, idempotency: &str) -> Fixture {
+    fixture_with_action_at(action, idempotency, Some(FIXTURE_NOW_SECONDS))
+}
+
+pub(crate) fn fixture_with_action_at(
+    action: CredentialOperationAction,
+    idempotency: &str,
+    store_now: Option<i64>,
+) -> Fixture {
     assert!(matches!(
         action,
         CredentialOperationAction::Pair | CredentialOperationAction::MigrateLegacy
     ));
     let directory = tempfile::tempdir().unwrap();
-    let (lifecycle, _) = CredentialAuthorityPair::new().split();
-    let (enrollment, measurements) = CredentialEnrollmentAuthorityPair::new().split();
+    let database = nested_db(directory.path(), "broker.sqlite");
+    let (store, enrollment, measurements) = match store_now {
+        Some(now) => open_test_store_with_authorities(&database, now),
+        None => {
+            let (lifecycle, _) = runne_provider::CredentialAuthorityPair::new().split();
+            let (enrollment, measurements) =
+                runne_provider::CredentialEnrollmentAuthorityPair::new().split();
+            let store =
+                runne_store::provider::SqliteProviderCredentialLifecycleStore::open_with_authorities(
+                    &database,
+                    lifecycle,
+                    enrollment.clone(),
+                )
+                .unwrap();
+            (store, enrollment, measurements)
+        }
+    };
     let measurements = Arc::new(measurements);
-    let store =
-        runne_store::provider::SqliteProviderCredentialLifecycleStore::open_with_authorities(
-            &nested_db(directory.path(), "broker.sqlite"),
-            lifecycle,
-            enrollment.clone(),
-        )
-        .unwrap();
     let provider = ProviderId::new("openai").unwrap();
     let qualified = measurements
         .issue_qualified_credential_release_tuple(
             measurements.release_manifest_digest([9; 32]).unwrap(),
         )
         .unwrap();
-    let expiration = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_secs()
-        + 600;
+    let expiration = match store_now {
+        Some(now) => u64::try_from(now + BEGIN_EXPIRY_MARGIN_SECONDS).unwrap(),
+        None => {
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs()
+                + u64::try_from(BEGIN_EXPIRY_MARGIN_SECONDS).unwrap()
+        }
+    };
     let input = BeginCredentialOperation::new(
         CommandId::from_bytes([1; 16]),
         IdempotencyKey::new(idempotency).unwrap(),
@@ -170,121 +206,6 @@ pub(crate) fn claim_measurements_for(
             .unwrap(),
     )
     .unwrap()
-}
-
-pub(crate) struct RecordingChannel {
-    pub(crate) frames: Vec<Vec<u8>>,
-    received: VecDeque<Zeroizing<Vec<u8>>>,
-    fail_send: bool,
-    binding: runne_provider::CredentialBindingDigest,
-    attestation_signer: Option<CredentialWriterSessionAttestationSigner>,
-    attestation_claims: Option<CredentialWriterSessionAttestationClaimsV1>,
-    publication_public_key: [u8; 32],
-    pub(crate) sign_invocations: u8,
-    pub(crate) receive_calls: u8,
-}
-
-impl RecordingChannel {
-    pub(crate) fn with_channel_binding(binding: [u8; 32]) -> Self {
-        let signer = CredentialWriterSessionAttestationSigner::generate(binding).unwrap();
-        let publication_public_key = signer.public_key();
-        Self {
-            frames: Vec::new(),
-            received: VecDeque::new(),
-            fail_send: false,
-            binding: runne_provider::CredentialBindingDigest::from_measured(binding).unwrap(),
-            attestation_signer: Some(signer),
-            attestation_claims: None,
-            publication_public_key,
-            sign_invocations: 0,
-            receive_calls: 0,
-        }
-    }
-
-    pub(crate) fn queue_received(&mut self, frame: Zeroizing<Vec<u8>>) {
-        self.received.push_back(frame);
-    }
-
-    pub(crate) fn fail_next_send(&mut self) {
-        self.fail_send = true;
-    }
-
-    pub(crate) const fn publication_public_key(&self) -> [u8; 32] {
-        self.publication_public_key
-    }
-}
-
-impl Default for RecordingChannel {
-    fn default() -> Self {
-        Self::with_channel_binding([21; 32])
-    }
-}
-
-impl CredentialBrokerChannel for RecordingChannel {
-    fn binding_digest(&self) -> runne_provider::CredentialBindingDigest {
-        self.binding
-    }
-
-    fn send_issue(
-        &mut self,
-        _receipt: &runne_provider::IssuedCredentialTicketAttempt,
-        frame: runne_provider::CredentialBrokerFrame,
-    ) -> Result<(), ProviderCredentialEnrollmentHostError> {
-        let encoded = runne_provider::CredentialBrokerFrameCodec::encode(frame)
-            .map_err(|_| ProviderCredentialEnrollmentHostError::AccessDenied)?;
-        self.send(Zeroizing::new(encoded))
-    }
-
-    fn send(
-        &mut self,
-        frame: Zeroizing<Vec<u8>>,
-    ) -> Result<(), ProviderCredentialEnrollmentHostError> {
-        if std::mem::take(&mut self.fail_send) {
-            return Err(ProviderCredentialEnrollmentHostError::Unavailable);
-        }
-        let decoded = runne_provider::CredentialBrokerFrameCodec::decode(&frame)
-            .map_err(|_| ProviderCredentialEnrollmentHostError::AccessDenied)?;
-        if matches!(
-            decoded,
-            runne_provider::CredentialBrokerFrame::IssueTicket { .. }
-        ) {
-            self.attestation_claims = Some(
-                writer_session_claims(&decoded)
-                    .map_err(|_| ProviderCredentialEnrollmentHostError::AccessDenied)?,
-            );
-        }
-        self.frames.push(frame.to_vec());
-        Ok(())
-    }
-
-    fn receive(&mut self) -> Result<Zeroizing<Vec<u8>>, ProviderCredentialEnrollmentHostError> {
-        self.receive_calls = self.receive_calls.saturating_add(1);
-        self.received
-            .pop_front()
-            .ok_or(ProviderCredentialEnrollmentHostError::Unavailable)
-    }
-
-    fn sign_publication(
-        &mut self,
-        offer: CredentialSecretClaimOffer,
-    ) -> Result<runne_provider::CredentialSecretPublication, ProviderCredentialEnrollmentHostError>
-    {
-        let signer = self
-            .attestation_signer
-            .take()
-            .ok_or(ProviderCredentialEnrollmentHostError::AccessDenied)?;
-        let claims = self
-            .attestation_claims
-            .take()
-            .ok_or(ProviderCredentialEnrollmentHostError::AccessDenied)?;
-        let (_, signer) = signer
-            .sign(claims)
-            .map_err(|_| ProviderCredentialEnrollmentHostError::AccessDenied)?;
-        self.sign_invocations = self.sign_invocations.saturating_add(1);
-        signer
-            .sign(offer, self.binding)
-            .map_err(|_| ProviderCredentialEnrollmentHostError::AccessDenied)
-    }
 }
 
 pub(crate) fn pair_offer(

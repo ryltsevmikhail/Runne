@@ -21,6 +21,7 @@ fn binding(decision: ApprovalDecisionDto) -> ApprovalConfirmationBinding {
             resource: "workspace:/src/main.rs".into(),
             action_digest: [4; 32],
             policy_revision: 7,
+            approval_generation: 3,
             expires_at: 1_900_000_000,
         },
         ApprovalDecisionBinding {

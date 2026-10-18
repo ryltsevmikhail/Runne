@@ -20,6 +20,8 @@ mod permission;
 mod signal;
 #[path = "local_command_linux/snapshot_exec.rs"]
 mod snapshot_exec;
+#[path = "local_command_linux/typed_exit.rs"]
+mod typed_exit;
 
 static NEXT_ID: AtomicU64 = AtomicU64::new(1);
 fn nonce() -> [u8; 16] {

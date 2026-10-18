@@ -83,6 +83,7 @@ include!("lib_parts/conversation_workspace.rs");
 include!("lib_parts/task_run.rs");
 include!("lib_parts/task_run_count.rs");
 include!("lib_parts/approvals.rs");
+include!("lib_parts/permission_modes.rs");
 include!("lib_parts/task_run_subscribe.rs");
 include!("lib_parts/reference.rs");
 include!("lib_parts/mutation_types.rs");
@@ -105,6 +106,7 @@ mod tests {
         include!("lib_parts/canonical_project_pagination_tests.rs");
     }
     include!("lib_parts/operational_telemetry_tests.rs");
+    include!("lib_parts/runtime_state_tests.rs");
     include!("lib_parts/mutation_dispatch_tests.rs");
     include!("lib_parts/text_only_dispatch_tests.rs");
     include!("lib_parts/mutation_adversarial_tests.rs");

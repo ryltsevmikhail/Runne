@@ -1,3 +1,7 @@
+#[expect(
+    clippy::too_many_lines,
+    reason = "Application setup preserves the existing initialization order across services."
+)]
 fn setup_app(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let profile_directory = app.path().app_data_dir()?;
     #[cfg(all(target_os = "linux", feature = "test-support"))]
@@ -67,6 +71,8 @@ fn setup_app(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
                 .map(BundledRuntimeController::qualification_admission),
         )?;
     let notification_core = Arc::clone(&core);
+    #[cfg(target_os = "linux")]
+    let permission_ui_core = Arc::clone(&core);
     let notification_state = Arc::new(crate::notifications::NotificationState::default());
     app.manage(profile_lock);
     app.manage(core);
@@ -92,6 +98,12 @@ fn setup_app(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         start_linux_enrollment_approval(app.handle().clone());
     }
     if let Some(controller) = monitor.take() {
+        #[cfg(target_os = "linux")]
+        crate::permission_native_ui::start(
+            app.handle().clone(),
+            permission_ui_core,
+            Arc::clone(&controller),
+        );
         controller.spawn_monitor(app.handle().clone());
     }
     drop(monitor);

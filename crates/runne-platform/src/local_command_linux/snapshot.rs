@@ -14,6 +14,8 @@ const REQUIRED_SEALS: i32 =
 /// Sealed memfd copy of the exact bytes that can be executed after approval.
 pub struct SealedExecutableSnapshot {
     file: File,
+    object_id: [u8; 16],
+    target_generation: u64,
 }
 
 impl SealedExecutableSnapshot {
@@ -57,15 +59,24 @@ impl SealedExecutableSnapshot {
         if seals < 0 || seals & REQUIRED_SEALS != REQUIRED_SEALS {
             return Err(LinuxCommandError::Unavailable);
         }
+        let object_id = fresh_object_id()?;
         file.seek(SeekFrom::Start(0))
             .map_err(|_| LinuxCommandError::Unavailable)?;
-        Ok(Self { file })
+        Ok(Self {
+            file,
+            object_id,
+            target_generation: 1,
+        })
     }
 
     /// Returns the sealed executable descriptor used for approval hashing and exec.
     #[must_use]
     pub const fn file(&self) -> &File {
         &self.file
+    }
+
+    pub(super) const fn permission_identity(&self) -> ([u8; 16], u64) {
+        (self.object_id, self.target_generation)
     }
 
     pub(super) fn validate_seals(&self) -> Result<(), LinuxCommandError> {
@@ -75,6 +86,31 @@ impl SealedExecutableSnapshot {
         }
         Ok(())
     }
+}
+
+fn fresh_object_id() -> Result<[u8; 16], LinuxCommandError> {
+    let mut identity = [0; 16];
+    let mut filled = 0;
+    while filled < identity.len() {
+        let count = unsafe {
+            libc::getrandom(
+                identity[filled..].as_mut_ptr().cast(),
+                identity.len() - filled,
+                0,
+            )
+        };
+        if count < 0 && io::Error::last_os_error().kind() == io::ErrorKind::Interrupted {
+            continue;
+        }
+        if count <= 0 {
+            return Err(LinuxCommandError::Unavailable);
+        }
+        filled += count as usize;
+    }
+    if identity == [0; 16] {
+        return Err(LinuxCommandError::Unavailable);
+    }
+    Ok(identity)
 }
 
 fn copy_bounded(source: &File, target: &File, size: i64) -> Result<(), LinuxCommandError> {

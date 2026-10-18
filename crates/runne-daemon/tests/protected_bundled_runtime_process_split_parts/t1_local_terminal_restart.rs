@@ -56,10 +56,14 @@ pub(super) async fn exercise(context: &mut LocalTaskRunContext<'_>) -> bool {
     } else {
         "completed"
     };
+    // V68 keeps the observed flat leader code for live cancellations: the
+    // stop terminates the managed area (SIGKILL leader => 128+9), and the
+    // terminal sidecar retains the exact signal facts. Only recovery-owned
+    // cancellations after a crash keep exit_code NULL (nothing is invented).
     let expected_exit = match variant.as_str() {
         "success" => Some(0),
         "failure" => Some(7),
-        _ => None,
+        _ => Some(137),
     };
     assert_eq!(attempt_state, expected_attempt);
     assert_eq!(exit, expected_exit);

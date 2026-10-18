@@ -88,7 +88,16 @@ def valid_executable_shape(value: object) -> bool:
 def resolve_trusted_runtime(root: Path | None = None) -> TrustedRuntime:
     account = pwd.getpwuid(os.geteuid())
     home = Path(account.pw_dir).resolve(strict=True)
-    cargo_bin, rustup_home = home / ".cargo/bin", home / ".rustup"
+    # Container images (the hosted CI rust lane) install the rustup layout
+    # under CARGO_HOME/RUSTUP_HOME instead of the user home. Honor the
+    # standard environment when it is present; the trust checks below apply
+    # unchanged, and the developer-home layout remains the fallback.
+    cargo_bin = (
+        Path(os.environ["CARGO_HOME"]) if "CARGO_HOME" in os.environ else home / ".cargo"
+    ) / "bin"
+    rustup_home = (
+        Path(os.environ["RUSTUP_HOME"]) if "RUSTUP_HOME" in os.environ else home / ".rustup"
+    )
     for directory in (home, cargo_bin, rustup_home, *_system_directories()):
         _trusted_directory(directory)
     base_environment = _identity_environment()
@@ -225,6 +234,7 @@ def _node_and_pnpm(home: Path, environment: dict[str, str]) -> tuple[Path, Path]
     root = home / ".nvm/versions/node"
     _trusted_directory(root)
     candidates: list[tuple[tuple[int, ...], Path, Path]] = []
+    rejections: list[str] = []
     for node_path in root.glob("*/bin/node"):
         try:
             node, pnpm = _trusted_file(node_path), _trusted_file(node_path.parent / "pnpm")
@@ -240,10 +250,13 @@ def _node_and_pnpm(home: Path, environment: dict[str, str]) -> tuple[Path, Path]
                 (node, pnpm, "--version"), probe_environment
             ) == "11.10.0":
                 candidates.append((parsed, node, pnpm))
-        except (LocalInputReceiptError, OSError, ValueError):
+        except (LocalInputReceiptError, OSError, ValueError) as error:
+            rejections.append(f"{node_path.parent.parent.name}: {error}")
             continue
     if not candidates:
-        raise LocalInputReceiptError("canonical Node.js and pnpm are unavailable")
+        detail = "; ".join(rejections) or "no node installations found"
+        raise LocalInputReceiptError(
+            f"canonical Node.js and pnpm are unavailable ({detail})")
     _, node, pnpm = max(candidates, key=lambda candidate: candidate[0])
     return node, pnpm
 

@@ -48,6 +48,51 @@ pub fn reopen_test_store(path: &Path, now: i64) -> SqliteProviderCredentialLifec
     store
 }
 
+/// Opens a paired-authority store at a fixed verification clock and returns
+/// BOTH halves of the enrollment pair: the store-side transition authority
+/// the caller must keep for issuing legacy-import/recovery material the same
+/// store will validate, and the measurement authority sealed to it. The
+/// measurement half is NOT registered for [`measurements_for`]; callers hold
+/// it directly.
+pub fn open_test_store_with_authorities(
+    path: &Path,
+    now: i64,
+) -> (
+    SqliteProviderCredentialLifecycleStore,
+    runne_provider::CredentialEnrollmentStoreAuthority,
+    CredentialEnrollmentMeasurementAuthority,
+) {
+    let (lifecycle, _) = CredentialAuthorityPair::new().split();
+    let (store_authority, measurement_authority) = CredentialEnrollmentAuthorityPair::new().split();
+    let store = SqliteProviderCredentialLifecycleStore::open_with_authorities_and_now(
+        path,
+        lifecycle,
+        store_authority.clone(),
+        Arc::new(move || now),
+    )
+    .unwrap();
+    (store, store_authority, measurement_authority)
+}
+
+/// Reopens an existing paired-authority database at an advanced verification
+/// clock so expiry boundaries can be exercised deterministically against the
+/// SAME store-side seal that issued the original material.
+pub fn reopen_test_store_with_authority(
+    path: &Path,
+    authority: runne_provider::CredentialEnrollmentStoreAuthority,
+    now: i64,
+) -> SqliteProviderCredentialLifecycleStore {
+    let (lifecycle, _) = CredentialAuthorityPair::new().split();
+    let connection = open_test_shared_writer(path).unwrap();
+    SqliteProviderCredentialLifecycleStore::open_with_connection_authorities_and_now(
+        connection,
+        lifecycle,
+        authority,
+        Arc::new(move || now),
+    )
+    .unwrap()
+}
+
 pub fn seal_claim(
     store: &SqliteProviderCredentialLifecycleStore,
     draft: ClaimCredentialOperation,

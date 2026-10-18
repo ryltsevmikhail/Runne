@@ -13,6 +13,19 @@ pub(super) enum LocalWorkerMode {
     D2RestartProposalBeforeInvocation,
     D2RestartRemoteUnknown,
     D2ReadCreateStop,
+    D2AskAlways,
+    D2RiskBased,
+    D2FullAccess,
+    D2ManagedAskAlways,
+    D2ManagedAskRiskBased,
+    D2ManagedAskFullAccess,
+    D2ApprovedTargetRaceAskAlways,
+    D2ApprovedTargetRaceRiskBased,
+    D2ApprovedTargetRaceFullAccess,
+    D2DowngradeBeforeRelease,
+    D2DowngradeAfterExit,
+    D2DowngradeAfterResult,
+    D2DowngradeAfterStepOutcome,
     D2FinishBeforeCancel,
     D2CrashAfterResult,
     D2CrashBeforeGo,
@@ -47,6 +60,15 @@ pub(super) enum LocalWorkerMode {
     RestartAfterDurableSuccess,
     RestartAfterDurableFailure,
     RestartAfterDurableCancel,
+    LocalPermissionAskAlways,
+    LocalPermissionRiskBased,
+    LocalPermissionFullAccess,
+    LocalPermissionFullAccessUnavailableNetwork,
+    LocalPermissionFullAccessDowngrade,
+    LocalPermissionLegacySelection,
+    LocalPermissionPreCaptureExecutable,
+    LocalPermissionPreCaptureCwd,
+    LocalResultLostAck,
 }
 
 impl LocalWorkerMode {
@@ -65,6 +87,19 @@ impl LocalWorkerMode {
                 | Self::D2RestartProposalBeforeInvocation
                 | Self::D2RestartRemoteUnknown
                 | Self::D2ReadCreateStop
+                | Self::D2AskAlways
+                | Self::D2RiskBased
+                | Self::D2FullAccess
+                | Self::D2ManagedAskAlways
+                | Self::D2ManagedAskRiskBased
+                | Self::D2ManagedAskFullAccess
+                | Self::D2ApprovedTargetRaceAskAlways
+                | Self::D2ApprovedTargetRaceRiskBased
+                | Self::D2ApprovedTargetRaceFullAccess
+                | Self::D2DowngradeBeforeRelease
+                | Self::D2DowngradeAfterExit
+                | Self::D2DowngradeAfterResult
+                | Self::D2DowngradeAfterStepOutcome
                 | Self::D2FinishBeforeCancel
                 | Self::D2CrashAfterResult
                 | Self::D2CrashBeforeGo
@@ -96,6 +131,19 @@ impl LocalWorkerMode {
     pub(super) const fn d2_scenario(self) -> Option<&'static str> {
         match self {
             Self::D2ReadCreateStop => Some("read-create-stop"),
+            Self::D2AskAlways
+            | Self::D2RiskBased
+            | Self::D2FullAccess
+            | Self::D2ManagedAskAlways
+            | Self::D2ManagedAskRiskBased
+            | Self::D2ManagedAskFullAccess => Some("read-create-stop"),
+            Self::D2ApprovedTargetRaceAskAlways
+            | Self::D2ApprovedTargetRaceRiskBased
+            | Self::D2ApprovedTargetRaceFullAccess => Some("approved-target-create-race"),
+            Self::D2DowngradeBeforeRelease => Some("crash-before-go"),
+            Self::D2DowngradeAfterExit
+            | Self::D2DowngradeAfterResult
+            | Self::D2DowngradeAfterStepOutcome => Some("crash-after-create-effect"),
             Self::D2FinishBeforeCancel => Some("finish-before-cancel"),
             Self::D2CrashAfterResult => Some("result-commit-crash"),
             Self::D2CrashPendingApproval => Some("crash-pending-approval"),
@@ -135,6 +183,54 @@ impl LocalWorkerMode {
         }
     }
 
+    pub(super) const fn d2_permission_mode(self) -> Option<&'static str> {
+        match self {
+            Self::D2AskAlways => Some("ask_always"),
+            Self::D2RiskBased => Some("risk_based"),
+            Self::D2FullAccess => Some("full_access"),
+            Self::D2ManagedAskAlways => Some("ask_always"),
+            Self::D2ManagedAskRiskBased => Some("risk_based"),
+            Self::D2ManagedAskFullAccess => Some("full_access"),
+            Self::D2ApprovedTargetRaceAskAlways => Some("ask_always"),
+            Self::D2ApprovedTargetRaceRiskBased => Some("risk_based"),
+            Self::D2ApprovedTargetRaceFullAccess => Some("full_access"),
+            Self::D2DowngradeBeforeRelease
+            | Self::D2DowngradeAfterExit
+            | Self::D2DowngradeAfterResult
+            | Self::D2DowngradeAfterStepOutcome => Some("full_access"),
+            Self::LocalPermissionAskAlways => Some("ask_always"),
+            Self::LocalPermissionRiskBased => Some("risk_based"),
+            Self::LocalPermissionFullAccess => Some("full_access"),
+            Self::LocalPermissionFullAccessUnavailableNetwork => Some("full_access"),
+            Self::LocalPermissionFullAccessDowngrade => Some("full_access"),
+            Self::LocalPermissionLegacySelection => Some("risk_based"),
+            Self::LocalPermissionPreCaptureExecutable | Self::LocalPermissionPreCaptureCwd => {
+                Some("ask_always")
+            }
+            _ => None,
+        }
+    }
+
+    pub(super) const fn d2_managed_ask(self) -> bool {
+        matches!(
+            self,
+            Self::D2ManagedAskAlways
+                | Self::D2ManagedAskRiskBased
+                | Self::D2ManagedAskFullAccess
+                | Self::D2ApprovedTargetRaceAskAlways
+                | Self::D2ApprovedTargetRaceRiskBased
+                | Self::D2ApprovedTargetRaceFullAccess
+        )
+    }
+
+    pub(super) const fn local_precapture_failure_case(self) -> Option<&'static str> {
+        match self {
+            Self::LocalPermissionPreCaptureExecutable => Some("executable"),
+            Self::LocalPermissionPreCaptureCwd => Some("cwd"),
+            _ => None,
+        }
+    }
+
     pub(super) const fn d2_kill_stage(self) -> Option<&'static str> {
         match self {
             Self::D2RestartStartedBeforeCycle => Some("start_cycle"),
@@ -153,7 +249,9 @@ impl LocalWorkerMode {
             Self::D2CrashApprovedBeforeLease | Self::D2TrustRevokeBeforeLease => {
                 Some("approved-before-lease")
             }
-            Self::D2CrashClaimedBeforeArea => Some("claimed-before-area"),
+            Self::D2CrashClaimedBeforeArea
+            | Self::LocalPermissionPreCaptureExecutable
+            | Self::LocalPermissionPreCaptureCwd => Some("claimed-before-area"),
             Self::CancelBeforeRelease | Self::D2TargetChangedBeforeGo | Self::D2CancelBeforeGo => {
                 Some("pre-release")
             }
@@ -163,12 +261,17 @@ impl LocalWorkerMode {
             | Self::D2CancelRestartAfterCreateEffect
             | Self::CancelAfterExit
             | Self::CompleteAfterExit => Some("after-exit"),
+            Self::D2CrashAfterResult => Some("after-result-before-step-outcome"),
             Self::D2StaleAfterResult
-            | Self::D2CrashAfterResult
             | Self::RestartAfterDurableSuccess
             | Self::RestartAfterDurableFailure
-            | Self::RestartAfterDurableCancel => Some("after-terminal"),
+            | Self::RestartAfterDurableCancel
+            | Self::LocalResultLostAck => Some("after-terminal"),
             Self::D2CrashBeforeGo => Some("pre-release"),
+            Self::D2DowngradeBeforeRelease => Some("pre-release"),
+            Self::D2DowngradeAfterExit => Some("after-exit"),
+            Self::D2DowngradeAfterResult => Some("after-result-before-step-outcome"),
+            Self::D2DowngradeAfterStepOutcome => Some("after-terminal"),
             _ => None,
         }
     }

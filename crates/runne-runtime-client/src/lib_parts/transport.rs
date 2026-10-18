@@ -1,6 +1,6 @@
 /// Golden SHA-256 of the exact canonical `bundle.json` bytes.
 pub const GOLDEN_BUNDLE_HASH_V3: &str =
-    "4a97008ecd35edd2022816844fc931e893e29835c0bb9e4d8d8cdab70c9259d4";
+    "f5ad18629aa916672a37ad61211523b4c85dbae662d428c9cbecef5e395cc677";
 pub const GOLDEN_BUNDLE_HASH: &str = GOLDEN_BUNDLE_HASH_V3;
 
 /// Bundle ID expected from the runtime.

@@ -136,6 +136,7 @@ mod tests {
             backoff: super::super::BundledRuntimeBackoff::new(),
             restart_at: None,
             state: BundledRuntimeLifecycleState::Ready,
+            permission_control_sequence: None,
         };
         let _ = std::fs::remove_dir(root);
         (supervisor, keys, owned)

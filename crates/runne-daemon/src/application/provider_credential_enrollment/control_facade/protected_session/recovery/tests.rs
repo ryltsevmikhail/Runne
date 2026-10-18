@@ -1,5 +1,5 @@
 use super::*;
-use crate::application::provider_credential_enrollment::tests::broker_recovery_issue::fixture::prepared_cleanup_fixture;
+use crate::application::provider_credential_enrollment::tests::broker_recovery_issue::fixture::prepared_cleanup_fixture_wall_clock;
 use runne_api::{
     LaunchSecret, ProtectedCredentialRecoveryBootstrap, ProtectedCredentialRecoveryCodec,
 };
@@ -18,7 +18,7 @@ fn with_session(
         u64,
     ),
 ) {
-    let f = prepared_cleanup_fixture();
+    let f = prepared_cleanup_fixture_wall_clock();
     let operation = f.operation.operation_id();
     let control = Arc::new(
         DaemonProviderCredentialEnrollmentControl::new(
@@ -63,14 +63,14 @@ fn with_session(
     let session = control
         .start_test_protected_session(&keys, facts, rendezvous)
         .unwrap();
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_secs();
+    // Wall-clock fixture twin: the production offer path mixes
+    // `SystemTime::now` into its high-water by design, so this consumer
+    // stays anchored to the real clock.
+    let now = unix_now_seconds_real();
     test(session, desktop, control, operation, now);
 }
 
-fn unix_now_seconds() -> u64 {
+fn unix_now_seconds_real() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
@@ -84,7 +84,7 @@ fn exchange_time(session: &DaemonProtectedCredentialEnrollmentSession, handler_n
         .as_ref()
         .map(|(_, accepted)| u64::try_from(accepted.issued_at()).unwrap())
         .expect("successful offer retains its durable acceptance");
-    handler_now.max(unix_now_seconds()).max(issued_at)
+    handler_now.max(unix_now_seconds_real()).max(issued_at)
 }
 
 #[test]
@@ -230,7 +230,7 @@ fn session_recovery_claim_consumes_witness_without_snapshot_fallback() {
             .unwrap();
         assert!(session.take_ticket_authority().is_err());
         assert!(session.recovery_continuation().is_err());
-        let exchange_now = unix_now_seconds();
+        let exchange_now = unix_now_seconds_real();
         let offer = desktop.decode_daemon_offer(&frame, exchange_now).unwrap();
         let ack = desktop.encode_desktop_accept(&offer, exchange_now).unwrap();
         session.accept_cleanup_recovery(&ack, exchange_now).unwrap();

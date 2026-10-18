@@ -12,7 +12,6 @@ use runne_application::ports::{
 };
 use runne_platform_desktop::{RootHandleBrokerError, VerifiedRootHandle};
 use runne_store::ProjectWorkspaceStore;
-use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 const MAX_PENDING: usize = 64;
@@ -63,6 +62,9 @@ pub(crate) struct RootHandleAdmissionAuthority {
     trust: TrustGate,
 }
 include!("root_handle_admission/state.rs");
+mod permission_fence;
+pub(crate) use permission_fence::PermissionStartupBundle;
+use permission_fence::SharedRootAdmissionState;
 pub(crate) struct Lease(Arc<RootHandleAdmissionAuthority>);
 impl Drop for Lease {
     fn drop(&mut self) {
@@ -79,13 +81,26 @@ impl RootHandleAdmissionAuthority {
         sessions: Arc<Mutex<LocalSessionService>>,
         trust: TrustGate,
     ) -> Arc<Self> {
+        Self::new_with_state(
+            keys,
+            store,
+            runtime_authority,
+            sessions,
+            trust,
+            SharedRootAdmissionState::new(),
+        )
+    }
+
+    pub(crate) fn new_with_state(
+        keys: &ProtectedActivationKeys,
+        store: ProjectWorkspaceStore,
+        runtime_authority: String,
+        sessions: Arc<Mutex<LocalSessionService>>,
+        trust: TrustGate,
+        shared: SharedRootAdmissionState,
+    ) -> Arc<Self> {
         Arc::new(Self {
-            state: Arc::new(Mutex::new(State {
-                leases: 0,
-                stopped: false,
-                pending: HashMap::new(),
-                active: HashMap::new(),
-            })),
+            state: Arc::clone(&shared.state),
             authenticator: Arc::new(std::sync::RwLock::new(Arc::new(
                 RootAdmissionAuthenticator::from_protected_activation(keys),
             ))),

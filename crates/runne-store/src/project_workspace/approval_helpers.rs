@@ -38,6 +38,7 @@ fn summary(
         })?,
         row.8,
         row.9,
+        row.10,
         row.11,
         row.12,
     )

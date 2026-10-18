@@ -3,6 +3,9 @@ use super::component_guard::*;
 use super::parse_helpers::*;
 use super::*;
 
+mod local_terminal;
+pub(in crate::store) use local_terminal::guard_local_command_terminal;
+
 pub(super) fn guard_conversation_event(
     prohibited_content: &dyn ProhibitedContentPort,
     event: &UncommittedEvent<ConversationEvent>,
@@ -87,54 +90,6 @@ pub(super) fn append_taskrun_event(
         digest,
         INTEGRITY_PROFILE_V1,
     )
-}
-
-pub(super) fn guard_local_command_terminal(
-    transaction: &rusqlite::Transaction<'_>,
-    event: &UncommittedEvent<TaskRunEvent>,
-) -> Result<(), CommitError> {
-    let id = match event.aggregate_id() {
-        AggregateId::TaskRun(id) => *id,
-        _ => return Err(storage_failure(StorageFailureKind::IntegrityViolation)),
-    };
-    let terminal_expectation = match event.payload() {
-        TaskRunEvent::TaskRunCompleted {
-            result: runne_domain::command::TerminalResult::Success,
-        } => Some(("completed", Some(true))),
-        TaskRunEvent::TaskRunCompleted {
-            result: runne_domain::command::TerminalResult::Failure { .. },
-        } => Some(("completed", Some(false))),
-        TaskRunEvent::TaskRunFailed { reason } if reason == "dispatch_not_started" => {
-            Some(("no_effect_terminal", None))
-        }
-        TaskRunEvent::TaskRunFailed { .. } => Some(("completed", Some(false))),
-        _ => None,
-    };
-    let Some((expected_state, expected_success)) = terminal_expectation else {
-        return Ok(());
-    };
-    let local: Option<(String, Option<i32>)> = transaction
-        .query_row(
-            "SELECT state,exit_code FROM taskrun_local_command_attempts WHERE taskrun_id=?1",
-            [id.as_bytes()],
-            |row| Ok((row.get(0)?, row.get(1)?)),
-        )
-        .optional()
-        .map_err(|_| storage_failure(StorageFailureKind::IntegrityViolation))?;
-    if let Some((state, exit)) = local {
-        let valid = if expected_state == "no_effect_terminal" && state == "denied" {
-            super::taskrun_no_effect_proof::authenticated_local_denial(transaction, id)
-                .map_err(|_| storage_failure(StorageFailureKind::IntegrityViolation))?
-        } else {
-            state == expected_state
-                && expected_success
-                    .is_none_or(|success| exit.is_some_and(|code| (code == 0) == success))
-        };
-        if !valid {
-            return Err(storage_failure(StorageFailureKind::IntegrityViolation));
-        }
-    }
-    Ok(())
 }
 
 pub(super) fn guard_taskrun_event(

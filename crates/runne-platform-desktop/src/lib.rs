@@ -17,6 +17,8 @@ mod protected_runtime;
 pub use protected_runtime::linux_activation_approval::{
     LinuxActivationApprovalPublishError, publish_linux_activation_record,
 };
+#[cfg(target_os = "linux")]
+pub use protected_runtime::require_linux_cli_baseline_root;
 /// Platform-validated writer-process handoff for protected credential enrollment.
 pub mod provider_credential_broker;
 mod provider_credential_prompt;
@@ -26,6 +28,15 @@ mod updater;
 pub use protected_runtime::linux_enrollment_peer::{
     linux_enrollment_peer_binding, measure_verified_linux_enrollment_installation,
     verify_linux_enrollment_peer,
+};
+#[cfg(target_os = "linux")]
+mod approval_confirmation_linux;
+#[cfg(target_os = "linux")]
+pub mod permission_reauth_linux;
+#[cfg(target_os = "linux")]
+pub use approval_confirmation_linux::{
+    ApprovalConfirmationError, LinuxApprovalConfirmation, LinuxApprovalReview,
+    confirm_linux_approval,
 };
 #[cfg(all(
     target_os = "macos",

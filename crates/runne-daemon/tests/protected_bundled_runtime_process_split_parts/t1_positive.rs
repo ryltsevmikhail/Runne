@@ -1,10 +1,15 @@
 use super::*;
 #[path = "t1_positive/d2_pending.rs"]
 mod d2_pending;
+#[path = "t1_positive/managed_ask.rs"]
+mod managed_ask;
+#[path = "t1_positive/replay_sse.rs"]
+mod replay_sse;
 #[path = "t1_positive/trust.rs"]
 mod trust;
 #[path = "t1_positive/workspace.rs"]
 mod workspace;
+pub(super) use d2_pending::restart_same_root;
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore = "launched with an explicit test-only fixture environment by the parent test"]
 async fn t1_protected_provider_http_and_runtime_client_replay_child() {
@@ -25,7 +30,7 @@ async fn t1_protected_provider_http_and_runtime_client_replay_child() {
     let profile = supervisor
         .take_runtime_profile()
         .expect("one-time protected profile");
-    let client = profile
+    let mut client = profile
         .connect(Duration::from_secs(10))
         .await
         .expect("authenticated protected runtime client");
@@ -117,6 +122,7 @@ async fn t1_protected_provider_http_and_runtime_client_replay_child() {
         workspace_api_id,
     )
     .await;
+    managed_ask::seed_after_trust(&daemon_db, runtime_project_id);
     let before = core
         .open_project_conversation(project)
         .await
@@ -124,7 +130,7 @@ async fn t1_protected_provider_http_and_runtime_client_replay_child() {
     let conversation_id =
         runne_runtime_client::CanonicalId::parse(&before.conversation_id).expect("id");
     if d2_pending::dispatch_if_requested(
-        &client,
+        &mut client,
         conversation_id,
         workspace_id,
         temporary.path(),
@@ -158,6 +164,7 @@ async fn t1_protected_provider_http_and_runtime_client_replay_child() {
             workspace_id,
             project_directory: &project_directory,
             database: &daemon_db,
+            session_bus_socket: &session_bus_socket,
             runtime_root: &runtime_root,
             executable: &executable,
             supervisor: &mut supervisor,
@@ -198,46 +205,7 @@ async fn t1_protected_provider_http_and_runtime_client_replay_child() {
             &scanner,
         );
     }
-    let mut saw_sse_response = false;
-    for _ in 0..8 {
-        let event = tokio::time::timeout(Duration::from_secs(5), live.next_event())
-            .await
-            .expect("replay SSE delivery timeout")
-            .expect("replay SSE delivery");
-        match event {
-            runne_runtime_client::ReplayStreamEvent::Delivery(delivery) => {
-                let fixture_response = match delivery.event().payload() {
-                    runne_runtime_client::CanonicalReplayPayload::Conversation(
-                        runne_runtime_client::ConversationReplayPayload::MessageAppended {
-                            role,
-                            text,
-                            ..
-                        },
-                    ) => {
-                        assert_absent("decoded replay SSE message", text.as_bytes(), &scanner);
-                        *role == runne_runtime_client::ConversationMessageRole::Assistant
-                            && text == "fixture response"
-                    }
-                    _ => false,
-                };
-                if fixture_response {
-                    saw_sse_response = true;
-                }
-                live.acknowledge(&delivery)
-                    .await
-                    .expect("acknowledge validated SSE delivery");
-                if saw_sse_response {
-                    break;
-                }
-            }
-            runne_runtime_client::ReplayStreamEvent::Heartbeat => {}
-            runne_runtime_client::ReplayStreamEvent::Terminal(_) => break,
-        }
-    }
-    assert!(
-        saw_sse_response,
-        "assistant output must arrive over replay SSE"
-    );
+    replay_sse::assert_fixture_response_over_sse(&mut live, &scanner).await;
     super::t1_taskrun_support::exercise_automatic_worker(
         &client,
         &mut live,

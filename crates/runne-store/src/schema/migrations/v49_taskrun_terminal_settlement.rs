@@ -26,7 +26,7 @@ pub(super) fn apply_v49_migration(connection: &Connection) -> SqliteResult<()> {
 }
 
 pub(super) fn v49_matches(connection: &Connection, version: i64) -> SqliteResult<bool> {
-    if !matches!(version, 49..=65) {
+    if !matches!(version, 49..=68) {
         return Ok(false);
     }
     if !v48_matches(connection, version)? {
@@ -117,7 +117,8 @@ pub(super) fn v49_matches(connection: &Connection, version: i64) -> SqliteResult
         return Ok(false);
     }
     let mut stmt = connection.prepare(
-        "SELECT e.payload,o.dispatch_intent,r.taskrun_id,r.attempt_id,r.node_id,r.node_epoch,r.fence
+        "SELECT e.payload,o.dispatch_intent,r.taskrun_id,r.attempt_id,r.node_id,r.node_epoch,
+                r.fence,r.terminal_event_id,r.terminal_version
          FROM taskrun_terminal_settlement_receipts r JOIN events e ON e.event_id=r.terminal_event_id JOIN taskrun_assignment_occupations o USING(taskrun_id,fence)",
     )?;
     let rows = stmt.query_map([], |row| {
@@ -129,10 +130,13 @@ pub(super) fn v49_matches(connection: &Connection, version: i64) -> SqliteResult
             row.get::<_, Vec<u8>>(4)?,
             row.get::<_, i64>(5)?,
             row.get::<_, i64>(6)?,
+            row.get::<_, Vec<u8>>(7)?,
+            row.get::<_, i64>(8)?,
         ))
     })?;
     for row in rows {
-        let (payload, intent, taskrun_id, attempt_id, node_id, node_epoch, fence) = row?;
+        let (payload, intent, taskrun_id, attempt_id, node_id, node_epoch, fence, terminal_event_id, terminal_version) =
+            row?;
         let Ok(event) = TaskRunEventCodec.decode(&payload) else {
             return Ok(false);
         };
@@ -181,6 +185,33 @@ pub(super) fn v49_matches(connection: &Connection, version: i64) -> SqliteResult
                             &node_id,
                             node_epoch,
                             fence,
+                            &event,
+                        )?)
+                    || (version >= 68
+                        && matches!(
+                            &event,
+                            runne_domain::task_run::TaskRunEvent::TaskRunFailed { reason }
+                                if reason == "local_command_policy_stopped_v1"
+                        )
+                        && crate::store::taskrun_local_command::effects_proof::policy_stop_reopen_proven(
+                            connection,
+                            &taskrun_id,
+                            &attempt_id,
+                            &node_id,
+                            node_epoch,
+                            fence,
+                        )
+                        .map_err(|_| rusqlite::Error::InvalidQuery)?)
+                    || (version >= 68
+                        && v68_current_route_terminal_matches(
+                            connection,
+                            &taskrun_id,
+                            &attempt_id,
+                            &node_id,
+                            node_epoch,
+                            fence,
+                            &terminal_event_id,
+                            terminal_version,
                             &event,
                         )?)
             }

@@ -67,11 +67,14 @@ const LOCAL_PROCESS_TIMEOUT: Duration = Duration::from_mins(2);
 
 #[cfg(feature = "test-support")]
 #[cfg_attr(not(unix), allow(dead_code))]
-fn launch_timeout() -> Duration {
-    if runne_api::test_support::local_native_enrollment_enabled() {
-        return LOCAL_PROCESS_TIMEOUT;
-    }
-    LAUNCH_TIMEOUT
+const fn launch_timeout() -> Duration {
+    // Test-support builds never reach production, and their bundled daemons
+    // are unstripped all-features debug binaries whose cold start under a
+    // parallel test run can exceed the 30 s production window - the
+    // systematic flake behind the D2.1 canonical failures. The launch
+    // timeout is a ceiling, not a delay, so widening it in test builds
+    // never slows a healthy launch.
+    LOCAL_PROCESS_TIMEOUT
 }
 #[cfg(not(feature = "test-support"))]
 #[cfg_attr(not(unix), allow(dead_code))]

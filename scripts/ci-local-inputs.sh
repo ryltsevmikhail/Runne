@@ -106,6 +106,7 @@ if gate_enabled local-structural; then
     "$trusted_python" scripts/verify-task-6c-release-exclusion.py
     "$trusted_python" -m unittest \
         scripts.tests.test_check_deps_macos_process_identity \
+        scripts.tests.test_check_deps_platform \
         scripts.tests.test_check_source_file_length \
         scripts.desktop.tests.test_validate_architecture \
         scripts.tests.test_verify_task_6c_release_exclusion \

@@ -3946,13 +3946,16 @@ dependencies = [
  "chrono",
  "dirs",
  "ed25519-dalek",
+ "gtk",
  "hex",
  "libc",
  "nix 0.31.3",
  "proc-macro2",
  "reqwest 0.12.28",
  "runne-api",
+ "runne-application",
  "runne-daemon",
+ "runne-domain",
  "runne-http",
  "runne-macos-keychain-acl",
  "runne-macos-xpc",
@@ -3964,6 +3967,8 @@ dependencies = [
  "runne-release-authority",
  "runne-runtime-client",
  "runne-secure-store",
+ "runne-security",
+ "runne-store",
  "rustix",
  "serde",
  "serde_json",
@@ -3972,6 +3977,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "toml 0.8.2",
+ "uuid",
  "zeroize",
 ]
 
@@ -4255,6 +4261,7 @@ name = "runne-desktop"
 version = "0.0.3"
 dependencies = [
  "block2",
+ "gtk",
  "hex",
  "nix 0.31.3",
  "notify-rust",
@@ -4335,6 +4342,14 @@ dependencies = [
  "tower-http",
  "tracing",
  "uuid",
+]
+
+[[package]]
+name = "runne-linux-pam"
+version = "0.0.3"
+dependencies = [
+ "libc",
+ "zeroize",
 ]
 
 [[package]]
@@ -4518,12 +4533,15 @@ dependencies = [
 name = "runne-platform"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "libc",
  "runne-api",
  "runne-application",
  "runne-domain",
  "runne-platform-ports",
  "rustix",
+ "serde",
+ "serde_json",
  "sha2",
  "tempfile",
  "thiserror 2.0.18",
@@ -4535,6 +4553,7 @@ name = "runne-platform-desktop"
 version = "0.0.3"
 dependencies = [
  "ed25519-dalek",
+ "gtk",
  "hex",
  "libc",
  "nix 0.31.3",
@@ -4542,6 +4561,7 @@ dependencies = [
  "reqwest 0.12.28",
  "ring",
  "runne-api",
+ "runne-linux-pam",
  "runne-local-model",
  "runne-macos-file-security",
  "runne-macos-process-identity",

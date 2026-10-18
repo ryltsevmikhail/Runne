@@ -170,12 +170,15 @@ impl ProtectedBundledRuntimeProcess {
         #[cfg(target_os = "linux")]
         linux_transition_stage("ready_read_decode");
         let frame = Zeroizing::new(read_frame(&mut self.channel)?);
-        let v3_keys = v3.derive_keys_and_forget();
+        let mut v3_keys = v3.derive_keys_and_forget();
         let ready = ProtectedCredentialEnrollmentReadyV3::decode_frame(&frame)
             .map_err(|_| launch_error(LaunchAuthorityError::ReadinessProofMismatch))?;
         #[cfg(target_os = "linux")]
         linux_transition_stage("ready_verify");
         ready.verify_exact(&v3, &v3_keys).map_err(launch_error)?;
+        v3_keys
+            .advance_native_key_epoch_from(&self.keys)
+            .map_err(launch_error)?;
         let owned_v3 = ready.owned_launch();
         #[cfg(target_os = "linux")]
         linux_transition_stage("profile_build");

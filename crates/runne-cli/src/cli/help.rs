@@ -21,6 +21,7 @@ Commands:
   session          List accessible sessions (runtime-derived)
   resume           Resume a session and print its committed projection
   provider         Manage provider credentials
+  permissions      Read selected/effective modes and pending approvals
   status           Show runtime connection status
   health           Check runtime health status
   doctor           Run comprehensive system diagnostics
@@ -186,6 +187,15 @@ pub fn help_for(command_path: &[&str]) -> &'static str {
         ["session"] => SESSION_HELP,
         ["resume"] => RESUME_HELP,
         ["provider"] => PROVIDER_HELP,
+        ["permissions"] => PERMISSIONS_HELP,
+        ["permissions", "status"] => PERMISSIONS_STATUS_HELP,
+        ["permissions", "mode"] | ["permissions", "mode", "set"] => PERMISSIONS_MODE_SET_HELP,
+        ["permissions", "command"] | ["permissions", "command", "status"] => {
+            PERMISSIONS_COMMAND_STATUS_HELP
+        }
+        ["permissions", "approvals"] => PERMISSIONS_APPROVALS_HELP,
+        ["permissions", "approvals", "list"] => PERMISSIONS_APPROVALS_LIST_HELP,
+        ["permissions", "approvals", "respond"] => PERMISSIONS_APPROVALS_RESPOND_HELP,
         ["provider", "credential"] => PROVIDER_CREDENTIAL_HELP,
         ["provider", "credential", "set"] => PROVIDER_CREDENTIAL_SET_HELP,
         ["provider", "credential", "status"] => PROVIDER_CREDENTIAL_STATUS_HELP,

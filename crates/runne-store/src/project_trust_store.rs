@@ -13,21 +13,28 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use rand::RngCore;
-use runne_application::project_trust::{
-    ProjectTrustEffectLease, ProjectTrustRecord, TrustPersistenceError,
-};
+use runne_application::project_trust::TrustPersistenceError;
 use rusqlite::{Connection, TransactionBehavior, params};
 
 use crate::schema::{self, ConnectionMode, ManagedConnection};
 
 pub(crate) const PROJECT_TRUST_SCHEMA_KIND: &str = "runne.project-trust";
-pub(crate) const PROJECT_TRUST_SCHEMA_VERSION: i64 = 2;
-pub(crate) const PROJECT_TRUST_SIDECAR_VERSION: i64 = 2;
+pub(crate) const PROJECT_TRUST_SCHEMA_VERSION: i64 = 3;
+pub(crate) const PROJECT_TRUST_SCHEMA_V2_VERSION: i64 = 2;
+pub(crate) const PROJECT_TRUST_SIDECAR_VERSION: i64 = 3;
 
-pub(crate) const PROJECT_TRUST_IDENTITY_SQL: &str = "CREATE TABLE project_trust_schema (
+pub(crate) const PROJECT_TRUST_IDENTITY_V2_SQL: &str = "CREATE TABLE project_trust_schema (
     id INTEGER PRIMARY KEY CHECK(id = 1),
     schema_kind TEXT NOT NULL CHECK(schema_kind = 'runne.project-trust'),
     schema_version INTEGER NOT NULL CHECK(schema_version = 2),
+    instance_epoch INTEGER NOT NULL CHECK(instance_epoch > 0),
+    authority_id BLOB NOT NULL CHECK(length(authority_id) = 16)
+)";
+
+pub(crate) const PROJECT_TRUST_IDENTITY_V3_SQL: &str = "CREATE TABLE project_trust_schema (
+    id INTEGER PRIMARY KEY CHECK(id = 1),
+    schema_kind TEXT NOT NULL CHECK(schema_kind = 'runne.project-trust'),
+    schema_version INTEGER NOT NULL CHECK(schema_version = 3),
     instance_epoch INTEGER NOT NULL CHECK(instance_epoch > 0),
     authority_id BLOB NOT NULL CHECK(length(authority_id) = 16)
 )";
@@ -57,6 +64,10 @@ pub struct ProjectTrustStore {
 }
 
 impl ProjectTrustStore {
+    pub(crate) const fn registration_identity(&self) -> ([u8; 16], u64) {
+        (self.authority_id, self.instance_epoch)
+    }
+
     /// Opens (creating if needed) the `<canonical>.project-trust` sidecar.
     ///
     /// F4: `canonical_path` must be absolute; relative paths fail closed.
@@ -96,8 +107,25 @@ impl ProjectTrustStore {
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(|_| ProjectTrustStoreError::Unavailable)?;
         transaction
-            .execute_batch(PROJECT_TRUST_IDENTITY_SQL)
+            .execute_batch(PROJECT_TRUST_IDENTITY_V3_SQL)
             .and_then(|_| transaction.execute_batch(PROJECT_TRUST_TRUST_SQL))
+            .and_then(|_| {
+                transaction.execute_batch(crate::schema::PROJECT_TRUST_EFFECT_POLICY_V1_SQL)
+            })
+            .and_then(|_| {
+                transaction
+                    .execute_batch(crate::schema::PROJECT_TRUST_EFFECT_POLICY_DEFAULT_TRIGGER_SQL)
+            })
+            .and_then(|_| transaction.execute_batch(crate::schema::PROJECT_TRUST_ADMIN_ROLE_SQL))
+            .and_then(|_| {
+                transaction.execute_batch(crate::schema::PROJECT_TRUST_ADMIN_COMMANDS_SQL)
+            })
+            .and_then(|_| {
+                transaction.execute_batch(crate::schema::PROJECT_TRUST_ADMIN_RECEIPTS_SQL)
+            })
+            .and_then(|_| {
+                transaction.execute_batch(crate::schema::PROJECT_TRUST_ADMIN_TRIGGERS_SQL)
+            })
             .map_err(|_| ProjectTrustStoreError::Unavailable)?;
         transaction
             .pragma_update(None, "user_version", PROJECT_TRUST_SIDECAR_VERSION)
@@ -153,25 +181,6 @@ impl ProjectTrustStore {
     }
 }
 
-struct StoreProjectTrustEffectLease {
-    connection: Option<ManagedConnection>,
-    record: ProjectTrustRecord,
-}
-
-impl ProjectTrustEffectLease for StoreProjectTrustEffectLease {
-    fn record(&self) -> ProjectTrustRecord {
-        self.record
-    }
-}
-
-impl Drop for StoreProjectTrustEffectLease {
-    fn drop(&mut self) {
-        if let Some(mut connection) = self.connection.take() {
-            let _ = connection.with_connection_mut(|raw| raw.execute_batch("ROLLBACK"));
-        }
-    }
-}
-
 /// Masks one CSPRNG draw to the positive 63-bit epoch range.
 ///
 /// Returns `None` when the masked draw is zero (or becomes zero through
@@ -182,11 +191,18 @@ fn masked_epoch(raw: u64) -> Option<u64> {
     (candidate != 0).then_some(candidate)
 }
 
+#[path = "project_trust_store/admin.rs"]
+mod admin;
 mod control;
+mod current_fence;
+mod effects;
 mod persistence;
+mod records;
 
 #[cfg(all(test, unix))]
 mod control_tests;
+#[cfg(all(test, unix))]
+mod current_fence_tests;
 #[cfg(all(test, unix))]
 mod effect_lease_tests;
 

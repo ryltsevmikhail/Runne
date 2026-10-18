@@ -1,6 +1,6 @@
 //! Purpose-bound full-access challenge request. The nonce never leaves the Store.
 
-use runne_domain::id::{CommandId, IdempotencyKey, WorkspaceId};
+use runne_domain::id::{CommandId, IdempotencyKey, WorkspaceId, validate_uuid_v7_bytes};
 use serde::{Deserialize, Serialize};
 
 use super::{PermissionModeHostErrorV1, PermissionPresetVersionV1};
@@ -41,7 +41,9 @@ impl FullAccessChallengeRequestV1 {
     pub fn validate(
         self,
     ) -> Result<ValidatedFullAccessChallengeRequestV1, PermissionModeHostErrorV1> {
-        if self.expected_authorization_revision > i64::MAX as u64
+        if validate_uuid_v7_bytes(self.workspace_id.as_bytes()).is_err()
+            || validate_uuid_v7_bytes(self.command_id.as_bytes()).is_err()
+            || self.expected_authorization_revision > i64::MAX as u64
             || self.expires_at_unix_ms.is_some_and(|expiry| expiry <= 0)
         {
             return Err(PermissionModeHostErrorV1::InvariantViolation);
@@ -96,5 +98,54 @@ impl ValidatedFullAccessChallengeRequestV1 {
     #[must_use]
     pub const fn expires_at_unix_ms(&self) -> Option<i64> {
         self.expires_at_unix_ms
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const VALID_ID: [u8; 16] = [0, 0, 0, 0, 0, 0, 0x70, 0, 0x80, 0, 0, 0, 0, 0, 0, 1];
+    const NON_V7_ID: [u8; 16] = [0, 0, 0, 0, 0, 0, 0x40, 0, 0x80, 0, 0, 0, 0, 0, 0, 2];
+
+    fn request(workspace_id: [u8; 16], command_id: [u8; 16]) -> FullAccessChallengeRequestV1 {
+        serde_json::from_value(serde_json::json!({
+            "workspaceId": workspace_id,
+            "commandId": command_id,
+            "idempotencyKey": "challenge-test",
+            "expectedAuthorizationRevision": 5,
+            "presetVersion": 1,
+            "expiresAtUnixMs": 1_000,
+        }))
+        .expect("challenge request wire DTO")
+    }
+
+    #[test]
+    fn rejects_nil_and_non_v7_workspace_or_command_ids_from_wire_dto() {
+        for (workspace_id, command_id) in [
+            ([0; 16], VALID_ID),
+            (NON_V7_ID, VALID_ID),
+            (VALID_ID, [0; 16]),
+            (VALID_ID, NON_V7_ID),
+        ] {
+            assert_eq!(
+                request(workspace_id, command_id).validate(),
+                Err(PermissionModeHostErrorV1::InvariantViolation),
+            );
+        }
+    }
+
+    #[test]
+    fn preserves_valid_challenge_request_fields_from_wire_dto() {
+        let validated = request(VALID_ID, VALID_ID)
+            .validate()
+            .expect("valid UUIDv7 challenge request");
+
+        assert_eq!(validated.workspace_id().as_bytes(), &VALID_ID);
+        assert_eq!(validated.command_id().as_bytes(), &VALID_ID);
+        assert_eq!(validated.idempotency_key().as_str(), "challenge-test");
+        assert_eq!(validated.expected_authorization_revision(), 5);
+        assert_eq!(validated.preset_version(), PermissionPresetVersionV1::V1);
+        assert_eq!(validated.expires_at_unix_ms(), Some(1_000));
     }
 }

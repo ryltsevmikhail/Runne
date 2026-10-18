@@ -21,6 +21,11 @@ use runne_platform_ports::provider_credential_broker::{
 };
 
 use super::SessionBusAddress;
+use super::provenance::{SpawnDiagnostic, SpawnOperation, injected};
+
+#[cfg(test)]
+#[path = "plan_tests.rs"]
+mod plan_tests;
 
 /// The exact spawn surface, pinned by tests (B3 seam).
 pub struct SpawnPlan {
@@ -157,17 +162,30 @@ fn fixture_root_environment(root: &Path) -> Result<CString, BrokerHandoffError> 
     CString::new(value).map_err(|_| BrokerHandoffError::Rejected)
 }
 
-pub(super) fn apply_plan(plan: &SpawnPlan) -> Result<PosixSpawnFileActions, BrokerHandoffError> {
-    let mut actions = PosixSpawnFileActions::init().map_err(|_| BrokerHandoffError::Unavailable)?;
+pub(super) fn apply_plan(
+    plan: &SpawnPlan,
+    fault: &impl Fn(SpawnOperation) -> Option<i32>,
+) -> Result<PosixSpawnFileActions, SpawnDiagnostic> {
+    if let Some(failure) = injected(fault, SpawnOperation::SpawnActionsInit) {
+        return Err(failure);
+    }
+    let mut actions = PosixSpawnFileActions::init()
+        .map_err(|error| SpawnDiagnostic::unavailable(SpawnOperation::SpawnActionsInit, &error))?;
     for (source, target) in &plan.duplications {
-        actions
-            .add_dup2(*source, *target)
-            .map_err(|_| BrokerHandoffError::Unavailable)?;
+        if let Some(failure) = injected(fault, SpawnOperation::SpawnActionsAddDup2) {
+            return Err(failure);
+        }
+        actions.add_dup2(*source, *target).map_err(|error| {
+            SpawnDiagnostic::unavailable(SpawnOperation::SpawnActionsAddDup2, &error)
+        })?;
     }
     for fd in &plan.closes {
-        actions
-            .add_close(*fd)
-            .map_err(|_| BrokerHandoffError::Unavailable)?;
+        if let Some(failure) = injected(fault, SpawnOperation::SpawnActionsAddClose) {
+            return Err(failure);
+        }
+        actions.add_close(*fd).map_err(|error| {
+            SpawnDiagnostic::unavailable(SpawnOperation::SpawnActionsAddClose, &error)
+        })?;
     }
     Ok(actions)
 }
@@ -177,10 +195,14 @@ pub(super) fn close_inventory(
     actions: &mut PosixSpawnFileActions,
     duplicated_channel: &OwnedFd,
     retain_secret: bool,
-) -> Result<(), BrokerHandoffError> {
+    fault: &impl Fn(SpawnOperation) -> Option<i32>,
+) -> Result<(), SpawnDiagnostic> {
     let keep: [i32; 3] = [libc::STDIN_FILENO, libc::STDOUT_FILENO, libc::STDERR_FILENO];
-    let inventory =
-        std::fs::read_dir("/proc/self/fd").map_err(|_| BrokerHandoffError::Unavailable)?;
+    if let Some(failure) = injected(fault, SpawnOperation::InventoryReadDir) {
+        return Err(failure);
+    }
+    let inventory = std::fs::read_dir("/proc/self/fd")
+        .map_err(|error| SpawnDiagnostic::unavailable(SpawnOperation::InventoryReadDir, &error))?;
     let mut descriptors: Vec<i32> = inventory
         .flatten()
         .filter_map(|entry| entry.file_name().to_string_lossy().parse::<i32>().ok())
@@ -194,14 +216,24 @@ pub(super) fn close_inventory(
         {
             continue;
         }
-        actions
-            .add_close(fd)
-            .map_err(|_| BrokerHandoffError::Unavailable)?;
+        if let Some(failure) = injected(fault, SpawnOperation::InventoryAddClose) {
+            return Err(failure);
+        }
+        actions.add_close(fd).map_err(|error| {
+            SpawnDiagnostic::unavailable(SpawnOperation::InventoryAddClose, &error)
+        })?;
     }
     Ok(())
 }
 
-pub(super) fn open_null(flags: OFlag) -> Result<OwnedFd, BrokerHandoffError> {
+pub(super) fn open_null(
+    flags: OFlag,
+    operation: SpawnOperation,
+    fault: &impl Fn(SpawnOperation) -> Option<i32>,
+) -> Result<OwnedFd, SpawnDiagnostic> {
+    if let Some(failure) = injected(fault, operation) {
+        return Err(failure);
+    }
     let mut options = std::fs::OpenOptions::new();
     options.write(true);
     {
@@ -210,82 +242,18 @@ pub(super) fn open_null(flags: OFlag) -> Result<OwnedFd, BrokerHandoffError> {
     }
     let file = options
         .open("/dev/null")
-        .map_err(|_| BrokerHandoffError::Unavailable)?;
+        .map_err(|error| SpawnDiagnostic::unavailable(operation, &error))?;
     Ok(file.into())
 }
 
 pub(super) fn duplicate_above_reserved(
     descriptor: &impl AsFd,
-) -> Result<OwnedFd, BrokerHandoffError> {
-    rustix::io::fcntl_dupfd_cloexec(descriptor, 4).map_err(|_| BrokerHandoffError::Unavailable)
-}
-
-#[cfg(all(test, feature = "linux-native-enrollment-qualification"))]
-#[test]
-fn qualification_plan_forwards_only_the_validated_private_fixture_root() {
-    use super::SessionBusAddress;
-    use runne_platform_ports::provider_credential_broker::{
-        VerifiedWriterArtifact, VerifiedWriterLaunchSpec,
-    };
-    use std::os::unix::fs::PermissionsExt as _;
-    use std::os::unix::net::UnixListener;
-
-    let parent = tempfile::tempdir().unwrap();
-    std::fs::set_permissions(parent.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
-    let root = parent.path().join("fixture");
-    std::fs::create_dir(&root).unwrap();
-    std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o700)).unwrap();
-    let bus_path = parent.path().join("bus");
-    let _bus = UnixListener::bind(&bus_path).unwrap();
-    let address = SessionBusAddress::for_tests(&bus_path).unwrap();
-    let spec = VerifiedWriterLaunchSpec::new(
-        VerifiedWriterArtifact::new("/bundle/runne".into(), [1; 32], [2; 32]).unwrap(),
-    );
-
-    let with_fixture = build_plan(&spec, &address, 10, 11, 12, None, Some(&root)).unwrap();
-    assert_eq!(with_fixture.environment.len(), 2);
-    assert!(with_fixture.environment.iter().any(|value| {
-        value.to_bytes().starts_with(
-            format!("{}=", crate::provider_credential_broker::linux_native_enrollment_qualification::FIXTURE_ROOT_ENV).as_bytes(),
-        )
-    }));
-    let default = build_plan(&spec, &address, 10, 11, 12, None, None).unwrap();
-    assert_eq!(default.environment.len(), 1);
-}
-
-#[cfg(all(
-    test,
-    not(any(
-        feature = "test-support",
-        feature = "linux-native-enrollment-qualification"
-    ))
-))]
-#[test]
-fn default_plan_rejects_qualification_fixture_forwarding() {
-    use super::SessionBusAddress;
-    use runne_platform_ports::provider_credential_broker::{
-        VerifiedWriterArtifact, VerifiedWriterLaunchSpec,
-    };
-    use std::os::unix::fs::PermissionsExt as _;
-    use std::os::unix::net::UnixListener;
-
-    let parent = tempfile::tempdir().unwrap();
-    std::fs::set_permissions(parent.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
-    let root = parent.path().join("fixture");
-    std::fs::create_dir(&root).unwrap();
-    std::fs::set_permissions(&root, std::fs::Permissions::from_mode(0o700)).unwrap();
-    let bus_path = parent.path().join("bus");
-    let _bus = UnixListener::bind(&bus_path).unwrap();
-    let address = SessionBusAddress::for_tests(&bus_path).unwrap();
-    let spec = VerifiedWriterLaunchSpec::new(
-        VerifiedWriterArtifact::new("/bundle/runne".into(), [1; 32], [2; 32]).unwrap(),
-    );
-    assert!(build_plan(&spec, &address, 10, 11, 12, None, Some(&root)).is_err());
-    assert_eq!(
-        build_plan(&spec, &address, 10, 11, 12, None, None)
-            .unwrap()
-            .environment
-            .len(),
-        1
-    );
+    operation: SpawnOperation,
+    fault: &impl Fn(SpawnOperation) -> Option<i32>,
+) -> Result<OwnedFd, SpawnDiagnostic> {
+    if let Some(failure) = injected(fault, operation) {
+        return Err(failure);
+    }
+    rustix::io::fcntl_dupfd_cloexec(descriptor, 4)
+        .map_err(|error| SpawnDiagnostic::unavailable(operation, &error))
 }

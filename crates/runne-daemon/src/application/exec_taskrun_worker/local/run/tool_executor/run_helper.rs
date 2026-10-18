@@ -1,161 +1,222 @@
-use super::output_observation::{OutputObservation, collect_output, drain_after_stop, failure};
+use super::output_observation::{OutputObservation, failure};
 use super::*;
+use runne_platform::local_command_linux::{
+    LinuxCommandOutputLimitsV1, LinuxLeaderExitKindV1, PermissionHelperChildV1,
+    PreparedToolHelperV1,
+};
 
-/// Runs the sealed daemon image in the existing X2 gated command executor.
-/// The release callback must perform the canonical durable claim/cancel gate
-/// and may only release this exact stopped child.
-#[allow(clippy::too_many_arguments)]
-pub(in crate::application) fn run_helper(
-    files: &LinuxCommandWorkspaceFiles,
+/// Runs the prepared fixed helper and releases only its actual tagged child.
+pub(in crate::application) fn run_helper<'area>(
+    helper: PreparedToolHelperV1,
     input: &[u8],
-    area: &LinuxManagedArea,
-    permission_scope: &CompositeEffectScope,
-    native_receipt: NativeScopeAdmissionReceipt,
-    permission_admission: Option<&LinuxCompositeScopeAdmission>,
-    release: impl FnOnce(&mut GatedLinuxChild<'_>) -> Result<(), ()>,
+    area: &'area LinuxManagedArea,
+    release: impl FnOnce(&mut PermissionHelperChildV1<'area>) -> Result<(), ()>,
     mut cancelled: impl FnMut() -> bool,
-) -> Result<(i32, Vec<u8>, Vec<u8>), HelperRunFailure> {
+) -> Result<HelperRunOutput<'area>, HelperRunFailure> {
     let stage = crate::application::exec_taskrun_worker::provider::d2_stage;
-    stage("effect_helper_input");
     if input.len() > 16 * 1024 {
         return Err(failure(HelperRunError::Denied));
     }
-    stage("effect_helper_exe_open");
-    let image = File::open("/proc/self/exe").map_err(|_| failure(HelperRunError::Unavailable))?;
-    stage("effect_helper_seal");
-    let executable = SealedExecutableSnapshot::from_held_file(&image)
-        .map_err(|_| failure(HelperRunError::Unavailable))?;
-    let spec = LinuxCommandSpec {
-        executable: LinuxCommandExecutable::SealedSnapshot(&executable),
-        workspace: files.workspace(),
-        cwd: files.cwd(),
-        argv: vec![
-            OsString::from("runned"),
-            OsString::from("--safe-tool-helper-v1"),
-        ],
-        env: Vec::new(),
-    };
-    stage("effect_helper_preflight");
-    spec.preflight()
-        .map_err(|_| failure(HelperRunError::Unavailable))?;
     let stdout_cap = fixture_truncated_read_cap().unwrap_or(STDOUT_CAP);
     let limits = LinuxCommandOutputLimitsV1::new(stdout_cap, STDERR_CAP)
         .map_err(|_| failure(HelperRunError::Unavailable))?;
     stage("effect_helper_spawn");
-    let permission_admission =
-        permission_admission.ok_or_else(|| failure(HelperRunError::Unavailable))?;
-    let containment = LinuxCommandContainmentV1::WorkspaceBoundV1 {
-        scope: permission_scope,
-        receipt: native_receipt,
-        admission: permission_admission,
-    };
-    let mut child = spec
-        .spawn_gated_with_containment_with_io(area, input, limits, containment)
+    let mut child = helper
+        .spawn_helper(input, area, limits)
         .map_err(|_| failure(HelperRunError::Unavailable))?;
     stage("effect_helper_gate_release");
     if release(&mut child).is_err() {
         let mut stdout = Vec::new();
         let mut stderr = Vec::new();
         let mut observation = OutputObservation::default();
-        let stopped = supervise_gated_child(&mut child, area, Duration::from_millis(1), |child| {
-            let _ = child.poll_output();
-            collect_output(child, &mut stdout, &mut stderr, &mut observation);
-            Ok(X2Observation::Stop)
-        });
+        let stopped = matches!(
+            supervise_child(&mut child, area, Duration::from_millis(5), |_| {
+                Ok(X2Observation::Stop)
+            }),
+            Ok(X2Outcome::Stopped)
+        );
         drain_after_stop(&mut child, &mut stdout, &mut stderr, &mut observation);
         stage("effect_helper_gate_failed");
-        return Err(HelperRunFailure {
-            reason: HelperRunError::Uncertain,
+        return Err(failure_with(
+            HelperRunError::Uncertain,
             stdout,
             stderr,
-            cleanup_proved: stopped.is_ok(),
-            child_spawned: true,
-            go_released: child.was_released(),
-            exit_code: observation.exit_code,
-            ..observation.into_failure()
-        });
+            observation,
+            stopped,
+            child.was_released(),
+        ));
     }
     stage("effect_helper_supervise");
     let deadline = Instant::now() + TOOL_OPERATION_DEADLINE;
     let mut stdout = Vec::with_capacity(STDOUT_CAP);
     let mut stderr = Vec::with_capacity(STDERR_CAP);
-    let mut stop_reason = None;
     let mut observation = OutputObservation::default();
-    let observed = supervise_gated_child(&mut child, area, Duration::from_millis(5), |child| {
-        if cancelled() {
-            stop_reason = Some(HelperRunError::Cancelled);
-            return Ok(X2Observation::Stop);
-        }
-        if Instant::now() >= deadline {
-            stop_reason = Some(HelperRunError::TimedOut);
-            return Ok(X2Observation::Stop);
-        }
-        if child.poll_output().is_err() {
-            stop_reason = Some(HelperRunError::Uncertain);
+    let mut stop_reason = None;
+    let mut observed_exit = None;
+    let supervised = supervise_child(&mut child, area, Duration::from_millis(5), |child| {
+        let reason = if cancelled() {
+            Some(HelperRunError::Cancelled)
+        } else if Instant::now() >= deadline {
+            Some(HelperRunError::TimedOut)
+        } else if child.poll_output().is_err() {
+            Some(HelperRunError::Uncertain)
+        } else {
+            None
+        };
+        if let Some(reason) = reason {
+            stop_reason = Some(reason);
             return Ok(X2Observation::Stop);
         }
         let chunk = child.take_output();
         observation.observe(&chunk);
-        if chunk.stdout_truncated || chunk.stderr_truncated {
-            stop_reason = Some(HelperRunError::Uncertain);
+        let overflow = chunk.stdout_truncated
+            || chunk.stderr_truncated
+            || stdout.len() + chunk.stdout.len() > STDOUT_CAP
+            || stderr.len() + chunk.stderr.len() > STDERR_CAP;
+        if stdout.len() + chunk.stdout.len() <= STDOUT_CAP {
             stdout.extend_from_slice(&chunk.stdout);
-            stderr.extend_from_slice(&chunk.stderr);
-            return Ok(X2Observation::Stop);
         }
-        if stdout.len() + chunk.stdout.len() > STDOUT_CAP
-            || stderr.len() + chunk.stderr.len() > STDERR_CAP
-        {
+        if stderr.len() + chunk.stderr.len() <= STDERR_CAP {
+            stderr.extend_from_slice(&chunk.stderr);
+        }
+        if overflow {
             stop_reason = Some(HelperRunError::Uncertain);
             return Ok(X2Observation::Stop);
         }
-        stdout.extend_from_slice(&chunk.stdout);
-        stderr.extend_from_slice(&chunk.stderr);
         match child.try_wait() {
-            Ok(Some(code)) if chunk.stdout_eof && chunk.stderr_eof => {
-                return Ok(X2Observation::Complete(code));
+            Ok(Some(exit)) => {
+                observed_exit = Some(exit);
+                if chunk.stdout_eof && chunk.stderr_eof {
+                    let code = match exit {
+                        LinuxLeaderExitKindV1::Exited { code } => i32::from(code),
+                        LinuxLeaderExitKindV1::Signaled { signal, .. } => 128 + signal,
+                    };
+                    Ok(X2Observation::Complete(code))
+                } else {
+                    Ok(X2Observation::Continue)
+                }
             }
-            Ok(_) => {}
+            Ok(None) => Ok(X2Observation::Continue),
             Err(_) => {
                 stop_reason = Some(HelperRunError::Uncertain);
-                return Ok(X2Observation::Stop);
+                Ok(X2Observation::Stop)
             }
         }
-        Ok(X2Observation::Continue)
     });
-    match observed {
-        Ok(X2Outcome::Complete(code)) => {
+    match supervised {
+        Ok(X2Outcome::Complete(_)) => {
+            let terminal = match child.terminal_evidence() {
+                Ok(terminal) => terminal,
+                Err(_) => {
+                    return Err(failure_with(
+                        HelperRunError::Uncertain,
+                        stdout,
+                        stderr,
+                        observation,
+                        true,
+                        true,
+                    ));
+                }
+            };
+            let exit_kind = terminal.leader_exit_kind();
+            if observed_exit != Some(exit_kind) {
+                return Err(failure_with(
+                    HelperRunError::Uncertain,
+                    stdout,
+                    stderr,
+                    observation,
+                    true,
+                    true,
+                ));
+            }
             stage("effect_helper_complete");
-            Ok((code, stdout, stderr))
+            Ok(HelperRunOutput {
+                child,
+                stdout,
+                stderr,
+            })
         }
+        Ok(X2Outcome::PermissionComplete(_)) => Err(failure_with(
+            HelperRunError::Uncertain,
+            stdout,
+            stderr,
+            observation,
+            true,
+            true,
+        )),
         Ok(X2Outcome::Stopped) => {
-            // The child may have emitted a receipt as cancellation raced with
-            // the final write. Preserve it for durable late-result auditing.
             drain_after_stop(&mut child, &mut stdout, &mut stderr, &mut observation);
             stage("effect_helper_stopped");
-            Err(HelperRunFailure {
-                reason: stop_reason.unwrap_or(HelperRunError::Uncertain),
+            Err(failure_with(
+                stop_reason.unwrap_or(HelperRunError::Uncertain),
                 stdout,
                 stderr,
-                cleanup_proved: true,
-                child_spawned: true,
-                go_released: true,
-                exit_code: observation.exit_code,
-                ..observation.into_failure()
-            })
+                observation,
+                true,
+                true,
+            ))
         }
         Err(()) => {
-            stage("effect_helper_supervisor_error");
-            Err(HelperRunFailure {
-                reason: HelperRunError::Uncertain,
+            drain_after_stop(&mut child, &mut stdout, &mut stderr, &mut observation);
+            Err(failure_with(
+                HelperRunError::Uncertain,
                 stdout,
                 stderr,
-                cleanup_proved: false,
-                child_spawned: true,
-                go_released: true,
-                exit_code: observation.exit_code,
-                ..observation.into_failure()
-            })
+                observation,
+                false,
+                true,
+            ))
         }
+    }
+}
+
+fn drain_after_stop(
+    child: &mut PermissionHelperChildV1<'_>,
+    stdout: &mut Vec<u8>,
+    stderr: &mut Vec<u8>,
+    observation: &mut OutputObservation,
+) {
+    for _ in 0..16 {
+        if child.poll_output().is_err() {
+            break;
+        }
+        let chunk = child.take_output();
+        observation.observe(&chunk);
+        if stdout.len() + chunk.stdout.len() <= STDOUT_CAP {
+            stdout.extend_from_slice(&chunk.stdout);
+        }
+        if stderr.len() + chunk.stderr.len() <= STDERR_CAP {
+            stderr.extend_from_slice(&chunk.stderr);
+        }
+        if chunk.stdout_eof && chunk.stderr_eof {
+            break;
+        }
+    }
+}
+
+fn failure_with(
+    reason: HelperRunError,
+    stdout: Vec<u8>,
+    stderr: Vec<u8>,
+    observation: OutputObservation,
+    cleanup_proved: bool,
+    go_released: bool,
+) -> HelperRunFailure {
+    HelperRunFailure {
+        reason,
+        stdout,
+        stderr,
+        cleanup_proved,
+        child_spawned: true,
+        go_released,
+        stdout_truncated: observation.stdout_truncated,
+        stderr_truncated: observation.stderr_truncated,
+        stdout_observed_bytes: observation.stdout_observed_bytes,
+        stderr_observed_bytes: observation.stderr_observed_bytes,
+        observed_bytes_overflowed: observation.observed_bytes_overflowed,
+        stdout_eof: observation.stdout_eof,
+        stderr_eof: observation.stderr_eof,
+        exit_code: observation.exit_code,
     }
 }
 

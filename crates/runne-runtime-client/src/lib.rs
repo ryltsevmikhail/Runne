@@ -88,6 +88,12 @@ pub use runne_api::{
     RuntimeRecoveryTransientV1, TelemetryCompletenessV1, TelemetryFreshnessV1,
     TelemetrySectionMetaV1,
 };
+pub use runne_api::{
+    PermissionContainmentV1, PermissionEffectiveStateV1, PermissionModeChangeReceiptV1,
+    PermissionModeChangeRequestV1, PermissionModeCommandStatusV2, PermissionModeHistoryV1,
+    PermissionModeNotReadyReasonV1, PermissionModeStatusV1, PermissionModeV1,
+    PermissionNetworkStateV1, PermissionPresetVersionV1,
+};
 pub use sse::{MAXIMUM_SSE_FRAME_BYTES, SSE_SILENCE_TIMEOUT};
 
 include!("lib_parts/mock_transport.rs");

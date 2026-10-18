@@ -1,17 +1,21 @@
-use runne_platform::local_command_linux::GatedLinuxChild;
-use runne_platform::local_command_linux::LinuxCommandSpec;
+use runne_platform::local_command_linux::{
+    GatedLinuxChild, LinuxCommandSpec, LinuxLeaderExitKindV1, PermissionChildV1,
+    PermissionHelperChildV1,
+};
 use runne_platform::process_managed_area::LinuxManagedArea;
 use std::time::Duration;
 
-pub(super) enum X2Observation {
+pub(in crate::application::exec_taskrun_worker::local) enum X2Observation {
     Continue,
     Stop,
     Complete(i32),
+    PermissionComplete(LinuxLeaderExitKindV1),
 }
 
-pub(super) enum X2Outcome {
+pub(in crate::application::exec_taskrun_worker::local) enum X2Outcome {
     Stopped,
     Complete(i32),
+    PermissionComplete(LinuxLeaderExitKindV1),
 }
 
 pub(super) fn spawn_gated<'a>(
@@ -29,6 +33,15 @@ pub(super) fn supervise_gated_child(
     area: &LinuxManagedArea,
     interval: Duration,
     mut observe: impl FnMut(&mut GatedLinuxChild<'_>) -> Result<X2Observation, ()>,
+) -> Result<X2Outcome, ()> {
+    supervise_child(child, area, interval, |child| observe(child))
+}
+
+pub(in crate::application::exec_taskrun_worker::local) fn supervise_child<C: X2ChildLifecycle>(
+    child: &mut C,
+    area: &LinuxManagedArea,
+    interval: Duration,
+    mut observe: impl FnMut(&mut C) -> Result<X2Observation, ()>,
 ) -> Result<X2Outcome, ()> {
     loop {
         let observed = match observe(child) {
@@ -48,17 +61,52 @@ pub(super) fn supervise_gated_child(
                 stop_and_prove(child, area)?;
                 return Ok(X2Outcome::Complete(code));
             }
+            X2Observation::PermissionComplete(exit) => {
+                stop_and_prove(child, area)?;
+                return Ok(X2Outcome::PermissionComplete(exit));
+            }
         }
     }
 }
 
-fn stop_and_prove(child: &mut GatedLinuxChild<'_>, area: &LinuxManagedArea) -> Result<(), ()> {
-    child
-        .terminate_area(Duration::from_secs(1))
-        .map_err(|_| ())?;
-    child
-        .reap_after_stop(Duration::from_secs(3))
-        .map_err(|_| ())?;
+pub(in crate::application::exec_taskrun_worker::local) trait X2ChildLifecycle {
+    fn terminate_area(&self, grace: Duration) -> Result<(), ()>;
+    fn reap_after_stop(&mut self, timeout: Duration) -> Result<(), ()>;
+}
+
+impl X2ChildLifecycle for GatedLinuxChild<'_> {
+    fn terminate_area(&self, grace: Duration) -> Result<(), ()> {
+        GatedLinuxChild::terminate_area(self, grace).map_err(|_| ())
+    }
+
+    fn reap_after_stop(&mut self, timeout: Duration) -> Result<(), ()> {
+        GatedLinuxChild::reap_after_stop(self, timeout).map_err(|_| ())
+    }
+}
+
+impl X2ChildLifecycle for PermissionHelperChildV1<'_> {
+    fn terminate_area(&self, grace: Duration) -> Result<(), ()> {
+        PermissionHelperChildV1::terminate_area(self, grace).map_err(|_| ())
+    }
+
+    fn reap_after_stop(&mut self, timeout: Duration) -> Result<(), ()> {
+        PermissionHelperChildV1::reap_after_stop(self, timeout).map_err(|_| ())
+    }
+}
+
+impl X2ChildLifecycle for PermissionChildV1<'_> {
+    fn terminate_area(&self, grace: Duration) -> Result<(), ()> {
+        PermissionChildV1::terminate_area(self, grace).map_err(|_| ())
+    }
+
+    fn reap_after_stop(&mut self, timeout: Duration) -> Result<(), ()> {
+        PermissionChildV1::reap_after_stop(self, timeout).map_err(|_| ())
+    }
+}
+
+fn stop_and_prove<C: X2ChildLifecycle>(child: &mut C, area: &LinuxManagedArea) -> Result<(), ()> {
+    child.terminate_area(Duration::from_secs(1))?;
+    child.reap_after_stop(Duration::from_secs(3))?;
     area.prove_empty().map_err(|_| ())?;
     Ok(())
 }

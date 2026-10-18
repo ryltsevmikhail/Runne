@@ -31,7 +31,7 @@ async fn managed_inventory_and_attention_use_authoritative_terminal_and_approval
     let approval = json!({"approvalId":APPROVAL, "taskRunId":TASK_RUN, "attemptId":ATTEMPT,
         "invocationId":INVOCATION, "action":"fs:write", "resource":"workspace:/src/a.rs",
         "actionDigest":"1111111111111111111111111111111111111111111111111111111111111111",
-        "policyRevision":7, "requestVersion":3, "expiresAt":2000,
+        "policyRevision":7, "requestVersion":3, "approvalGeneration":4, "expiresAt":2000,
         "riskSummary":"write source", "state":"pending"});
     let origin = managed_api_server(ManagedApiMock {
         submissions,
@@ -110,7 +110,7 @@ async fn managed_attention_marks_bounded_truncation_incomplete_and_fails_when_ap
                 "taskRunId":TASK_RUN, "attemptId":null, "invocationId":INVOCATION,
                 "action":"fs:write", "resource":"workspace:/src/a.rs",
                 "actionDigest":"1111111111111111111111111111111111111111111111111111111111111111",
-                "policyRevision":7, "requestVersion":3, "expiresAt":2000,
+                "policyRevision":7, "requestVersion":3, "approvalGeneration":4, "expiresAt":2000,
                 "riskSummary":"write source", "state":"pending"
             })
         })

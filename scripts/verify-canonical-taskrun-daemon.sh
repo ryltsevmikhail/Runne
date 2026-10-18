@@ -24,6 +24,13 @@ cargo test -p runne-runtime --test task_run_host --locked
 cargo test -p runne-http --all-targets --locked
 cargo test -p runne-daemon --all-targets --locked
 cargo test -p runne-runtime-client --all-targets --locked
+# The runne-cli real-process protected-runtime tests copy target/debug/runned
+# into their owner-private fixture and launch it as the protected daemon. The
+# default-features builds above leave a runned binary without the protected
+# activation channel, which exits before reading stdin (surfacing as
+# ProtectedChannelUnavailable at launch_request_write), so stage the exact
+# daemon build those tests require immediately before running them.
+cargo build -p runne-daemon --bin runned --locked --features desktop-protected
 cargo test -p runne-cli --all-targets --locked
 cargo test -p runne-app-core --all-targets --features test-support --locked
 node scripts/desktop/stage_bundled_daemon.mjs

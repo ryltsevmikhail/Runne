@@ -10,6 +10,8 @@ use runne_domain::task_run::{TaskRunEvent, TaskRunState};
 use runne_platform::process_managed_area::VerifiedEmptyManagedArea;
 use rusqlite::{TransactionBehavior, params};
 
+mod compiled_append;
+
 impl super::super::super::StoreTransaction {
     /// Closes a crashed local effect as unknown after proving its exact area empty.
     pub fn settle_local_command_outcome_unknown_recovery(
@@ -150,21 +152,33 @@ impl super::super::super::StoreTransaction {
         let terminal_version = stream_version
             .checked_add(2)
             .ok_or(EventStoreError::CorruptData)?;
+        let terminal_position = position
+            .checked_add(1)
+            .ok_or(EventStoreError::CorruptData)?;
         let event_time = now.max(last_timestamp);
-        for (event, sequence, global_position) in [
-            (&first, first_version, position),
-            (&second, terminal_version, position + 1),
-        ] {
-            crate::store::event_guard::append_taskrun_event(
-                &tx,
-                self.prohibited_content.as_ref(),
-                event,
-                u64::try_from(sequence).map_err(|_| EventStoreError::CorruptData)?,
-                global_position,
-                event_time,
-            )
-            .map_err(|_| EventStoreError::CorruptData)?;
-        }
+        crate::store::event_guard::append_taskrun_event(
+            &tx,
+            self.prohibited_content.as_ref(),
+            &first,
+            u64::try_from(first_version).map_err(|_| EventStoreError::CorruptData)?,
+            position,
+            event_time,
+        )
+        .map_err(|_| EventStoreError::CorruptData)?;
+        compiled_append::append_terminal(
+            &tx,
+            self.prohibited_content.as_ref(),
+            candidate,
+            stream_version,
+            &last_event,
+            &first,
+            &second,
+            first_version,
+            terminal_version,
+            position,
+            terminal_position,
+            event_time,
+        )?;
         let changed = tx
             .execute(
                 "UPDATE taskrun_local_command_attempts SET state='outcome_unknown',updated_at=?1

@@ -1,5 +1,8 @@
 //! Closed syscall checks for namespace escape and reserved kernel controls.
 
+#[path = "seccomp/fs_rights.rs"]
+mod fs_rights;
+
 const LOAD: u16 = 0x20;
 const JEQ: u16 = 0x15;
 const JSET: u16 = 0x45;
@@ -13,7 +16,7 @@ const ALLOW: u32 = 0x7fff_0000;
 /// 2 x32 deny, 22 namespace, 2 clone3, 46 kernel-control, 6 dumpable,
 /// 42 network-none, 6 clone-ns, 1 allow = 131. The capacity keeps headroom
 /// so future syscall additions cannot overflow the array.
-const PROGRAM_CAPACITY: usize = 192;
+const PROGRAM_CAPACITY: usize = 384;
 
 struct Program([libc::sock_filter; PROGRAM_CAPACITY], usize);
 
@@ -50,27 +53,47 @@ impl Program {
         self.push(RET, 0, 0, 0x0005_0000 | error as u32);
     }
 
-    fn finish(self) -> i32 {
+    fn install(&self) -> i32 {
         let mut program = libc::sock_fprog {
             len: self.1 as u16,
             filter: self.0.as_ptr() as *mut libc::sock_filter,
         };
         unsafe {
-            libc::prctl(
+            libc::syscall(
+                libc::SYS_prctl,
                 libc::PR_SET_SECCOMP,
                 libc::SECCOMP_MODE_FILTER,
                 &mut program,
-            )
+            ) as i32
         }
     }
 }
 
-pub(super) unsafe fn install(composite: bool, network_none: bool) -> i32 {
-    let Some(arch) = audit_arch() else { return -1 };
-    build(arch, composite, network_none).finish()
+pub(in crate::local_command_linux) struct PreparedFilter(Program);
+
+pub(super) fn prepare(
+    composite: bool,
+    network_none: bool,
+    filesystem: Option<crate::local_command_linux::policy::NativeFsProfile>,
+) -> Option<PreparedFilter> {
+    Some(PreparedFilter(build(
+        audit_arch()?,
+        composite,
+        network_none,
+        filesystem,
+    )))
 }
 
-fn build(arch: u32, composite: bool, network_none: bool) -> Program {
+pub(super) unsafe fn install(filter: &PreparedFilter) -> i32 {
+    filter.0.install()
+}
+
+fn build(
+    arch: u32,
+    composite: bool,
+    network_none: bool,
+    filesystem: Option<crate::local_command_linux::policy::NativeFsProfile>,
+) -> Program {
     let mut filter = Program::new();
     filter.push(LOAD, 0, 0, 4);
     filter.push(JEQ, 1, 0, arch);
@@ -96,6 +119,9 @@ fn build(arch: u32, composite: bool, network_none: bool) -> Program {
     } else if composite {
         filter.deny_syscall(libc::SYS_socketpair);
         filter.deny_af_unix_and_non_ip_sockets();
+    }
+    if let Some(profile) = filesystem {
+        fs_rights::append(&mut filter, profile);
     }
     deny_namespace_clone(&mut filter);
     filter.push(RET, 0, 0, ALLOW);
@@ -231,15 +257,44 @@ fn audit_arch() -> Option<u32> {
 #[cfg(test)]
 mod tests {
     use super::{PROGRAM_CAPACITY, audit_arch, build};
+    use crate::local_command_linux::policy::NativeFsProfile;
 
     #[test]
     fn worst_case_composite_network_none_program_fits_capacity() {
         let arch = audit_arch().expect("test host has an audited architecture");
-        let program = build(arch, true, true);
+        let program = build(arch, true, true, None);
         assert!(
             program.instruction_count() <= PROGRAM_CAPACITY,
             "seccomp program overflow: {} instructions exceed capacity {PROGRAM_CAPACITY}",
             program.instruction_count()
         );
+    }
+
+    #[test]
+    fn partial_rights_guard_program_fits_capacity() {
+        let arch = audit_arch().expect("test host has an audited architecture");
+        let program = build(
+            arch,
+            true,
+            false,
+            Some(NativeFsProfile {
+                allowed_access: 0,
+                write_allowed: false,
+                rename_allowed: false,
+            }),
+        );
+        assert!(program.instruction_count() <= PROGRAM_CAPACITY);
+        for syscall in [
+            libc::SYS_fallocate,
+            libc::SYS_fchmodat2,
+            libc::SYS_renameat2,
+        ] {
+            assert!(
+                program.0[..program.1]
+                    .iter()
+                    .any(|instruction| instruction.code == super::JEQ
+                        && instruction.k == syscall as u32)
+            );
+        }
     }
 }

@@ -142,6 +142,22 @@ fn token_policy_rejects_nested_include_and_unknown_macros_everywhere() {
 }
 
 #[test]
+fn token_policy_rejects_diagnostic_and_abort_macros_outside_audited_shapes() {
+    for source in [
+        "fn guard(flag: bool) { debug_assert!(flag); }",
+        "fn guard(flag: bool) { assert!(flag); }",
+        "fn guard() { panic!(\"closure diagnostic escape\"); }",
+        "fn guard() { unreachable!(); }",
+        "const DATA: &[u8] = vec![0];",
+    ] {
+        let error = resolve_fixture(source, &[]).unwrap_err();
+        assert!(error.contains("token policy"), "{source}: {error}");
+    }
+    let files = resolve_fixture("fn guard(v: u8) { let _ = matches!(v, 0); }", &[]).unwrap();
+    assert!(files.contains("src/root.rs"));
+}
+
+#[test]
 fn token_policy_rejects_aliases_dynamic_types_errors_and_network() {
     for source in [
         "use serde_json as json;",

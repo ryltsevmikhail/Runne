@@ -40,11 +40,15 @@ fn v29_catalog_preserves_the_append_only_attachment_boundary() {
 #[test]
 fn production_store_open_creates_and_reopens_v35() {
     let directory = tempfile::tempdir().unwrap();
-    let path = { let daemon = directory.path().join("runne-daemon"); std::fs::create_dir_all(&daemon).unwrap(); daemon.join("created-v29.sqlite") };
+    let path = {
+        let daemon = directory.path().join("runne-daemon");
+        std::fs::create_dir_all(&daemon).unwrap();
+        daemon.join("created-v29.sqlite")
+    };
 
     drop(crate::provider::SqliteProviderCredentialLifecycleStore::open(&path).unwrap());
     drop(crate::provider::SqliteProviderCredentialLifecycleStore::open(&path).unwrap());
 
     let connection = Connection::open(path).unwrap();
-    assert!(v65_matches(&connection, 65).unwrap());
+    assert!(v68_matches(&connection, CURRENT_SCHEMA_VERSION).unwrap());
 }

@@ -2,6 +2,7 @@ use runne_application::permission_modes::{ContainmentStrategy, PermissionMode};
 
 use super::model::MISSING_PERMISSION_MODE_MANAGED_DIGEST;
 const MISSING_SELECTION_MANAGED_DIGEST: [u8; 32] = MISSING_PERMISSION_MODE_MANAGED_DIGEST;
+type StoredPermissionModeSelection = (i64, i64, Vec<u8>, i64, Option<i64>);
 
 pub(super) fn insert_permission(
     tx: &rusqlite::Transaction<'_>,
@@ -40,7 +41,9 @@ pub(super) fn insert_permission(
                 now
             ],
         )
-        .map_err(|_| ToolInvocationStoreError::ProposalConflict(ProposalConflictKind::InsertOther))?;
+        .map_err(|_| {
+            ToolInvocationStoreError::ProposalConflict(ProposalConflictKind::InsertOther)
+        })?;
     if changed != 1 {
         return Err(ToolInvocationStoreError::Conflict);
     }
@@ -48,7 +51,7 @@ pub(super) fn insert_permission(
 }
 
 pub(super) fn validate_release_permission(
-    tx: &rusqlite::Transaction<'_>,
+    tx: &rusqlite::Connection,
     runtime_authority: &str,
     binding: &ToolInvocationBindingV1,
     now: i64,
@@ -87,13 +90,16 @@ pub(super) fn validate_release_permission(
     };
     let source = ToolPermissionDecisionSource::from_tag(source)
         .ok_or(ToolInvocationStoreError::CorruptData)?;
-    if authority != runtime_authority || principal != binding.principal_id || now >= binding.approval_expires_at {
+    if authority != runtime_authority
+        || principal != binding.principal_id
+        || now >= binding.approval_expires_at
+    {
         return Err(ToolInvocationStoreError::Conflict);
     }
-    let current: Option<(i64, i64, Vec<u8>, i64)> = tx
+    let current: Option<StoredPermissionModeSelection> = tx
         .query_row(
             "SELECT authorization_revision,managed_policy_version,managed_policy_digest,
-                    selected_mode FROM permission_mode_selections
+                    selected_mode,expires_at_unix_ms FROM permission_mode_selections
              WHERE runtime_authority_id=?1 AND principal_id=?2 AND workspace_id=(
                SELECT workspace_id FROM taskrun_tool_permission_admissions
                WHERE taskrun_id=?3 AND attempt_id=?4 AND cycle_id=?5 AND proposal_index=?6
@@ -106,15 +112,24 @@ pub(super) fn validate_release_permission(
                 binding.key.cycle_id.as_bytes(),
                 i64::from(binding.key.proposal_index)
             ],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                ))
+            },
         )
         .optional()
         .map_err(|_| ToolInvocationStoreError::CorruptData)?;
-    let expected = current.unwrap_or((0, 0, MISSING_SELECTION_MANAGED_DIGEST.to_vec(), 1));
+    let expected = current.unwrap_or((0, 0, MISSING_SELECTION_MANAGED_DIGEST.to_vec(), 1, None));
     if revision != expected.0
         || managed_version != expected.1
         || managed_digest != expected.2
         || selected != expected.3
+        || expected.4.is_some_and(|expires_at| now >= expires_at)
     {
         return Err(ToolInvocationStoreError::Conflict);
     }
@@ -157,8 +172,7 @@ pub(super) fn admit_automatically(
     {
         return Err(ToolInvocationStoreError::ApprovalDenied);
     }
-    let old = read::get_from_connection(&tx, key)?
-        .ok_or(ToolInvocationStoreError::InvalidState)?;
+    let old = read::get_from_connection(&tx, key)?.ok_or(ToolInvocationStoreError::InvalidState)?;
     if old.state != ToolInvocationState::Proposed {
         return Err(ToolInvocationStoreError::InvalidState);
     }
@@ -176,8 +190,8 @@ pub(super) fn admit_automatically(
         ],
     )
     .map_err(|_| ToolInvocationStoreError::CorruptData)?;
-    let result = read::get_from_connection(&tx, key)?
-        .ok_or(ToolInvocationStoreError::CorruptData)?;
+    let result =
+        read::get_from_connection(&tx, key)?.ok_or(ToolInvocationStoreError::CorruptData)?;
     if result.state != ToolInvocationState::Approved {
         return Err(ToolInvocationStoreError::InvalidState);
     }
@@ -199,8 +213,16 @@ fn validate_permission(
         || permission.managed_policy_version > i64::MAX as u64
         || now >= permission.expires_at_unix_ms
         || permission.expires_at_unix_ms != binding.approval_expires_at
-        || permission.native_scope_handle.as_bytes().iter().all(|b| *b == 0)
-        || permission.composite_scope_digest.as_bytes().iter().all(|b| *b == 0)
+        || permission
+            .native_scope_handle
+            .as_bytes()
+            .iter()
+            .all(|b| *b == 0)
+        || permission
+            .composite_scope_digest
+            .as_bytes()
+            .iter()
+            .all(|b| *b == 0)
     {
         return Err(ToolInvocationStoreError::Conflict);
     }
@@ -219,9 +241,26 @@ fn containment_tag(strategy: ContainmentStrategy) -> i64 {
     match strategy {
         ContainmentStrategy::WorkspaceBoundV1 => 1,
         ContainmentStrategy::SameUserCompositeV1 => 2,
+        ContainmentStrategy::SameUserCompositeV2 => 3,
+    }
+}
+
+#[cfg(test)]
+mod containment_tag_tests {
+    use super::containment_tag;
+    use runne_application::permission_modes::ContainmentStrategy;
+
+    #[test]
+    fn legacy_strategy_tags_stay_fixed_and_v2_uses_three() {
+        assert_eq!(containment_tag(ContainmentStrategy::WorkspaceBoundV1), 1);
+        assert_eq!(containment_tag(ContainmentStrategy::SameUserCompositeV1), 2);
+        assert_eq!(containment_tag(ContainmentStrategy::SameUserCompositeV2), 3);
     }
 }
 
 #[cfg(test)]
 #[path = "permission/tests.rs"]
 mod tests;
+
+include!("permission/managed.rs");
+include!("permission_observation.rs");

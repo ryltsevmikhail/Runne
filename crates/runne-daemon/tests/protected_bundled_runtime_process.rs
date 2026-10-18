@@ -32,6 +32,9 @@ mod t1_positive_canaries;
 mod t1_positive_parent;
 
 #[cfg(target_os = "linux")]
+#[path = "protected_bundled_runtime_process_split_parts/t1_credential_companion.rs"]
+mod t1_credential_companion;
+#[cfg(target_os = "linux")]
 #[path = "protected_bundled_runtime_process_split_parts/t1_local_barrier.rs"]
 mod t1_local_barrier;
 #[cfg(target_os = "linux")]

@@ -3,7 +3,6 @@ use super::recovery::{LocalCommandRecoveryCandidate, verify_recovery_owner};
 use super::run::verify_empty_proof;
 use crate::codec::TaskRunEventCodec;
 use runne_application::ports::{EventStoreError, ExecutionNodeId, TaskRunAssignmentIdentity};
-use runne_domain::command::TerminalResult;
 use runne_domain::id::EventId;
 use runne_domain::task_run::{TaskRunEvent, TaskRunState};
 use runne_platform::process_managed_area::VerifiedEmptyManagedArea;
@@ -27,6 +26,7 @@ impl StoreTransaction {
         let tx = connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(|_| EventStoreError::Unavailable)?;
+        super::permission::require_legacy_bound_route(&tx, identity.taskrun_id)?;
         verify_empty_proof(&empty, area_identity)?;
         verify_terminal_assignment(&tx, identity, terminal_event, terminal_version)?;
         settle(
@@ -58,6 +58,7 @@ impl StoreTransaction {
         let tx = connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(|_| EventStoreError::Unavailable)?;
+        super::permission::require_legacy_bound_route(&tx, candidate.identity.taskrun_id)?;
         verify_empty_proof(&empty, &candidate.area_identity)?;
         verify_recovery_owner(
             &tx,
@@ -78,7 +79,7 @@ impl StoreTransaction {
     }
 }
 
-fn verify_terminal_assignment(
+pub(super) fn verify_terminal_assignment(
     tx: &rusqlite::Transaction<'_>,
     identity: &TaskRunAssignmentIdentity,
     terminal_event: EventId,
@@ -127,7 +128,7 @@ fn verify_terminal_assignment(
     }
 }
 
-fn settle(
+pub(super) fn settle(
     tx: &rusqlite::Transaction<'_>,
     identity: &TaskRunAssignmentIdentity,
     area_identity: &[u8],
@@ -144,9 +145,23 @@ fn settle(
             |row| row.get(0),
         )
         .map_err(|_| EventStoreError::CorruptData)?;
+    let route: Option<(i64, i64, i64)> = tx
+        .query_row(
+            "SELECT route,provenance,cutover_version FROM taskrun_local_permission_routes
+             WHERE taskrun_id=?1",
+            [identity.taskrun_id.as_bytes()],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .optional()
+        .map_err(|_| EventStoreError::CorruptData)?;
+    let current_permission = route == Some((2, 3, 68));
+    if !current_permission && route != Some((1, 1, 68)) {
+        return Err(EventStoreError::CorruptData);
+    }
     if stream.version != terminal_version
         || last_event.as_slice() != terminal_event.as_bytes()
-        || !matches!(stream.state, TaskRunState::Succeeded | TaskRunState::Failed)
+        || !(matches!(stream.state, TaskRunState::Succeeded | TaskRunState::Failed)
+            || (current_permission && stream.state == TaskRunState::Cancelled))
     {
         return Err(EventStoreError::CorruptData);
     }
@@ -173,25 +188,28 @@ fn settle(
     };
     let node_uuid =
         uuid::Uuid::parse_str(&identity.node_id.0).map_err(|_| EventStoreError::CorruptData)?;
-    if state != "completed"
+    let permission_policy_stop = current_permission
+        && state == "cancelled"
+        && stream.state == TaskRunState::Failed
+        && matches!(
+            &terminal,
+            TaskRunEvent::TaskRunFailed { reason }
+                if reason.as_str() == "local_command_policy_stopped_v1"
+        );
+    if (state != "completed"
+        && !(current_permission && state == "cancelled" && stream.state == TaskRunState::Cancelled)
+        && !permission_policy_stop)
         || node.as_slice() != node_uuid.as_bytes()
-        || !terminal_matches_exit(&terminal, &stream.state, exit_code)
+        || !super::permission::terminal_matches_exit(
+            &terminal,
+            &stream.state,
+            exit_code,
+            current_permission,
+        )
     {
         return Err(EventStoreError::CorruptData);
     }
     settle_receipt(tx, identity, node_uuid, terminal_event, terminal_version)
-}
-
-fn terminal_matches_exit(event: &TaskRunEvent, state: &TaskRunState, exit_code: i32) -> bool {
-    match (state, event) {
-        (TaskRunState::Succeeded, TaskRunEvent::TaskRunCompleted { result }) => match result {
-            TerminalResult::Success => exit_code == 0,
-            TerminalResult::Failure { reason } => {
-                exit_code != 0 && reason == &format!("local_command_exit_{exit_code}")
-            }
-        },
-        _ => false,
-    }
 }
 
 fn settle_receipt(

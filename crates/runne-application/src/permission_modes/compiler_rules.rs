@@ -4,7 +4,6 @@ use super::{
     binding::ApprovalBinding,
     composite::{
         CompositeEffectScope, CompositeScopeDigest, FilesystemPermission, FilesystemPosture,
-        NetworkScope,
     },
     model::PermissionMode,
     resource::{
@@ -33,12 +32,24 @@ pub(super) fn should_auto_admit(
     facts: &ResourceFacts,
     scope: &CompositeEffectScope,
 ) -> bool {
+    if scope.managed_policy.is_closed()
+        && mode != PermissionMode::FullAccess
+        && matches!(scope.filesystem.posture, FilesystemPosture::BroadSameUser)
+        && scope.containment != super::composite::ContainmentStrategy::SameUserCompositeV2
+    {
+        return false;
+    }
     let safe_resource = facts.workspace == WorkspaceRelation::Inside
         && facts.sensitivity == Sensitivity::Nonsensitive
         && facts.size == SizeBound::Bounded
         && facts.resolution == ResolutionState::HeldSafe;
     match mode {
-        PermissionMode::AskAlways => action == PermissionAction::FsRead && safe_resource,
+        PermissionMode::AskAlways => {
+            action == PermissionAction::FsRead
+                && safe_resource
+                && facts.target == TargetState::Existing
+                && facts.object == ObjectKind::RegularFile
+        }
         PermissionMode::RiskBased => match action {
             PermissionAction::FsRead => {
                 safe_resource
@@ -74,11 +85,14 @@ pub(super) fn effect_is_in_scope(
             fs_target_is_in_scope(scope, facts, FilesystemPermission::Delete)
         }
         PermissionAction::NetworkConnect | PermissionAction::NetworkSend => {
-            scope.network != NetworkScope::None
+            !scope.network.is_none()
         }
         PermissionAction::ProcessStart => {
-            scope.containment == super::composite::ContainmentStrategy::SameUserCompositeV1
-                && facts.resolution == ResolutionState::HeldSafe
+            matches!(
+                scope.containment,
+                super::composite::ContainmentStrategy::SameUserCompositeV1
+                    | super::composite::ContainmentStrategy::SameUserCompositeV2
+            ) && facts.resolution == ResolutionState::HeldSafe
         }
     }
 }
@@ -107,6 +121,12 @@ fn fs_target_is_in_scope(
 fn fs_permitted(scope: &CompositeEffectScope, permission: FilesystemPermission) -> bool {
     scope.filesystem.permissions.contains(&permission)
         && !matches!(scope.filesystem.posture, FilesystemPosture::None)
+        && (permission != FilesystemPermission::Create
+            || scope.containment != super::composite::ContainmentStrategy::SameUserCompositeV2
+            || scope
+                .filesystem
+                .permissions
+                .contains(&FilesystemPermission::Write))
 }
 
 fn full_access_contains(action: PermissionAction, scope: &CompositeEffectScope) -> bool {
@@ -116,10 +136,14 @@ fn full_access_contains(action: PermissionAction, scope: &CompositeEffectScope) 
         PermissionAction::FsWrite => fs_permitted(scope, FilesystemPermission::Write),
         PermissionAction::FsDelete => fs_permitted(scope, FilesystemPermission::Delete),
         PermissionAction::NetworkConnect | PermissionAction::NetworkSend => {
-            scope.network != NetworkScope::None
+            !scope.network.is_none()
         }
         PermissionAction::ProcessStart => {
-            scope.containment == super::composite::ContainmentStrategy::SameUserCompositeV1
+            matches!(
+                scope.containment,
+                super::composite::ContainmentStrategy::SameUserCompositeV1
+                    | super::composite::ContainmentStrategy::SameUserCompositeV2
+            )
         }
     }
 }

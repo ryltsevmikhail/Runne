@@ -10,6 +10,8 @@ include!("protected_runtime/state_store.rs");
 include!("protected_runtime/launcher.rs");
 #[cfg(target_os = "linux")]
 include!("protected_runtime/linux_launch_image.rs");
+#[cfg(target_os = "linux")]
+include!("protected_runtime/cli_baseline.rs");
 include!("protected_runtime/activation_rebind.rs");
 #[cfg(unix)]
 include!("protected_runtime/local_process_fixture.rs");
@@ -177,3 +179,33 @@ include!("protected_runtime_parts/port_08.rs");
 include!("protected_runtime_parts/port_09.rs");
 include!("protected_runtime_parts/port_10.rs");
 include!("protected_runtime_parts/port_11.rs");
+
+fn start_protected_runtime_with(
+    supervisor: &mut ProtectedBundledRuntimeSupervisor,
+    launch: impl FnOnce(
+        &DevelopmentBundledRuntimeLauncher,
+        &ProtectedBundledRuntimeLaunchSpec,
+    ) -> Result<ProtectedBundledRuntimeProcess, ProtectedBundledRuntimeError>,
+) -> Result<(), ProtectedBundledRuntimeError> {
+    if !matches!(
+        supervisor.state,
+        BundledRuntimeLifecycleState::Absent
+            | BundledRuntimeLifecycleState::Stopped
+            | BundledRuntimeLifecycleState::FailedStart
+            | BundledRuntimeLifecycleState::Exhausted
+    ) || supervisor.process.is_some()
+    {
+        return Err(ProtectedBundledRuntimeError::InvalidState);
+    }
+    supervisor.backoff = BundledRuntimeBackoff::new();
+    let result = supervisor.spawn_fresh_with(launch);
+    if result.is_err() {
+        supervisor.state = BundledRuntimeLifecycleState::FailedStart;
+    }
+    result
+}
+
+#[cfg(feature = "test-support")]
+include!("protected_runtime/test_support_capture.rs");
+#[cfg(all(target_os = "linux", feature = "protected-channel-integration"))]
+include!("protected_runtime/permission_control.rs");

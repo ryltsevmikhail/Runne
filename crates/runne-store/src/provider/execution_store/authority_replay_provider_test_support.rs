@@ -38,7 +38,14 @@ pub(super) fn upgraded_v25_for_provider(
     let connection = Connection::open(&path).unwrap();
     connection
         .execute_batch(
-            "DROP TRIGGER taskrun_provider_round_bindings_immutable;
+            "DROP TABLE x2_permission_terminal;
+             DROP TABLE x2_permission_stop;
+             DROP TABLE x2_permission_spent;
+             DROP TABLE x2_permission_admission;
+             DROP TABLE x2_permission_human;
+             DROP TABLE x2_permission_bindings;
+             DROP TABLE taskrun_local_permission_routes;
+             DROP TRIGGER taskrun_provider_round_bindings_immutable;
              DROP TRIGGER taskrun_provider_round_bindings_no_delete;
              DROP TRIGGER schema_v12_fence_taskrun_provider_round_bindings_insert;
              DROP TRIGGER schema_v12_fence_taskrun_provider_round_bindings_update;
@@ -230,7 +237,9 @@ pub(super) fn upgraded_v25_for_provider(
     crate::schema::restore_v25_credential_triggers_for_test(&connection).unwrap();
     connection
         .execute_batch(
-            "DROP TABLE taskrun_tool_permission_admissions;
+            "DROP TABLE permission_mode_command_receipt_managed_identity;
+             DROP TABLE permission_mode_native_challenge_managed_identity;
+             DROP TABLE taskrun_tool_permission_admissions;
              DROP TABLE permission_mode_native_challenges;
              DROP TABLE permission_mode_command_receipts;
              DROP TRIGGER IF EXISTS command_receipt_id_global_d21;
@@ -255,6 +264,21 @@ pub(super) fn upgraded_v25_for_provider(
     assert_eq!(
         released_schema_objects, 0,
         "V25 fixture must not retain later schema objects"
+    );
+    let released_v68_objects: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master
+             WHERE name LIKE 'taskrun_local_permission_routes%'
+                OR name LIKE 'x2_permission_%'
+                OR name LIKE 'schema_v12_fence_taskrun_local_permission_routes_%'
+                OR name LIKE 'schema_v12_fence_x2_permission_%'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        released_v68_objects, 0,
+        "V25 fixture must not retain V68 local permission objects"
     );
     drop(
         crate::schema::reopen_managed_connection_validated(

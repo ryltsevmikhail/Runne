@@ -1,4 +1,5 @@
 use super::*;
+use crate::store::test_support_diagnostics::{on_error as record_on_error, record};
 use runne_application::ports::{
     TaskRunClaimReceipt, TaskRunFence, TaskRunNoEffectReleaseError as Error,
     TaskRunNoEffectReleasePort, TaskRunNoEffectReleaseReceipt, TaskRunNoEffectReleaseRequest,
@@ -24,7 +25,17 @@ impl TaskRunNoEffectReleasePort for StoreTransaction {
         &self,
         request: TaskRunNoEffectReleaseRequest,
     ) -> Result<TaskRunNoEffectReleaseResult, Error> {
-        let scope = encode_scope(&request)?;
+        if request.idempotency_scope.operation != OperationTag::TaskRunNoEffectRelease
+            || request.idempotency_scope.aggregate_scope
+                != (AggregateScope::ExistingTaskRun {
+                    taskrun_id: request.identity.taskrun_id,
+                })
+        {
+            return Err(Error::IdempotencyConflict);
+        }
+        let scope = IdempotencyScopeCodec
+            .encode(&request.idempotency_scope)
+            .map_err(|_| Error::CorruptData)?;
         let mut writer = self.inner.writer.lock().map_err(|_| Error::Unavailable)?;
         let tx = writer
             .transaction_with_behavior(TransactionBehavior::Immediate)
@@ -36,12 +47,7 @@ impl TaskRunNoEffectReleasePort for StoreTransaction {
         if command_used(&tx, request.command_id)? {
             return Err(Error::IdempotencyConflict);
         }
-        if request.idempotency_scope.operation != OperationTag::TaskRunNoEffectRelease
-            || request.idempotency_scope.aggregate_scope
-                != (AggregateScope::ExistingTaskRun {
-                    taskrun_id: request.identity.taskrun_id,
-                })
-            || request.failure_event.command_id() != &request.command_id
+        if request.failure_event.command_id() != &request.command_id
             || request.failure_event.idempotency_key() != &request.idempotency_key
             || request.failure_event.aggregate_id()
                 != &AggregateId::TaskRun(request.identity.taskrun_id)
@@ -82,11 +88,19 @@ impl TaskRunNoEffectReleasePort for StoreTransaction {
         if intent != "absent" || ledger != 0 {
             return Err(Error::DispatchMayHaveStarted);
         }
-        super::taskrun_no_effect_proof::require_no_generation_evidence(
-            &tx,
-            id.taskrun_id,
-            id.attempt_id,
-            &self.runtime_authority_id,
+        let current_route = record_on_error(
+            "no_effect.release",
+            super::taskrun_local_command::permission::no_effect::current_route(&tx, id.taskrun_id),
+        )
+        .map_err(|_| Error::CorruptData)?;
+        crate::store::test_support_diagnostics::on_error(
+            "no_effect.runtime_evidence",
+            super::taskrun_no_effect_proof::require_no_generation_evidence(
+                &tx,
+                id.taskrun_id,
+                id.attempt_id,
+                &self.runtime_authority_id,
+            ),
         )?;
         let provider_evidence: bool = tx
             .query_row(
@@ -99,6 +113,7 @@ impl TaskRunNoEffectReleasePort for StoreTransaction {
             )
             .map_err(|_| Error::CorruptData)?;
         if provider_evidence {
+            record("no_effect.runtime_evidence");
             return Err(Error::DispatchMayHaveStarted);
         }
         super::taskrun_claim::verify_active_assignment(&tx, id)
@@ -142,13 +157,27 @@ impl TaskRunNoEffectReleasePort for StoreTransaction {
                 |r| Ok((r.get(0)?,r.get(1)?)),
             )
             .map_err(|_| Error::Unavailable)?;
-        tx.execute(
-            "UPDATE taskrun_local_command_attempts SET state='no_effect_terminal',updated_at=?1
-             WHERE taskrun_id=?2 AND state IN ('preflight','approval_pending','approved')
-               AND attempt_id IS NULL AND managed_area_identity IS NULL",
-            params![now, id.taskrun_id.as_bytes()],
-        )
-        .map_err(|_| Error::CorruptData)?;
+        let changed = if current_route {
+            crate::store::test_support_diagnostics::on_error(
+                "no_effect.mark",
+                super::taskrun_local_command::permission::no_effect::mark_terminal(
+                    &tx, id, &node, now,
+                ),
+            )
+            .map_err(|_| Error::CorruptData)?
+        } else {
+            tx.execute(
+                "UPDATE taskrun_local_command_attempts SET state='no_effect_terminal',updated_at=?1
+                 WHERE taskrun_id=?2 AND state IN ('preflight','approval_pending','approved')
+                   AND attempt_id IS NULL AND managed_area_identity IS NULL",
+                params![now, id.taskrun_id.as_bytes()],
+            )
+            .map_err(|_| Error::CorruptData)?
+        };
+        if current_route && changed != 1 {
+            record("no_effect.mark");
+            return Err(Error::DispatchMayHaveStarted);
+        }
         let position: i64 = tx
             .query_row(
                 "SELECT next_global_position FROM event_log_state WHERE singleton=1",
@@ -159,15 +188,17 @@ impl TaskRunNoEffectReleasePort for StoreTransaction {
         let next = current.checked_add(1).ok_or(Error::CorruptData)?;
         let micros = now.checked_mul(1000).ok_or(Error::CorruptData)?;
         let micros = micros.max(last_timestamp.ok_or(Error::CorruptData)?);
-        crate::store::event_guard::append_taskrun_event(
+        super::taskrun_local_command::permission::append_release_event(
             &tx,
             self.prohibited_content.as_ref(),
             &request.failure_event,
+            id,
+            &self.runtime_authority_id,
+            current_route,
             next as u64,
             position,
             micros,
-        )
-        .map_err(|_| Error::CorruptData)?;
+        )?;
         if tx.execute("UPDATE aggregate_streams SET current_version=?1,last_event_id=?2,last_timestamp=?3 WHERE aggregate_type=1 AND aggregate_id=?4 AND current_version=?5", params![next,request.failure_event.event_id().as_bytes(),micros,id.taskrun_id.as_bytes(),current]).map_err(|_| Error::CorruptData)?!=1 { return Err(Error::StaleVersion { expected:current as u64, actual:current as u64 }); }
         crate::store::snapshot::refresh_aggregate_snapshot(
             &tx,
@@ -188,20 +219,6 @@ impl TaskRunNoEffectReleasePort for StoreTransaction {
         tx.commit().map_err(|_| Error::Unavailable)?;
         Ok(TaskRunNoEffectReleaseResult::Released(receipt))
     }
-}
-
-fn encode_scope(request: &TaskRunNoEffectReleaseRequest) -> Result<Vec<u8>, Error> {
-    if request.idempotency_scope.operation != OperationTag::TaskRunNoEffectRelease
-        || request.idempotency_scope.aggregate_scope
-            != (AggregateScope::ExistingTaskRun {
-                taskrun_id: request.identity.taskrun_id,
-            })
-    {
-        return Err(Error::IdempotencyConflict);
-    }
-    IdempotencyScopeCodec
-        .encode(&request.idempotency_scope)
-        .map_err(|_| Error::CorruptData)
 }
 
 fn command_used(tx: &rusqlite::Transaction<'_>, id: CommandId) -> Result<bool, Error> {

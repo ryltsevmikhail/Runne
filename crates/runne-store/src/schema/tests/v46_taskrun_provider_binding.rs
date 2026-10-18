@@ -8,15 +8,24 @@ fn v46_upgrades_v45_and_reopens_with_binding_admission() {
     apply_migrations(&connection).unwrap();
     assert_eq!(schema_marker(&connection), CURRENT_SCHEMA_VERSION);
     assert!(v42_structure_matches(&connection, true).unwrap(), "v42");
-    assert!(v65_matches(&connection, 65).unwrap(), "v43");
-    assert!(v65_matches(&connection, 65).unwrap(), "v44");
-    assert!(v65_matches(&connection, 65).unwrap(), "v45");
-    assert!(v65_matches(&connection, CURRENT_SCHEMA_VERSION).unwrap());
+    assert!(
+        v68_matches(&connection, CURRENT_SCHEMA_VERSION).unwrap(),
+        "v43"
+    );
+    assert!(
+        v68_matches(&connection, CURRENT_SCHEMA_VERSION).unwrap(),
+        "v44"
+    );
+    assert!(
+        v68_matches(&connection, CURRENT_SCHEMA_VERSION).unwrap(),
+        "v45"
+    );
+    assert!(v68_matches(&connection, CURRENT_SCHEMA_VERSION).unwrap());
     assert!(classify_existing_connection(&connection).is_ok());
     drop(connection);
     let reopened = Connection::open(path).unwrap();
     assert!(classify_existing_connection(&reopened).is_ok());
-    assert!(v65_matches(&reopened, CURRENT_SCHEMA_VERSION).unwrap());
+    assert!(v68_matches(&reopened, CURRENT_SCHEMA_VERSION).unwrap());
 }
 
 #[test]
@@ -26,6 +35,6 @@ fn v46_admission_rejects_missing_append_only_guards() {
     connection
         .execute_batch("DROP TRIGGER taskrun_provider_bindings_no_delete;")
         .unwrap();
-    assert!(!v64_matches(&connection, CURRENT_SCHEMA_VERSION).unwrap());
+    assert!(!v68_matches(&connection, CURRENT_SCHEMA_VERSION).unwrap());
     assert!(classify_existing_connection(&connection).is_err());
 }

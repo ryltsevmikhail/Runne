@@ -4,6 +4,11 @@ mod support;
 #[path = "support/validated_reopen.rs"]
 mod validated_reopen;
 
+#[path = "approval_host/conflicts.rs"]
+mod conflicts;
+#[path = "approval_host/decisions.rs"]
+mod decisions;
+
 use runne_api::{
     ApiActor, ApiPrincipalId, ApprovalCommandContext, ApprovalCommandHostPort,
     ApprovalCreateCommand, ApprovalDecision, ApprovalDecisionCommand, ApprovalHostError,
@@ -31,6 +36,24 @@ fn context(command_tail: u8, key: &str) -> ApprovalCommandContext {
 fn command(approval_id: ApprovalId) -> ApprovalDecisionCommand {
     ApprovalDecisionCommand::new(approval_id, 1, ApprovalDecision::Approve, [0x42; 32], 7, 3)
         .unwrap()
+}
+
+fn request_decision(
+    approval_id: ApprovalId,
+    decision: ApprovalDecision,
+) -> ApprovalDecisionCommand {
+    ApprovalDecisionCommand::new(approval_id, 1, decision, [0x52; 32], 7, 3).unwrap()
+}
+
+fn changed_binding_decisions(
+    approval_id: ApprovalId,
+    decision: ApprovalDecision,
+) -> [ApprovalDecisionCommand; 3] {
+    [
+        ApprovalDecisionCommand::new(approval_id, 1, decision, [0x53; 32], 7, 3).unwrap(),
+        ApprovalDecisionCommand::new(approval_id, 1, decision, [0x52; 32], 8, 3).unwrap(),
+        ApprovalDecisionCommand::new(approval_id, 1, decision, [0x52; 32], 7, 4).unwrap(),
+    ]
 }
 
 fn create_command(approval_id: ApprovalId, action: &str) -> ApprovalCreateCommand {
@@ -69,112 +92,4 @@ fn seed_pending(database: &support::Database, approval_id: ApprovalId, expires_a
             ],
         )
         .unwrap();
-}
-
-#[tokio::test(flavor = "current_thread")]
-async fn identical_approval_decision_retry_returns_the_durable_ack() {
-    let database = support::Database::new("approval-idempotent-retry");
-    let repository = database.repository();
-    let approval_id = ApprovalId::from_bytes(id(0x30));
-    seed_pending(&database, approval_id, i64::MAX);
-    let context = context(0x40, "approval-decision");
-    let command = command(approval_id);
-
-    let first = repository
-        .decide_approval(context.clone(), command.clone())
-        .await
-        .unwrap();
-    let second = repository.decide_approval(context, command).await.unwrap();
-
-    assert_eq!(first, second);
-    assert_eq!(first.state(), ApprovalState::Approved);
-    assert_eq!(first.new_version(), 2);
-}
-
-#[tokio::test(flavor = "current_thread")]
-async fn expired_approval_is_terminal_and_reports_expired() {
-    let database = support::Database::new("approval-expiry");
-    let repository = database.repository();
-    let approval_id = ApprovalId::from_bytes(id(0x50));
-    seed_pending(&database, approval_id, 1);
-
-    let result = repository
-        .decide_approval(context(0x60, "expired-approval"), command(approval_id))
-        .await;
-
-    assert_eq!(result, Err(ApprovalHostError::Expired));
-    let summary = repository
-        .get_approval(
-            ApprovalQueryContext {
-                principal: ApiPrincipalId::new("owner").unwrap(),
-            },
-            approval_id,
-        )
-        .await
-        .unwrap();
-    assert_eq!(summary.state(), ApprovalState::Expired);
-}
-
-#[tokio::test(flavor = "current_thread")]
-async fn creating_an_approval_is_durable_and_same_id_is_idempotent() {
-    let database = support::Database::new("approval-create");
-    let repository = database.repository();
-    let approval_id = ApprovalId::from_bytes(id(0x70));
-    let request = create_command(approval_id, "execute");
-
-    let first = repository
-        .create_pending_approval(request.clone())
-        .await
-        .unwrap();
-    let second = repository.create_pending_approval(request).await.unwrap();
-
-    assert_eq!(first, second);
-    assert_eq!(first.state(), ApprovalState::Pending);
-    assert_eq!(
-        repository
-            .list_pending_approvals(ApprovalQueryContext {
-                principal: ApiPrincipalId::new("owner").unwrap(),
-            })
-            .await
-            .unwrap()
-            .len(),
-        1
-    );
-}
-
-#[tokio::test(flavor = "current_thread")]
-async fn same_approval_id_cannot_replace_a_different_request() {
-    let database = support::Database::new("approval-create-conflict");
-    let repository = database.repository();
-    let approval_id = ApprovalId::from_bytes(id(0x73));
-
-    repository
-        .create_pending_approval(create_command(approval_id, "execute"))
-        .await
-        .unwrap();
-    let result = repository
-        .create_pending_approval(create_command(approval_id, "delete"))
-        .await;
-
-    assert_eq!(result, Err(ApprovalHostError::Conflict));
-}
-
-#[tokio::test(flavor = "current_thread")]
-async fn expired_pending_approval_is_reconciled_before_query_results() {
-    let database = support::Database::new("approval-query-expiry");
-    let repository = database.repository();
-    let approval_id = ApprovalId::from_bytes(id(0x74));
-    seed_pending(&database, approval_id, 1);
-    let context = ApprovalQueryContext {
-        principal: ApiPrincipalId::new("owner").unwrap(),
-    };
-
-    let pending = repository
-        .list_pending_approvals(context.clone())
-        .await
-        .unwrap();
-
-    assert!(pending.is_empty());
-    let summary = repository.get_approval(context, approval_id).await.unwrap();
-    assert_eq!(summary.state(), ApprovalState::Expired);
 }

@@ -14,6 +14,10 @@ mod constants;
 pub(super) mod crash;
 #[path = "d2_positive/finish_then_cancel.rs"]
 mod finish_then_cancel;
+#[path = "d2_positive/permission_modes.rs"]
+pub(super) mod permission_modes;
+#[path = "d2_positive/scenario.rs"]
+mod scenario;
 #[path = "d2_positive/stale_after_result.rs"]
 mod stale_after_result;
 #[path = "d2_positive/stale_final.rs"]
@@ -51,6 +55,7 @@ pub(super) async fn exercise(
     std::fs::write(&read_path, READ_BYTES).expect("seed D2 read target");
     let watch = open_watch(&read_path);
     let create_watch = open_create_watch(project_directory);
+    super::super::managed_ask::record_create_watch(&create_watch);
     assert!(!create_path.exists());
     let text = runne_provider_openai::OpenAiResponsesTextProfile::from_json(include_bytes!(
         "../../../../../docs/profiles/openai-responses-text-v1.json"
@@ -80,6 +85,7 @@ pub(super) async fn exercise(
         .await
         .expect("submit explicit D2 TaskRun")
         .task_run_id();
+    super::super::managed_ask::record_task(task);
 
     let scenario = std::env::var("RUNNE_TEST_D2_TOOL_SCENARIO").unwrap_or_default();
     let first_call_creates = matches!(
@@ -87,7 +93,14 @@ pub(super) async fn exercise(
         "crash-after-create-effect" | "crash-before-go"
     );
     if !first_call_creates {
-        verify::wait_results(database, task, 1, runtime_root).await;
+        let auto_create_fixture = scenario == "read-create-stop"
+            && !super::super::managed_ask::enabled()
+            && matches!(
+                std::env::var("RUNNE_TEST_D2_PERMISSION_MODE").as_deref(),
+                Ok("risk_based" | "full_access")
+            );
+        let expected_results = if auto_create_fixture { 2 } else { 1 };
+        verify::wait_results(client, database, task, expected_results, runtime_root).await;
         if scenario == "stale-after-result" {
             stale_after_result::exercise(
                 client,
@@ -126,20 +139,61 @@ pub(super) async fn exercise(
             return;
         }
     }
-    let create_approval = approval::wait_approval(client, task, None, database, runtime_root).await;
-    assert_eq!(create_approval.action(), "workspace.tool.invoke");
-    assert!(create_approval.resource().contains("fixture-created.txt"));
-    assert!(
-        create_approval
-            .risk_summary()
-            .contains("workspace.file.create_new")
-    );
-    assert!(
-        !create_path.exists(),
-        "Pending create has no filesystem effect"
-    );
+    let create_approval = if permission_modes::active_downgrade_barrier().is_some() {
+        None
+    } else {
+        permission_modes::await_create_approval_or_auto_admit(
+            client,
+            task,
+            &create_path,
+            database,
+            runtime_root,
+        )
+        .await
+    };
+    if permission_modes::active_downgrade_barrier().is_some() {
+        permission_modes::exercise_active_downgrade(
+            client,
+            workspace_id,
+            task,
+            &create_path,
+            &create_watch,
+            database,
+            runtime_root,
+            supervisor,
+            executable,
+            session_bus_socket,
+        )
+        .await;
+        return;
+    }
+    let expected_prior_counts = if first_call_creates { 0 } else { 1 };
+    if let Some(approval) = &create_approval {
+        assert_eq!(
+            verify::reserved_effect_count(database, task),
+            expected_prior_counts
+        );
+        assert_eq!(
+            verify::release_intent_count(database, task),
+            expected_prior_counts
+        );
+        assert_eq!(
+            count_watch_mask(&create_watch, libc::IN_CREATE),
+            0,
+            "pending create emitted no filesystem event"
+        );
+        if super::super::managed_ask::enabled() {
+            super::super::managed_ask::assert_pending_create_no_release(database, task, approval);
+        }
+    }
     if scenario == "deny-create" {
-        approval::deny_once(client, &create_approval).await;
+        approval::deny_once(
+            client,
+            create_approval
+                .as_ref()
+                .expect("Ask Always create has a human approval"),
+        )
+        .await;
         let failed = verify::wait_success(client, task, database, runtime_root).await;
         assert_eq!(failed.state(), runne_runtime_client::TaskRunState::Failed);
         super::faults::assert_failure_projection(database, task);
@@ -165,100 +219,22 @@ pub(super) async fn exercise(
         println!("PASS: D2 read Result followed by durable create denial without mutation");
         return;
     }
-    approval::approve_twice(client, &create_approval, "create").await;
-    let unlaunched_barrier = match std::env::var("RUNNE_TEST_D2_TOOL_SCENARIO").as_deref() {
-        Ok("crash-approved-before-lease") => Some(("approved-before-lease", "approved")),
-        Ok("crash-claimed-before-area") => Some(("claimed-before-area", "claimed")),
-        _ => None,
-    };
-    if let Some((barrier, state)) = unlaunched_barrier {
-        crash::before_unlaunched(
-            Some(barrier),
-            state,
-            2,
-            supervisor,
-            executable,
-            session_bus_socket,
-            runtime_root,
-            database,
-            task,
-            &read_path,
-            &watch,
-        )
-        .await;
-        return;
-    }
-    match std::env::var("RUNNE_TEST_D2_TOOL_SCENARIO").as_deref() {
-        Ok("crash-before-go") => {
-            crash::before_receipt(
-                "pre-release",
-                supervisor,
-                executable,
-                session_bus_socket,
-                runtime_root,
-                database,
-                task,
-                &create_path,
-                &create_watch,
-                libc::IN_CREATE,
-                0,
-                0,
-                None,
-            )
-            .await;
-            return;
-        }
-        Ok("crash-after-create-effect") => {
-            crash::before_receipt(
-                "after-exit",
-                supervisor,
-                executable,
-                session_bus_socket,
-                runtime_root,
-                database,
-                task,
-                &create_path,
-                &create_watch,
-                libc::IN_CREATE,
-                1,
-                1,
-                Some(CREATE_BYTES),
-            )
-            .await;
-            return;
-        }
-        _ => {}
-    }
-    assert_eq!(verify::reserved_effect_count(database, task), 1);
-    assert_eq!(verify::release_intent_count(database, task), 1);
-
-    verify::wait_results(database, task, 2, runtime_root).await;
-    assert_eq!(
-        std::fs::read(&create_path).expect("native create result"),
-        CREATE_BYTES
-    );
-    assert_eq!(
-        count_watch_mask(&create_watch, libc::IN_CREATE),
-        1,
-        "one native create emitted one IN_CREATE event"
-    );
-    assert_eq!(verify::reserved_effect_count(database, task), 2);
-    assert_eq!(verify::release_intent_count(database, task), 2);
-
-    if after_results::dispatch(after_results::Fixture {
+    if scenario::dispatch(
         client,
         task,
-        conversation: conversation_id,
-        read_path: &read_path,
-        create_path: &create_path,
-        read_watch: &watch,
-        create_watch: &create_watch,
+        conversation_id,
+        workspace_id,
+        &read_path,
+        &create_path,
+        &watch,
+        &create_watch,
         database,
         runtime_root,
         supervisor,
         executable,
         session_bus_socket,
-    })
+        &create_approval,
+    )
     .await
     {
         return;

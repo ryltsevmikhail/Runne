@@ -2,15 +2,22 @@ use runne_domain::id::{ConversationId, TaskRunId, WorkspaceId};
 use runne_domain::task_run::TaskRunEvent;
 use rusqlite::{Transaction, params};
 
-pub(super) mod effects_proof;
+pub(crate) mod effects_proof;
 mod launch;
 mod lifecycle;
+pub(crate) mod permission;
 mod recovery;
 mod run;
 #[cfg(target_os = "linux")]
 mod settlement;
 pub use lifecycle::{LocalCommandApprovalBinding, LocalCommandAttemptState};
-pub use recovery::LocalCommandRecoveryCandidate;
+#[cfg(target_os = "linux")]
+pub use permission::LocalCommandPermissionTerminalOutputV1;
+pub use permission::{
+    LocalCommandPermissionCaptureV1, LocalCommandPermissionRoute, PermissionRootFenceGuardV1,
+    PermissionRootFenceOwnerV1, PermissionRootFenceRequestV1,
+};
+pub use recovery::{LocalCommandCancellationStopEvidence, LocalCommandRecoveryCandidate};
 
 pub(super) fn insert_preflight(
     tx: &Transaction<'_>,
@@ -58,6 +65,11 @@ fn insert_preflight_row(
             command_digest,
             now
         ],
+    )?;
+    tx.execute(
+        "INSERT INTO taskrun_local_permission_routes
+         (taskrun_id,route,provenance,cutover_version) VALUES (?1,2,3,68)",
+        [taskrun_id.as_bytes()],
     )?;
     Ok(())
 }

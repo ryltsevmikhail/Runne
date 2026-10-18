@@ -9,6 +9,7 @@ fn digest(value: u8) -> CredentialBindingDigest {
     CredentialBindingDigest::from_measured([value; 32]).unwrap()
 }
 
+mod deterministic_clock;
 pub(crate) mod fixture;
 #[cfg(unix)]
 mod reservation;

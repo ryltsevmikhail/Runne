@@ -3,11 +3,18 @@ use runne_application::{
     permission_modes::{PermissionModeError, PermissionScope},
     project_trust::{ProjectTrustEffectLease, ProjectTrustProjectId, ProjectTrustStatus},
 };
-use runne_domain::id::{CommandId, IdempotencyKey, IntegrityDigest};
+use runne_domain::id::{CommandId, IdempotencyKey, IntegrityDigest, validate_uuid_v7_bytes};
 use rusqlite::Error as SqliteError;
+
+pub use super::managed_identity::{
+    ClosedRulesManagedIdentityV2, LegacyRecordIdentityV1, ManagedIdentityChallengeBindingV2,
+    ManagedIdentityMetadata, PermissionModeSelectionManagedIdentity,
+};
 
 mod challenge;
 pub use challenge::*;
+mod confirmation_v2;
+pub use confirmation_v2::*;
 
 /// Store-specific failure at the durable permission-mode boundary.
 #[derive(Debug, thiserror::Error)]
@@ -72,6 +79,7 @@ pub struct ProtectedNativeLaunchContext {
     daemon_instance_id: [u8; 16],
     launch_generation: u64,
     key_epoch: u64,
+    protected_session_id: Option<[u8; 16]>,
 }
 
 impl ProtectedNativeLaunchContext {
@@ -99,7 +107,20 @@ impl ProtectedNativeLaunchContext {
             daemon_instance_id,
             launch_generation,
             key_epoch,
+            protected_session_id: None,
         })
+    }
+
+    /// Binds this protected launch context to its current UUIDv7 session.
+    /// The legacy `new` constructor remains sessionless for V1 callers.
+    pub fn with_protected_session_id(
+        mut self,
+        protected_session_id: [u8; 16],
+    ) -> Result<Self, PermissionModeStoreError> {
+        validate_uuid_v7_bytes(&protected_session_id)
+            .map_err(|_| PermissionModeStoreError::ReauthenticationUnavailable)?;
+        self.protected_session_id = Some(protected_session_id);
+        Ok(self)
     }
 
     pub const fn launch_authority_id(&self) -> &[u8; 16] {
@@ -120,6 +141,10 @@ impl ProtectedNativeLaunchContext {
 
     pub const fn key_epoch(&self) -> u64 {
         self.key_epoch
+    }
+
+    pub const fn protected_session_id(&self) -> Option<&[u8; 16]> {
+        self.protected_session_id.as_ref()
     }
 }
 

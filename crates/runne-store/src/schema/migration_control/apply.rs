@@ -54,6 +54,13 @@ pub fn apply_migrations_through_v40_for_test(conn: &Connection) -> SqliteResult<
     apply_migrations_internal(conn, 40)
 }
 
+/// Builds the V67 boundary for local-command permission compatibility fixtures.
+#[doc(hidden)]
+#[cfg(debug_assertions)]
+pub fn apply_migrations_through_v67_for_test(conn: &Connection) -> SqliteResult<()> {
+    apply_migrations_internal(conn, 67)
+}
+
 fn apply_migrations_internal(conn: &Connection, target_version: i64) -> SqliteResult<()> {
     let source_version = classify_schema_version(conn)?;
     conn.execute_batch(

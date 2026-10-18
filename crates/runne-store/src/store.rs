@@ -104,9 +104,11 @@ const fn sensitivity_value(value: Sensitivity) -> i64 {
 
 /// Inner state shared between clones via `Arc`.
 struct StoreInner {
-    writer: Mutex<ManagedConnection>,
+    // Close the reader first so the final writer close can clean up WAL sidecars.
     reader: Mutex<ManagedConnection>,
+    writer: Mutex<ManagedConnection>,
     id_counter: AtomicU64,
+    permission_owner: Option<core::RegisteredPermissionOwnerPair>,
 }
 
 /// SQLite-backed store with a single writer connection.
@@ -166,16 +168,23 @@ mod taskrun_cancellation_completion;
 mod taskrun_cancellation_scan;
 pub(crate) mod taskrun_claim;
 mod taskrun_execution_input;
-mod taskrun_local_command;
+pub(crate) mod taskrun_local_command;
 pub mod taskrun_tool_invocation;
 pub use permission_modes::{
-    FullAccessChallengeRequest, IssuedFullAccessChallenge, IssuedFullAccessChallengeContext,
-    PermissionModeAuthorityContext, PermissionModeSelectionSnapshot, ProtectedNativeLaunchContext,
+    ClosedRulesManagedIdentityV2, FullAccessChallengeRequest, IssuedFullAccessChallenge,
+    IssuedFullAccessChallengeContext, LegacyRecordIdentityV1, ManagedIdentityChallengeBindingV2,
+    ManagedIdentityMetadata, NativeModeConfirmationRequestV2, PermissionModeAuthorityContext,
+    PermissionModeCeremonyStatusV2, PermissionModeSelectionManagedIdentity,
+    PermissionModeSelectionSnapshot, PermissionModeStoreError, ProtectedNativeLaunchContext,
 };
 pub use taskrun_local_command::{
-    LocalCommandApprovalBinding, LocalCommandAttemptState, LocalCommandRecoveryCandidate,
+    LocalCommandApprovalBinding, LocalCommandAttemptState, LocalCommandCancellationStopEvidence,
+    LocalCommandPermissionCaptureV1, LocalCommandPermissionRoute,
+    LocalCommandPermissionTerminalOutputV1, LocalCommandRecoveryCandidate,
+    PermissionRootFenceGuardV1, PermissionRootFenceOwnerV1, PermissionRootFenceRequestV1,
 };
 mod taskrun_no_effect_proof;
+pub(crate) use taskrun_no_effect_proof::authenticated_local_denial;
 mod taskrun_no_effect_scan;
 mod taskrun_provider_binding;
 mod taskrun_provider_round_binding;

@@ -8,13 +8,14 @@ mod faults;
 mod fixture;
 #[path = "d2_positive.rs"]
 mod positive;
+pub(crate) use positive::restart_same_root;
 
 #[expect(
     clippy::too_many_arguments,
     reason = "Fixture plumbing keeps the exact native process, authority, barrier, and filesystem handles together."
 )]
 pub(super) async fn dispatch_if_requested(
-    client: &runne_runtime_client::AuthenticatedRuntimeClient,
+    client: &mut runne_runtime_client::AuthenticatedRuntimeClient,
     conversation_id: runne_runtime_client::CanonicalId,
     workspace_id: runne_runtime_client::CanonicalId,
     temporary_root: &std::path::Path,
@@ -48,7 +49,7 @@ pub(super) async fn dispatch_if_requested(
     reason = "Fixture plumbing keeps the exact native process, authority, barrier, and filesystem handles together."
 )]
 pub(super) async fn exercise(
-    client: &runne_runtime_client::AuthenticatedRuntimeClient,
+    client: &mut runne_runtime_client::AuthenticatedRuntimeClient,
     conversation_id: runne_runtime_client::CanonicalId,
     workspace_id: runne_runtime_client::CanonicalId,
     project_directory: &std::path::Path,
@@ -58,6 +59,9 @@ pub(super) async fn exercise(
     executable: &std::path::Path,
     session_bus_socket: &std::path::Path,
 ) {
+    let mode_selection =
+        positive::permission_modes::select_replay_and_cancel(client, workspace_id, supervisor)
+            .await;
     match std::env::var("RUNNE_TEST_D2_TOOL_SCENARIO").as_deref() {
         Ok(
             "read-create-stop"
@@ -85,6 +89,16 @@ pub(super) async fn exercise(
                 session_bus_socket,
             )
             .await;
+            positive::permission_modes::assert_reopen_preserves_selection(
+                mode_selection,
+                client,
+                workspace_id,
+                runtime_root,
+                supervisor,
+                executable,
+                session_bus_socket,
+            )
+            .await;
         }
         Ok(
             scenario @ ("deny-read"
@@ -99,6 +113,7 @@ pub(super) async fn exercise(
             | "cancel-after-create-effect"
             | "cancel-restart-after-create-effect"
             | "truncated-read-result"
+            | "approved-target-create-race"
             | "unknown-tool-proposal"
             | "malformed-tool-arguments"
             | "early-final-stop"

@@ -1,6 +1,8 @@
 use super::*;
 #[path = "execution_node.rs"]
 mod execution_node;
+mod permission_owner;
+pub(super) use permission_owner::RegisteredPermissionOwnerPair;
 
 impl StoreTransaction {
     /// Open a file-backed database at `db_path`, apply migrations, and run startup gates.
@@ -65,6 +67,53 @@ impl StoreTransaction {
         runtime_authority_id: RuntimeAuthorityId,
         prohibited_content: Arc<dyn ProhibitedContentPort>,
     ) -> Result<Self, CommitError> {
+        Self::open_with_optional_permission_owner(
+            writer,
+            reader,
+            runtime_authority_id,
+            prohibited_content,
+            None,
+        )
+    }
+
+    /// Adopts the canonical connections with one immutable T1/native/root owner bundle.
+    #[cfg(target_os = "linux")]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "this constructor receives the complete canonical connection and permission-owner bundle"
+    )]
+    pub fn open_with_connections_and_permission_owner(
+        _db_path: &str,
+        writer: ManagedConnection,
+        reader: ManagedConnection,
+        runtime_authority_id: RuntimeAuthorityId,
+        prohibited_content: Arc<dyn ProhibitedContentPort>,
+        trust_store: Arc<crate::ProjectTrustStore>,
+        native_owner: Arc<runne_platform::local_command_linux::LinuxPermissionOwnerV1>,
+        root_fence: Arc<dyn super::taskrun_local_command::PermissionRootFenceOwnerV1>,
+    ) -> Result<Self, CommitError> {
+        let owner = RegisteredPermissionOwnerPair::checked(
+            runtime_authority_id.clone(),
+            trust_store,
+            native_owner,
+            root_fence,
+        )?;
+        Self::open_with_optional_permission_owner(
+            writer,
+            reader,
+            runtime_authority_id,
+            prohibited_content,
+            Some(owner),
+        )
+    }
+
+    fn open_with_optional_permission_owner(
+        writer: ManagedConnection,
+        reader: ManagedConnection,
+        runtime_authority_id: RuntimeAuthorityId,
+        prohibited_content: Arc<dyn ProhibitedContentPort>,
+        permission_owner: Option<RegisteredPermissionOwnerPair>,
+    ) -> Result<Self, CommitError> {
         apply_migrations(&writer).map_err(|_| {
             CommitError::StorageFailure(runne_application::ports::StorageFailureKind::CorruptData)
         })?;
@@ -94,6 +143,7 @@ impl StoreTransaction {
             reader,
             runtime_authority_id,
             prohibited_content,
+            permission_owner,
         ))
     }
 
@@ -102,6 +152,7 @@ impl StoreTransaction {
         reader: ManagedConnection,
         runtime_authority_id: RuntimeAuthorityId,
         prohibited_content: Arc<dyn ProhibitedContentPort>,
+        permission_owner: Option<RegisteredPermissionOwnerPair>,
     ) -> Self {
         Self {
             inner: Arc::new(StoreInner {
@@ -113,10 +164,25 @@ impl StoreTransaction {
                         .unwrap_or_default()
                         .as_millis() as u64,
                 ),
+                permission_owner,
             }),
             runtime_authority_id,
             prohibited_content,
         }
+    }
+
+    /// Returns only the target-preparation capability paired at this Store's construction.
+    #[cfg(target_os = "linux")]
+    pub fn local_permission_preparation(
+        &self,
+    ) -> Result<runne_platform::local_command_linux::LinuxPermissionPreparationV1, EventStoreError>
+    {
+        self.inner
+            .permission_owner
+            .as_ref()
+            .filter(|owner| owner.validate_retained_owner(&self.runtime_authority_id))
+            .map(|owner| owner.native_owner.preparation())
+            .ok_or(EventStoreError::Unavailable)
     }
 
     /// Return the runtime authority ID.

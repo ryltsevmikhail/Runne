@@ -54,43 +54,54 @@ pub(super) unsafe fn mount_private(
     targets: &[*const libc::c_char],
     source_paths: &[*const libc::c_char],
 ) -> i32 {
+    // Child-side helper of a multi-threaded parent: raw syscalls only. The
+    // loop is index-based so the debug build copies no iterator state: a
+    // memcpy here would be a lazy-PLT dependency inside the forked child.
     if targets.len() != source_paths.len()
         || unsafe {
-            libc::mount(
+            libc::syscall(
+                libc::SYS_mount,
                 c"tmpfs".as_ptr(),
                 c"/dev".as_ptr(),
                 c"tmpfs".as_ptr(),
-                libc::MS_NOSUID | libc::MS_NOEXEC,
-                c"mode=755".as_ptr().cast(),
+                (libc::MS_NOSUID | libc::MS_NOEXEC) as usize,
+                c"mode=755".as_ptr(),
             )
         } != 0
     {
         return -1;
     }
-    for (target, source_path) in targets.iter().zip(source_paths) {
+    let mut index = 0;
+    while index < targets.len() {
+        let target = targets[index];
+        let source_path = source_paths[index];
         let placeholder = unsafe {
-            libc::open(
-                *target,
-                libc::O_CREAT | libc::O_CLOEXEC | libc::O_RDWR,
+            libc::syscall(
+                libc::SYS_openat,
+                libc::AT_FDCWD,
+                target,
+                (libc::O_CREAT | libc::O_CLOEXEC | libc::O_RDWR) as usize,
                 0o600,
-            )
+            ) as i32
         };
         if placeholder < 0 {
             return -1;
         }
-        unsafe { libc::close(placeholder) };
+        unsafe { libc::syscall(libc::SYS_close, placeholder) };
         if unsafe {
-            libc::mount(
-                *source_path,
-                *target,
-                std::ptr::null(),
-                libc::MS_BIND,
-                std::ptr::null(),
+            libc::syscall(
+                libc::SYS_mount,
+                source_path,
+                target,
+                std::ptr::null::<libc::c_char>(),
+                libc::MS_BIND as usize,
+                std::ptr::null::<libc::c_void>(),
             )
         } != 0
         {
             return -1;
         }
+        index += 1;
     }
     0
 }

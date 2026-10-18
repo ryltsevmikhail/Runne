@@ -14,10 +14,29 @@ fn local_no_effect_releases_match(connection: &Connection) -> SqliteResult<bool>
         let Ok(taskrun_bytes) = <[u8; 16]>::try_from(taskrun_id.as_slice()) else {
             return Ok(false);
         };
+        let taskrun_key = runne_domain::id::TaskRunId::from_bytes(taskrun_bytes);
+        match crate::store::taskrun_local_command::permission::no_effect::current_route(
+            connection,
+            taskrun_key,
+        ) {
+            Ok(true) => {
+                if !crate::store::taskrun_local_command::permission::no_effect::settled_matches(
+                    connection,
+                    taskrun_key,
+                )
+                .unwrap_or(false)
+                {
+                    return Ok(false);
+                }
+                continue;
+            }
+            Ok(false) => {}
+            Err(_) => return Ok(false),
+        }
         let origin =
             match crate::store::taskrun_submit_origin::verify_submitted_v2_origin_for_readiness(
                 connection,
-                runne_domain::id::TaskRunId::from_bytes(taskrun_bytes),
+                taskrun_key,
             ) {
                 Ok(Some(origin)) => origin,
                 Ok(None) => return Ok(false),

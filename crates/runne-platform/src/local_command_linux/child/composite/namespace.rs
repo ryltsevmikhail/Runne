@@ -20,7 +20,25 @@ struct ProbeCloneArgs {
     cgroup: u64,
 }
 
+/// Applies a full zero identity change by raw syscall.
+///
+/// glibc's `setresgid`/`setresuid` wrappers use NPTL cross-thread setxid
+/// coordination (`_dl_load_lock` plus acknowledgements from every live
+/// thread) whenever `__libc_single_threaded` is false. Both children here are
+/// single-threaded clones of a multi-threaded parent, so that flag is
+/// inherited as false while the coordinating peers do not exist; the wrapper
+/// can then block forever on an inherited lock or on acknowledgements that
+/// never arrive. The raw syscall performs the same credential change for the
+/// only thread that exists here.
+fn setxid_zero(number: libc::c_long) -> libc::c_long {
+    // SAFETY: raw setxid syscall with constant arguments; performs the same
+    // credential change as the glibc wrapper for this only thread.
+    unsafe { libc::syscall(number, 0, 0, 0) }
+}
+
 pub(super) fn preflight_namespaces() -> Result<(), LinuxCommandError> {
+    let seccomp_filter = crate::local_command_linux::gate::prepare_composite_filter_probe()
+        .ok_or(LinuxCommandError::Unavailable)?;
     let mut pair = [0; 2];
     if unsafe {
         libc::socketpair(
@@ -57,27 +75,44 @@ pub(super) fn preflight_namespaces() -> Result<(), LinuxCommandError> {
         )
     };
     if pid == 0 {
+        // Child of a multi-threaded parent: raw syscalls only (see gate::enter).
         unsafe {
-            if libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL, 0, 0, 0) != 0
-                || libc::getppid() != 0
+            if libc::syscall(
+                libc::SYS_prctl,
+                libc::PR_SET_PDEATHSIG,
+                libc::SIGKILL,
+                0,
+                0,
+                0,
+            ) != 0
+                || libc::syscall(libc::SYS_getppid) != 0
             {
-                libc::_exit(101);
+                crate::local_command_linux::gate::exit_raw(101);
             }
             let mut mapped = 0u8;
-            if libc::recv(child.as_raw_fd(), (&mut mapped as *mut u8).cast(), 1, 0) != 1
+            if libc::syscall(
+                libc::SYS_recvfrom,
+                child.as_raw_fd(),
+                (&mut mapped as *mut u8).cast::<libc::c_void>(),
+                1usize,
+                0,
+                std::ptr::null::<u64>(),
+                std::ptr::null_mut::<u64>(),
+            ) != 1
                 || mapped != b'M'
-                || libc::setresgid(0, 0, 0) != 0
-                || libc::setresuid(0, 0, 0) != 0
+                || setxid_zero(libc::SYS_setresgid) != 0
+                || setxid_zero(libc::SYS_setresuid) != 0
                 || make_mounts_private() != 0
                 || mask_path(c"/sys".as_ptr()) != 0
                 || mount_private_proc() != 0
-                || libc::prctl(libc::PR_SET_DUMPABLE, 0, 0, 0, 0) != 0
-                || libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0
-                || crate::local_command_linux::gate::install_composite_filter_probe() != 0
+                || libc::syscall(libc::SYS_prctl, libc::PR_SET_DUMPABLE, 0, 0, 0, 0) != 0
+                || libc::syscall(libc::SYS_prctl, libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0
+                || crate::local_command_linux::gate::install_composite_filter_probe(&seccomp_filter)
+                    != 0
             {
-                libc::_exit(102);
+                crate::local_command_linux::gate::exit_raw(102);
             }
-            libc::_exit(0);
+            crate::local_command_linux::gate::exit_raw(0);
         }
     }
     drop(child);
@@ -170,11 +205,23 @@ pub(in crate::local_command_linux) unsafe fn enter_child(
     device_source_paths: &[*const libc::c_char],
 ) -> bool {
     let mut mapped = 0u8;
-    if unsafe { libc::recv(socket, (&mut mapped as *mut u8).cast(), 1, 0) } != 1 || mapped != b'M' {
+    if unsafe {
+        libc::syscall(
+            libc::SYS_recvfrom,
+            socket,
+            (&mut mapped as *mut u8).cast::<libc::c_void>(),
+            1usize,
+            0,
+            std::ptr::null::<u64>(),
+            std::ptr::null_mut::<u64>(),
+        )
+    } != 1
+        || mapped != b'M'
+    {
         return false;
     }
-    if unsafe { libc::setresgid(0, 0, 0) } != 0
-        || unsafe { libc::setresuid(0, 0, 0) } != 0
+    if setxid_zero(libc::SYS_setresgid) != 0
+        || setxid_zero(libc::SYS_setresuid) != 0
         || unsafe { make_mounts_private() } != 0
     {
         return false;
@@ -202,11 +249,11 @@ pub(in crate::local_command_linux) unsafe fn enter_child(
     if unsafe { credentials::drop_capabilities() } != 0 {
         return false;
     }
-    if unsafe { libc::prctl(libc::PR_SET_DUMPABLE, 0, 0, 0, 0) } != 0 {
+    if unsafe { libc::syscall(libc::SYS_prctl, libc::PR_SET_DUMPABLE, 0, 0, 0, 0) } != 0 {
         return false;
     }
     for fd in protected_fds {
-        unsafe { libc::close(*fd) };
+        unsafe { libc::syscall(libc::SYS_close, *fd) };
     }
     true
 }

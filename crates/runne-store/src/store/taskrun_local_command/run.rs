@@ -21,6 +21,7 @@ impl StoreTransaction {
         let tx = connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(|_| EventStoreError::Unavailable)?;
+        super::permission::require_legacy_bound_route(&tx, identity.taskrun_id)?;
         let stream = super::super::taskrun_claim::stream_validate::verify_stream(
             &tx,
             identity.taskrun_id,
@@ -73,6 +74,7 @@ impl StoreTransaction {
         let tx = connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(|_| EventStoreError::Unavailable)?;
+        super::permission::require_legacy_bound_route(&tx, identity.taskrun_id)?;
         verify_empty_proof(&empty, area_identity)?;
         let stream = super::super::taskrun_claim::stream_validate::verify_stream(
             &tx,
@@ -117,6 +119,7 @@ impl StoreTransaction {
         let tx = connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(|_| EventStoreError::Unavailable)?;
+        super::permission::require_legacy_bound_route(&tx, identity.taskrun_id)?;
         let state: Option<String> = tx.query_row(
             "SELECT state FROM taskrun_local_command_attempts WHERE taskrun_id=?1 AND attempt_id=?2 AND node_epoch=?3 AND fence=?4 AND managed_area_identity=?5",
             params![identity.taskrun_id.as_bytes(),identity.attempt_id.as_bytes(),identity.node_epoch as i64,identity.fence.0 as i64,area_identity], |row| row.get(0),
@@ -160,6 +163,7 @@ impl StoreTransaction {
         let tx = connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(|_| EventStoreError::Unavailable)?;
+        super::permission::require_legacy_bound_route(&tx, identity.taskrun_id)?;
         verify_empty_proof(&empty, area_identity)?;
         super::super::taskrun_claim::verify_active_assignment(&tx, identity)
             .map_err(|_| EventStoreError::CorruptData)?;

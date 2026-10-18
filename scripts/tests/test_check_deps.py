@@ -49,8 +49,8 @@ class CheckDepsTests(unittest.TestCase):
     def test_runne_platform_allows_platform_ports(self) -> None:
         self.assertEqual(
             checker.POLICIES["runne-platform"],
-            {"runne-application", "runne-platform-ports", "libc",
-             "rustix", "sha2", "thiserror", "uuid"},
+            {"base64", "runne-application", "runne-domain", "runne-platform-ports",
+             "libc", "rustix", "serde", "serde_json", "sha2", "thiserror", "uuid"},
         )
 
     def test_project_owner_authority_dependencies_are_exact_and_isolated(self) -> None:

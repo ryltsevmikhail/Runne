@@ -4,9 +4,13 @@ use std::collections::BTreeSet;
 
 use runne_domain::id::IntegrityDigest;
 
-use super::attenuation::root_contains;
 use super::model::PermissionScope;
-use super::scope_error::ScopeError;
+
+#[path = "closed_coverage.rs"]
+pub(super) mod closed_coverage;
+#[path = "composite_validation.rs"]
+mod validation;
+pub use closed_coverage::ClosedManagedCoverageV1;
 
 /// Opaque SHA-256 identity for one canonical composite scope.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -47,9 +51,9 @@ impl FilesystemRoot {
     pub fn new(
         root_identity: IntegrityDigest,
         components: Vec<String>,
-    ) -> Result<Self, ScopeError> {
+    ) -> Result<Self, super::scope_error::ScopeError> {
         if root_identity.as_bytes().iter().all(|byte| *byte == 0) {
-            return Err(ScopeError::InvalidRootIdentity);
+            return Err(super::scope_error::ScopeError::InvalidRootIdentity);
         }
         if components.iter().any(|part| {
             part.is_empty()
@@ -59,7 +63,7 @@ impl FilesystemRoot {
                 || part.contains('\\')
                 || part.chars().any(char::is_control)
         }) {
-            return Err(ScopeError::InvalidPathComponent);
+            return Err(super::scope_error::ScopeError::InvalidPathComponent);
         }
         Ok(Self {
             root_identity,
@@ -120,6 +124,8 @@ pub enum ManagedPolicyCoverage {
     /// The snapshot has restrictive rules; each invocation still receives its
     /// own exact Allow/Ask/Deny result from the managed-policy owner.
     Restricted { policy_digest: IntegrityDigest },
+    /// Opaque, fixed six-rule snapshot evidence for the V2 compiler path.
+    Closed(ClosedManagedCoverageV1),
 }
 
 impl ManagedPolicyCoverage {
@@ -129,12 +135,18 @@ impl ManagedPolicyCoverage {
             Self::Unrestricted { policy_digest } | Self::Restricted { policy_digest } => {
                 policy_digest
             }
+            Self::Closed(coverage) => coverage.policy_digest(),
         }
     }
 
     /// Whether the exact composite scope has no restrictive managed rules.
     pub const fn is_unrestricted(self) -> bool {
         matches!(self, Self::Unrestricted { .. })
+    }
+
+    /// Whether this coverage binds an opaque six-class snapshot.
+    pub const fn is_closed(&self) -> bool {
+        matches!(self, Self::Closed(_))
     }
 }
 
@@ -154,6 +166,8 @@ pub enum ContainmentStrategy {
     WorkspaceBoundV1,
     /// Admitted broad same-user filesystem/network namespace strategy.
     SameUserCompositeV1,
+    /// Broad same-user strategy with Landlock ABI 3 filesystem rights.
+    SameUserCompositeV2,
 }
 
 /// Immutable filesystem/network/child/budget/lifetime process grant.
@@ -177,107 +191,4 @@ pub struct CompositeEffectScope {
     pub containment: ContainmentStrategy,
     /// Digest of held protected-root identities and control-plane isolation strategy.
     pub protected_control_plane_policy_digest: IntegrityDigest,
-}
-
-impl CompositeEffectScope {
-    /// Rejects broad scopes without explicit protected-control-plane policy identity.
-    pub fn validate(&self) -> Result<(), ScopeError> {
-        if self.permission_scope.runtime_authority_id.0.is_empty()
-            || self.permission_scope.runtime_authority_id.0.len() > 256
-            || self
-                .permission_scope
-                .runtime_authority_id
-                .0
-                .chars()
-                .any(char::is_control)
-            || self
-                .permission_scope
-                .workspace_id
-                .as_bytes()
-                .iter()
-                .all(|byte| *byte == 0)
-        {
-            return Err(ScopeError::InvalidPermissionScope);
-        }
-        if self
-            .protected_control_plane_policy_digest
-            .as_bytes()
-            .iter()
-            .all(|byte| *byte == 0)
-        {
-            return Err(ScopeError::MissingProtectedControlPlanePolicy);
-        }
-        if self.containment == ContainmentStrategy::SameUserCompositeV1
-            && self
-                .protected_control_plane_policy_digest
-                .as_bytes()
-                .iter()
-                .all(|byte| *byte == 0)
-        {
-            return Err(ScopeError::MissingProtectedControlPlanePolicy);
-        }
-        if self.network == NetworkScope::BroadSameUser
-            && self.containment != ContainmentStrategy::SameUserCompositeV1
-        {
-            return Err(ScopeError::BroadNetworkRequiresCompositeContainment);
-        }
-        if matches!(self.filesystem.posture, FilesystemPosture::BroadSameUser)
-            && self.containment != ContainmentStrategy::SameUserCompositeV1
-        {
-            return Err(ScopeError::BroadFilesystemRequiresCompositeContainment);
-        }
-        if self
-            .managed_policy
-            .policy_digest()
-            .as_bytes()
-            .iter()
-            .all(|byte| *byte == 0)
-        {
-            return Err(ScopeError::MissingManagedPolicyDigest);
-        }
-        if matches!(self.filesystem.posture, FilesystemPosture::BroadSameUser)
-            && self.network != NetworkScope::BroadSameUser
-        {
-            return Err(ScopeError::BroadFilesystemRequiresBroadNetwork);
-        }
-        let roots = match &self.filesystem.posture {
-            FilesystemPosture::BoundedRoots(roots) if roots.is_empty() => {
-                return Err(ScopeError::EmptyBoundedRoots);
-            }
-            FilesystemPosture::BoundedRoots(roots) => roots,
-            _ => return self.validate_lifetime(),
-        };
-        for root in roots {
-            if root.root_identity.as_bytes().iter().all(|byte| *byte == 0) {
-                return Err(ScopeError::InvalidRootIdentity);
-            }
-            if root.components.iter().any(|part| {
-                part.is_empty()
-                    || part == "."
-                    || part == ".."
-                    || part.contains('/')
-                    || part.contains('\\')
-                    || part.chars().any(char::is_control)
-            }) {
-                return Err(ScopeError::InvalidPathComponent);
-            }
-        }
-        if roots.iter().enumerate().any(|(index, root)| {
-            roots
-                .iter()
-                .skip(index + 1)
-                .any(|other| root_contains(root, other) || root_contains(other, root))
-        }) {
-            return Err(ScopeError::OverlappingFilesystemRoots);
-        }
-        self.validate_lifetime()
-    }
-
-    fn validate_lifetime(&self) -> Result<(), ScopeError> {
-        if self.lifetime_ms == 0 {
-            Err(ScopeError::ZeroLifetime)
-        } else {
-            Ok(())
-        }
-    }
 }

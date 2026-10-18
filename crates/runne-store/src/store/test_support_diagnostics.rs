@@ -56,11 +56,22 @@ fn write_test_stage(stage: &'static str) {
         "restart.budget",
         "restart.effect_rows",
         "restart.dispatch_intent",
+        "no_effect.capture",
+        "no_effect.claim",
+        "no_effect.occupation",
+        "no_effect.runtime_evidence",
+        "no_effect.release",
+        "no_effect.mark",
     ];
     if !ALLOWED.contains(&stage) {
         return;
     }
-    let Some(directory) = std::env::var_os("RUNNE_TEST_D2_PROVIDER_BARRIER_DIR") else {
+    let directory_name = if stage.starts_with("no_effect.") {
+        "RUNNE_TEST_PROTECTED_RUNTIME_ROOT"
+    } else {
+        "RUNNE_TEST_D2_PROVIDER_BARRIER_DIR"
+    };
+    let Some(directory) = std::env::var_os(directory_name) else {
         return;
     };
     let directory = std::path::Path::new(&directory);

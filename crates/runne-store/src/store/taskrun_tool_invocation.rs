@@ -7,12 +7,22 @@ mod write;
 pub use model::*;
 pub use read::ToolInvocationLookup;
 pub use recovery::ToolInvocationAreaRecoveryCandidate;
+pub(crate) use write::permission_is_current_on_connection;
 
 use super::StoreTransaction;
 use runne_application::ports::TaskRunAssignmentIdentity;
 use runne_domain::{id::TaskRunId, reference::BudgetReservationRef};
 
 impl StoreTransaction {
+    pub fn observe_taskrun_tool_permission(
+        &self,
+        key: ToolInvocationKey,
+        semantic_digest: IntegrityDigest,
+        assignment: &TaskRunAssignmentIdentity,
+    ) -> Result<bool, ToolInvocationStoreError> {
+        write::observe_permission(self, key, semantic_digest, assignment)
+    }
+
     pub fn ensure_taskrun_tool_loop_budget(
         &self,
         taskrun_id: TaskRunId,
@@ -164,18 +174,16 @@ impl StoreTransaction {
         )
     }
 
-    pub fn with_taskrun_tool_invocation_release<T, E, F>(
+    #[cfg(target_os = "linux")]
+    pub fn release_taskrun_tool_invocation_helper(
         &self,
         key: ToolInvocationKey,
         semantic_digest: IntegrityDigest,
         assignment: &TaskRunAssignmentIdentity,
         now_unix_ms: i64,
-        release: F,
-    ) -> Result<Result<T, E>, ToolInvocationStoreError>
-    where
-        F: FnOnce() -> Result<T, E>,
-    {
-        write::with_release(self, key, semantic_digest, assignment, now_unix_ms, release)
+        child: &mut runne_platform::local_command_linux::PermissionHelperChildV1<'_>,
+    ) -> Result<(), ToolInvocationStoreError> {
+        write::with_release(self, key, semantic_digest, assignment, now_unix_ms, child)
     }
 
     pub fn get_taskrun_tool_invocation(

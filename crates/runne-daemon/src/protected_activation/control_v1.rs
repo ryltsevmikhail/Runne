@@ -9,6 +9,16 @@ pub(crate) fn run_control_loop(
 ) -> Result<(), LaunchAuthorityError> {
     channel.enter_control_loop()?;
     let mut last_renew_sequence = 0_u64;
+    #[cfg(all(target_os = "linux", feature = "desktop-protected"))]
+    let mut last_permission_sequence = 0_u64;
+    #[cfg(all(target_os = "linux", feature = "desktop-protected"))]
+    let mut active_permission_exchange: Option<
+        super::permission_dispatch::PermissionModeExchange,
+    > = None;
+    #[cfg(all(target_os = "linux", feature = "desktop-protected"))]
+    if let Some(control) = &root_admission {
+        control.observe_permission_launch(&owned_launch, &keys)?;
+    }
     #[cfg(all(any(unix, windows), feature = "desktop-protected"))]
     let mut last_root_sequence = 0_u64;
     #[cfg(all(any(unix, windows), feature = "desktop-protected"))]
@@ -27,6 +37,19 @@ pub(crate) fn run_control_loop(
             root_admission.as_deref(),
         )? {
             last_root_sequence = sequence;
+            continue;
+        }
+        #[cfg(all(target_os = "linux", feature = "desktop-protected"))]
+        if let Some(sequence) = super::permission_dispatch::dispatch_permission_mode_request(
+            &mut channel,
+            &frame,
+            &keys,
+            &owned_launch,
+            last_permission_sequence,
+            &mut active_permission_exchange,
+            root_admission.as_deref(),
+        )? {
+            last_permission_sequence = sequence;
             continue;
         }
         if let Ok(renewal) = ProtectedRenewRequestV1::decode_frame(&frame) {
@@ -91,6 +114,13 @@ pub(crate) fn run_control_loop(
             channel.write_control_frame(&ticket_frame)?;
             last_renew_sequence = renewal.sequence();
             owned_launch = ticket.next_owned_launch();
+            #[cfg(all(target_os = "linux", feature = "desktop-protected"))]
+            {
+                active_permission_exchange = None;
+                if let Some(control) = &root_admission {
+                    control.observe_permission_launch(&owned_launch, &keys)?;
+                }
+            }
             continue;
         }
 

@@ -82,7 +82,8 @@ pub(super) fn decode_history(
     let managed_policy_version = reader.u64()?;
     let containment = match reader.byte()? {
         0 => None,
-        tag => Some(containment(tag)?),
+        1 => Some(containment(reader.byte()?)?),
+        _ => return Err(PermissionModeStoreError::CorruptData),
     };
     let network_state = network(reader.byte()?)?;
     let expires_at_unix_ms = match reader.byte()? {
@@ -197,15 +198,18 @@ fn containment_tag(value: ContainmentStrategy) -> u8 {
     match value {
         ContainmentStrategy::WorkspaceBoundV1 => 1,
         ContainmentStrategy::SameUserCompositeV1 => 2,
+        ContainmentStrategy::SameUserCompositeV2 => 3,
     }
 }
 fn containment(value: u8) -> Result<ContainmentStrategy, PermissionModeStoreError> {
     match value {
         1 => Ok(ContainmentStrategy::WorkspaceBoundV1),
         2 => Ok(ContainmentStrategy::SameUserCompositeV1),
+        3 => Ok(ContainmentStrategy::SameUserCompositeV2),
         _ => Err(PermissionModeStoreError::CorruptData),
     }
 }
+
 fn network_tag(value: NetworkState) -> u8 {
     match value {
         NetworkState::Unavailable => 1,
@@ -221,3 +225,7 @@ fn network(value: u8) -> Result<NetworkState, PermissionModeStoreError> {
         _ => Err(PermissionModeStoreError::CorruptData),
     }
 }
+
+#[cfg(test)]
+#[path = "receipt_codec_tests.rs"]
+mod tests;

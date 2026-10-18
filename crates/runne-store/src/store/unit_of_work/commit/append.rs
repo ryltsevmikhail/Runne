@@ -12,14 +12,33 @@ impl StoreTransaction {
         new_gp: i64,
         now: i64,
         new_stream: bool,
+        permission_terminal: Option<
+            crate::store::taskrun_local_command::permission::PermissionTerminalCommitV1<'_, '_>,
+        >,
     ) -> Result<CommitResult, CommitError> {
-        // Step 5-6: Insert events + update stream
         let event_codec = TaskRunEventCodec;
         let outcome_codec = CommandOutcomeCodec;
         let new_version = current_version + payload.events.len() as i64;
         let envelope_timestamp = Timestamp::from_unix_micros(now);
+        #[cfg(target_os = "linux")]
+        let permission_terminal_proof = permission_terminal
+            .as_ref()
+            .map(|terminal| {
+                let proof = crate::store::taskrun_local_command::permission::validate_terminal(
+                    &tx, self, terminal, &payload,
+                )?;
+                crate::store::taskrun_local_command::permission::prepare_terminal(
+                    &tx, terminal, &proof,
+                )?;
+                Ok::<_, CommitError>(proof)
+            })
+            .transpose()?;
+        #[cfg(not(target_os = "linux"))]
+        let _ = permission_terminal;
         for (i, event) in payload.events.iter().enumerate() {
-            crate::store::event_guard::guard_local_command_terminal(&tx, event)?;
+            if permission_terminal.is_none() {
+                crate::store::event_guard::guard_local_command_terminal(&tx, event)?;
+            }
             let sequence = u64::try_from(current_version + 1 + i as i64)
                 .map_err(|_| storage_failure(StorageFailureKind::IntegrityViolation))?;
             let global_position = base_gp
@@ -69,7 +88,6 @@ impl StoreTransaction {
                 }
             };
 
-            // Build temporary envelope for digest computation
             let aggregate_id = AggregateId::TaskRun(taskrun_id);
             let temp_envelope = EventEnvelope::from_parts(
                 *event.event_id(),
@@ -133,11 +151,8 @@ impl StoreTransaction {
             })?;
         }
 
-        // Update stream metadata
         let last_event = payload.events.last().unwrap();
         if current_version == 0 {
-            // Stream row was inserted before events (see version check above).
-            // UPDATE to fill in version and event metadata.
             tx.execute(
                 "UPDATE aggregate_streams
                  SET current_version = ?1, last_event_id = ?2, last_timestamp = ?3
@@ -175,9 +190,6 @@ impl StoreTransaction {
             })?;
         }
 
-        // The accepted-cancellation fence validates the complete TaskRun
-        // prefix, so append it after the stream head is advanced while still
-        // holding the same IMMEDIATE transaction.
         for (index, event) in payload.events.iter().enumerate() {
             if matches!(
                 event.payload(),
@@ -189,6 +201,14 @@ impl StoreTransaction {
                     taskrun_id,
                     *event.event_id(),
                     sequence,
+                    now,
+                )
+                .map_err(|_| storage_failure(StorageFailureKind::IntegrityViolation))?;
+                crate::store::taskrun_local_command::permission::record_cancellation_stops(
+                    &tx,
+                    taskrun_id,
+                    sequence as u64,
+                    event.event_id().as_bytes(),
                     now,
                 )
                 .map_err(|_| storage_failure(StorageFailureKind::IntegrityViolation))?;
@@ -221,6 +241,16 @@ impl StoreTransaction {
                 runne_application::ports::StorageFailureKind::IntegrityViolation,
             )
         })?;
+
+        #[cfg(target_os = "linux")]
+        if let (Some(terminal), Some(proof)) = (
+            permission_terminal.as_ref(),
+            permission_terminal_proof.as_ref(),
+        ) {
+            crate::store::taskrun_local_command::permission::write_terminal(
+                &tx, terminal, proof, now,
+            )?;
+        }
 
         // Insert receipt
         let outcome_bytes = outcome_codec.encode(&payload.command_result).map_err(|_| {
@@ -256,12 +286,7 @@ impl StoreTransaction {
             )
         })?;
         #[cfg(feature = "test-support")]
-        if matches!(
-            &payload.command_result,
-            runne_application::commands::CommandOutcome::TaskRunSubmitted { .. }
-        ) {
-            super::super::commit_gate::note_durable_commit(&payload.command_id.to_string());
-        }
+        super::super::commit_gate::note_command_outcome(&payload);
 
         Ok(CommitResult::Committed {
             new_version: new_version as u64,

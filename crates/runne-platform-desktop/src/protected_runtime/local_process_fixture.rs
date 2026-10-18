@@ -79,6 +79,11 @@ fn preserve_linux_fixture_environment(
     command
         .env("RUNNE_TEST_T1_TRUST_COMPOSITION", "1")
         .env("RUNNE_TEST_PROTECTED_RUNTIME_ROOT", runtime_root);
+    if std::env::var_os("RUNNE_TEST_T1_LOCAL_LEGACY_SELECTION").as_deref()
+        == Some(std::ffi::OsStr::new("1"))
+    {
+        command.env("RUNNE_TEST_T1_LOCAL_LEGACY_SELECTION", "1");
+    }
     preserve_d2_fixture_environment(command)?;
     if let Some(barrier) = std::env::var_os("RUNNE_TEST_T1_TRUST_BARRIER_DIR") {
         command.env("RUNNE_TEST_T1_TRUST_BARRIER_DIR", barrier);
@@ -153,6 +158,7 @@ fn preserve_d2_scenario(command: &mut Command) -> Result<(), ProtectedBundledRun
             | "unknown-tool-proposal"
             | "malformed-tool-arguments"
             | "early-final-stop"
+            | "approved-target-create-race"
             | "target-changed-before-go"
             | "cancel-before-go"
             | "cancel-after-create-effect"
@@ -170,11 +176,24 @@ fn preserve_d2_scenario(command: &mut Command) -> Result<(), ProtectedBundledRun
         return Err(ProtectedBundledRuntimeError::InvalidState);
     }
     command.env("RUNNE_TEST_D2_TOOL_SCENARIO", scenario);
+    if scenario == "approved-target-create-race"
+        && std::env::var("RUNNE_TEST_T1_APPROVED_TARGET_RACE").as_deref() == Ok("1")
+    {
+        command.env("RUNNE_TEST_T1_APPROVED_TARGET_RACE", "1");
+    }
     if let Some(stage) = std::env::var_os("RUNNE_TEST_D2_KILL_AT_STAGE") {
         let stage = stage
             .to_str()
             .ok_or(ProtectedBundledRuntimeError::InvalidState)?;
-        if !matches!(stage, "start_cycle" | "cycle_started" | "context_committed" | "plan_committed" | "proposal_received" | "provider_uncertain") {
+        if !matches!(
+            stage,
+            "start_cycle"
+                | "cycle_started"
+                | "context_committed"
+                | "plan_committed"
+                | "proposal_received"
+                | "provider_uncertain"
+        ) {
             return Err(ProtectedBundledRuntimeError::InvalidState);
         }
         command.env("RUNNE_TEST_D2_KILL_AT_STAGE", stage);
@@ -201,7 +220,12 @@ fn preserve_worker_barrier_environment(
         .ok_or(ProtectedBundledRuntimeError::InvalidState)?;
     if !matches!(
         mode,
-        "pre-release" | "after-exit" | "after-terminal" | "approved-before-lease" | "claimed-before-area"
+        "pre-release"
+            | "after-exit"
+            | "after-terminal"
+            | "after-result-before-step-outcome"
+            | "approved-before-lease"
+            | "claimed-before-area"
     ) {
         return Err(ProtectedBundledRuntimeError::InvalidState);
     }

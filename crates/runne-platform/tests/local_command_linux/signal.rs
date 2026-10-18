@@ -184,6 +184,15 @@ fn release_after_peer_death_cannot_raise_sigpipe() {
     assert!(child.release().is_err(), "dead peer release should fail");
     drop(child);
     assert!(!marker.exists());
-    assert!(!area.is_populated().expect("empty area"));
+    // The killed child may still be listed in the area cgroup for a short
+    // window after the observed death until its reap completes; wait bounded.
+    let empty_deadline = std::time::Instant::now() + Duration::from_secs(2);
+    while area.is_populated().expect("empty area") {
+        assert!(
+            std::time::Instant::now() < empty_deadline,
+            "killed child stayed in the area after death"
+        );
+        std::thread::sleep(Duration::from_millis(2));
+    }
     area.remove();
 }

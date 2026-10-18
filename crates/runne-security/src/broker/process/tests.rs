@@ -184,21 +184,64 @@ mod tests {
     }
 
     #[test]
+    fn structured_mode_rejects_bash_zsh_and_powershell_aliases() {
+        let broker = ProcessBroker::new(CommandPolicy::StructuredOnly);
+        for alias in [
+            "bash",
+            "BASH",
+            "zsh",
+            "ZSH",
+            "powershell",
+            "powershell.exe",
+            "pwsh",
+            "pwsh.exe",
+        ] {
+            let mut spec = valid_spec();
+            let separator = if cfg!(windows) { '\\' } else { '/' };
+            spec.executable = format!("{}{separator}{alias}", virtual_cwd());
+            assert_eq!(
+                broker.validate_spec(&spec),
+                Err(ProcessError::ShellCommandForbidden),
+                "StructuredOnly must reject the {alias} shell alias"
+            );
+        }
+    }
+
+    #[test]
     fn structured_argv_rejects_control_bytes_and_redirect_delimiters() {
         let broker = ProcessBroker::new(CommandPolicy::StructuredOnly);
-        let mut spec = valid_spec();
-        spec.argv = vec!["line\nbreak".into()];
-        assert_eq!(
-            broker.validate_spec(&spec),
-            Err(ProcessError::ShellCommandForbidden)
-        );
+        for argument in [
+            "line\nbreak",
+            "line\rbreak",
+            "nul\0byte",
+            "delete\u{7f}byte",
+            "first;second",
+            "first|second",
+            "$(touch marker)",
+            "`touch marker`",
+            "output > file",
+            "input < file",
+            "left & right",
+        ] {
+            let mut spec = valid_spec();
+            spec.argv = vec![argument.into()];
+            assert_eq!(
+                broker.validate_spec(&spec),
+                Err(ProcessError::ShellCommandForbidden),
+                "structured argv must reject {argument:?}"
+            );
+        }
+    }
 
+    #[test]
+    fn structured_argv_accepts_literal_unicode_brackets_and_quotes() {
+        let broker = ProcessBroker::new(CommandPolicy::StructuredOnly);
         let mut spec = valid_spec();
-        spec.argv = vec!["output > file".into()];
-        assert_eq!(
-            broker.validate_spec(&spec),
-            Err(ProcessError::ShellCommandForbidden)
-        );
+        spec.argv = vec![
+            "--value".into(),
+            "café [square] {curly} 'single' \"double\"".into(),
+        ];
+        assert_eq!(broker.validate_spec(&spec), Ok(()));
     }
 
     #[test]

@@ -17,6 +17,7 @@ Register-ArgumentCompleter -Native -CommandName 'runne' -ScriptBlock {
         [CompletionResult]::new('conversation', 'conversation', [CompletionResultType]::ParameterValue, 'Manage conversations')
         [CompletionResult]::new('task', 'task', [CompletionResultType]::ParameterValue, 'Inspect runtime task runs')
         [CompletionResult]::new('provider', 'provider', [CompletionResultType]::ParameterValue, 'Manage provider credentials')
+        [CompletionResult]::new('permissions', 'permissions', [CompletionResultType]::ParameterValue, 'Read modes and pending approvals')
         [CompletionResult]::new('status', 'status', [CompletionResultType]::ParameterValue, 'Show runtime connection status')
         [CompletionResult]::new('health', 'health', [CompletionResultType]::ParameterValue, 'Check runtime health status')
         [CompletionResult]::new('doctor', 'doctor', [CompletionResultType]::ParameterValue, 'Run comprehensive system diagnostics')
@@ -59,6 +60,48 @@ Register-ArgumentCompleter -Native -CommandName 'runne' -ScriptBlock {
         'provider' {
             return @(
                 [CompletionResult]::new('credential', 'credential', [CompletionResultType]::ParameterValue, 'Manage credentials')
+                [CompletionResult]::new('--help', '--help', [CompletionResultType]::ParameterName, 'Show help')
+            )
+        }
+        'permissions' {
+            return @(
+                [CompletionResult]::new('status', 'status', [CompletionResultType]::ParameterValue, 'Read current selected/effective mode')
+                [CompletionResult]::new('command', 'command', [CompletionResultType]::ParameterValue, 'Read permission command outcome')
+                [CompletionResult]::new('mode', 'mode', [CompletionResultType]::ParameterValue, 'Request a mode change')
+                [CompletionResult]::new('approvals', 'approvals', [CompletionResultType]::ParameterValue, 'List pending approvals')
+                [CompletionResult]::new('--workspace-id', '--workspace-id', [CompletionResultType]::ParameterName, 'Workspace ID')
+                [CompletionResult]::new('--command-id', '--command-id', [CompletionResultType]::ParameterName, 'Permission command ID')
+                [CompletionResult]::new('--help', '--help', [CompletionResultType]::ParameterName, 'Show help')
+            )
+        }
+        'command' {
+            return @(
+                [CompletionResult]::new('status', 'status', [CompletionResultType]::ParameterValue, 'Read permission command outcome')
+                [CompletionResult]::new('--workspace-id', '--workspace-id', [CompletionResultType]::ParameterName, 'Workspace ID')
+                [CompletionResult]::new('--command-id', '--command-id', [CompletionResultType]::ParameterName, 'Permission command ID')
+                [CompletionResult]::new('--help', '--help', [CompletionResultType]::ParameterName, 'Show help')
+            )
+        }
+        'mode' {
+            return @(
+                [CompletionResult]::new('set', 'set', [CompletionResultType]::ParameterValue, 'Request one mode change')
+                [CompletionResult]::new('--workspace-id', '--workspace-id', [CompletionResultType]::ParameterName, 'Workspace ID')
+                [CompletionResult]::new('--command-id', '--command-id', [CompletionResultType]::ParameterName, 'Caller-supplied command UUIDv7')
+                [CompletionResult]::new('--idempotency-key', '--idempotency-key', [CompletionResultType]::ParameterName, 'Caller-supplied key')
+                [CompletionResult]::new('--mode', '--mode', [CompletionResultType]::ParameterName, 'ask_always, risk_based, or full_access')
+                [CompletionResult]::new('--expected-revision', '--expected-revision', [CompletionResultType]::ParameterName, 'Observed authorization revision')
+                [CompletionResult]::new('--preset-version', '--preset-version', [CompletionResultType]::ParameterName, 'Preset version 1')
+                [CompletionResult]::new('--expires-at-unix-ms', '--expires-at-unix-ms', [CompletionResultType]::ParameterName, 'none or positive deadline')
+            )
+        }
+        'approvals' {
+            return @(
+                [CompletionResult]::new('list', 'list', [CompletionResultType]::ParameterValue, 'List pending approvals')
+                [CompletionResult]::new('respond', 'respond', [CompletionResultType]::ParameterValue, 'Confirm and submit one approval decision')
+                [CompletionResult]::new('--approval-id', '--approval-id', [CompletionResultType]::ParameterName, 'Approval ID')
+                [CompletionResult]::new('--decision', '--decision', [CompletionResultType]::ParameterName, 'approve or deny')
+                [CompletionResult]::new('--command-id', '--command-id', [CompletionResultType]::ParameterName, 'Caller-supplied command UUIDv7')
+                [CompletionResult]::new('--idempotency-key', '--idempotency-key', [CompletionResultType]::ParameterName, 'Caller-supplied idempotency key')
                 [CompletionResult]::new('--help', '--help', [CompletionResultType]::ParameterName, 'Show help')
             )
         }

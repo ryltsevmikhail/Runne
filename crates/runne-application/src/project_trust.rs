@@ -15,8 +15,18 @@
 
 use thiserror::Error;
 
+#[path = "project_trust/admin.rs"]
+pub mod admin;
+mod effects;
 mod persistence;
+#[path = "project_trust/policy_digest.rs"]
+mod policy_digest;
+pub use effects::{
+    ManagedEffectClass, ManagedEffectDecision, ManagedEffectPolicyV1,
+    ProjectTrustEffectPolicySnapshot,
+};
 pub use persistence::{ProjectTrustControlLease, ProjectTrustEffectLease, ProjectTrustPersistence};
+pub use policy_digest::managed_effect_policy_digest_v2;
 
 /// Frozen deny-policy version implemented by `runne-security`.
 /// Policy revision 2 (2026-09-19): Unicode case-mapped over-deny keys, the

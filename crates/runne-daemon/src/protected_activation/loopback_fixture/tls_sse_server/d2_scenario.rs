@@ -27,6 +27,7 @@ pub(super) fn selected(runtime_root: &std::path::Path) -> Result<Option<String>,
             | "unknown-tool-proposal"
             | "malformed-tool-arguments"
             | "early-final-stop"
+            | "approved-target-create-race"
             | "target-changed-before-go"
             | "cancel-before-go"
             | "cancel-after-create-effect"

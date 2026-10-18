@@ -5,10 +5,19 @@ edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 build = "build.rs"
+# Explicit target discovery only: `tauri build` enumerates every `[[bin]]`
+# target of this package and copies each into the bundle, so the feature-gated
+# D2 GUI qualification harness must stay a non-bin target (`[[example]]`).
+autobins = false
+autoexamples = false
 
 [[bin]]
+name = "runne-desktop"
+path = "src/main.rs"
+
+[[example]]
 name = "d2-gui-qualification"
-path = "src/bin/d2_gui_qualification.rs"
+path = "examples/d2_gui_qualification.rs"
 required-features = ["test-support"]
 
 [features]
@@ -44,6 +53,9 @@ tokio.workspace = true
 thiserror.workspace = true
 uuid.workspace = true
 zeroize.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+gtk = "=0.18.2"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 block2 = "=0.6.2"

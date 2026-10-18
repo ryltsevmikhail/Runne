@@ -1,4 +1,3 @@
-
 pub(super) fn load_permission(
     store: &StoreTransaction,
     key: ToolInvocationKey,
@@ -80,7 +79,9 @@ pub(super) fn load_permission(
         runtime_authority_id,
         principal_id,
         workspace_id: runne_domain::id::WorkspaceId::from_bytes(
-            workspace_id.try_into().map_err(|_| ToolInvocationStoreError::CorruptData)?,
+            workspace_id
+                .try_into()
+                .map_err(|_| ToolInvocationStoreError::CorruptData)?,
         ),
         selected_mode: match selected_mode {
             1 => PermissionMode::AskAlways,
@@ -93,23 +94,32 @@ pub(super) fn load_permission(
         managed_policy_version: u64::try_from(managed_policy_version)
             .map_err(|_| ToolInvocationStoreError::CorruptData)?,
         managed_policy_digest: IntegrityDigest::from_bytes(
-            managed_policy_digest.try_into().map_err(|_| ToolInvocationStoreError::CorruptData)?,
+            managed_policy_digest
+                .try_into()
+                .map_err(|_| ToolInvocationStoreError::CorruptData)?,
         ),
         composite_scope_digest: IntegrityDigest::from_bytes(
-            composite_scope_digest.try_into().map_err(|_| ToolInvocationStoreError::CorruptData)?,
+            composite_scope_digest
+                .try_into()
+                .map_err(|_| ToolInvocationStoreError::CorruptData)?,
         ),
         containment: match containment {
             1 => ContainmentStrategy::WorkspaceBoundV1,
             2 => ContainmentStrategy::SameUserCompositeV1,
+            3 => ContainmentStrategy::SameUserCompositeV2,
             _ => return Err(ToolInvocationStoreError::CorruptData),
         },
         native_scope_handle: IntegrityDigest::from_bytes(
-            native_scope_handle.try_into().map_err(|_| ToolInvocationStoreError::CorruptData)?,
+            native_scope_handle
+                .try_into()
+                .map_err(|_| ToolInvocationStoreError::CorruptData)?,
         ),
         decision_source: ToolPermissionDecisionSource::from_tag(decision_source)
             .ok_or(ToolInvocationStoreError::CorruptData)?,
         relevant_policy_digest: IntegrityDigest::from_bytes(
-            relevant_policy_digest.try_into().map_err(|_| ToolInvocationStoreError::CorruptData)?,
+            relevant_policy_digest
+                .try_into()
+                .map_err(|_| ToolInvocationStoreError::CorruptData)?,
         ),
         expires_at_unix_ms,
     }))

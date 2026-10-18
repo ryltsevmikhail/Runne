@@ -58,6 +58,12 @@ enum CliError {
     AuthorityVerifyFailed,
     #[cfg_attr(not(test), allow(dead_code))]
     AuthorityTrustResetRebootstrapRequired,
+    PermissionRecoveryIo(CanonicalId),
+    PermissionRecoveryCorrupt(CanonicalId),
+    PermissionRecoveryConflict(CanonicalId),
+    PermissionRecoveryScopeMismatch(CanonicalId),
+    PermissionCommandUnknown(CanonicalId),
+    PermissionCommandUnavailable(CanonicalId),
 }
 
 impl CliError {
@@ -67,7 +73,13 @@ impl CliError {
             Self::Usage | Self::UnknownCommand(_) | Self::AuthorityUsage => 2,
             Self::Profile | Self::ProfileIncompatible => 3,
             Self::CredentialOperation | Self::UnsupportedCredentialBackend => 4,
-            Self::TaskUncertain(_) | Self::CancelPending(_) => 5,
+            Self::TaskUncertain(_) | Self::CancelPending(_) | Self::PermissionCommandUnknown(_) => {
+                5
+            }
+            Self::Api(error) => match error.kind() {
+                RuntimeApiErrorKind::UnknownAfterSend => 5,
+                _ => 1,
+            },
             _ => 1,
         }
     }
@@ -90,6 +102,17 @@ impl CliError {
             Self::Api(error) if error.kind() == RuntimeApiErrorKind::ModelMismatch => {
                 Some(ErrorCode::ModelMismatch)
             }
+            Self::Api(error) if error.kind() == RuntimeApiErrorKind::UnknownAfterSend => {
+                Some(ErrorCode::CommandOutcomeUnknown)
+            }
+            Self::PermissionRecoveryIo(_) => Some(ErrorCode::PermissionRecoveryIo),
+            Self::PermissionRecoveryCorrupt(_) => Some(ErrorCode::PermissionRecoveryCorrupt),
+            Self::PermissionRecoveryConflict(_) => Some(ErrorCode::PermissionRecoveryConflict),
+            Self::PermissionRecoveryScopeMismatch(_) => {
+                Some(ErrorCode::PermissionRecoveryScopeMismatch)
+            }
+            Self::PermissionCommandUnknown(_) => Some(ErrorCode::PermissionCommandUnknown),
+            Self::PermissionCommandUnavailable(_) => Some(ErrorCode::PermissionCommandUnavailable),
             Self::SessionNotFound => Some(ErrorCode::SessionNotFound),
             Self::SessionWorkspaceMismatch => Some(ErrorCode::SessionWorkspaceMismatch),
             _ => Some(ErrorCode::ApiError),
@@ -108,6 +131,27 @@ impl fmt::Display for CliError {
                 formatter.write_str("local runtime profile is incompatible")
             }
             Self::Runtime => formatter.write_str("runtime is unavailable"),
+            Self::PermissionRecoveryIo(command_id) => {
+                write!(formatter, "permission_recovery_io command_id={command_id}")
+            }
+            Self::PermissionRecoveryCorrupt(command_id) => {
+                write!(formatter, "permission_recovery_corrupt command_id={command_id}")
+            }
+            Self::PermissionRecoveryConflict(command_id) => {
+                write!(formatter, "permission_recovery_conflict command_id={command_id}")
+            }
+            Self::PermissionRecoveryScopeMismatch(command_id) => {
+                write!(formatter, "permission_recovery_scope_mismatch command_id={command_id}")
+            }
+            Self::PermissionCommandUnknown(command_id) => {
+                write!(formatter, "permission_command_unknown command_id={command_id}")
+            }
+            Self::PermissionCommandUnavailable(command_id) => {
+                write!(formatter, "permission_command_unavailable command_id={command_id}")
+            }
+            Self::Api(error) if error.kind() == RuntimeApiErrorKind::UnknownAfterSend => {
+                formatter.write_str("operation outcome is unknown; refresh state before retrying")
+            }
             Self::Api(error) => {
                 write!(formatter, "{error}")?;
                 if let Some(request_id) = error.request_id() {

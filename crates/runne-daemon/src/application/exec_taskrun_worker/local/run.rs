@@ -16,7 +16,7 @@ pub(in crate::application::exec_taskrun_worker) mod test_barrier;
 #[path = "run/tool_executor.rs"]
 pub(in crate::application) mod tool_executor;
 #[path = "run/x2_supervisor.rs"]
-mod x2_supervisor;
+pub(super) mod x2_supervisor;
 use supervise::{mark_unconfirmed, supervise};
 
 impl DaemonAutomaticTaskRuns {

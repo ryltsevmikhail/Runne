@@ -228,7 +228,12 @@ pub(crate) async fn restart_same_root(
         runne_platform_desktop::DevelopmentBundledRuntimeLauncher::new(),
         spec,
     );
-    reopened.start().unwrap_or_else(|error| {
+    let start = if crate::t1_credential_companion::enabled() {
+        reopened.start_capturing_for_test(crate::random_secret())
+    } else {
+        reopened.start()
+    };
+    start.unwrap_or_else(|error| {
         let stage = std::fs::read_to_string(runtime_root.join(".runne-test-protected-d2-stage"))
             .unwrap_or_else(|_| "unavailable".to_owned());
         panic!("restart same D2 runtime root failed at fixture stage {stage}: {error}");

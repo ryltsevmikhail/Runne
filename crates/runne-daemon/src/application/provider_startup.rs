@@ -10,6 +10,7 @@ mod composition;
 mod composition_diagnostics;
 #[cfg(all(target_os = "linux", feature = "desktop-protected"))]
 mod installed_candidate;
+mod permission_store;
 #[cfg(all(target_os = "linux", feature = "test-support"))]
 mod t1_fixture_secret;
 pub(super) struct StartupProvider {

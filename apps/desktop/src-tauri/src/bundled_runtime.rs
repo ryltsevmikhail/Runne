@@ -3,7 +3,6 @@
     allow(dead_code, unused_imports)
 )]
 //! Native host integration for the protected bundled-runtime supervisor.
-//!
 //! This module exposes no transport material to Tauri commands. It connects
 //! the one-time protected profile directly to `AppCore`, monitors only the
 //! proven-owned child, and maps every failure to a closed renderer-safe code.
@@ -287,6 +286,7 @@ impl BundledRuntimeController {
 
 include!("bundled_runtime_parts/connect.rs");
 include!("bundled_runtime_parts/monitor.rs");
+include!("bundled_runtime_parts/permission_control.rs");
 #[cfg(target_os = "linux")]
 #[path = "bundled_runtime_parts/linux_v3_latch.rs"]
 mod linux_v3_latch;

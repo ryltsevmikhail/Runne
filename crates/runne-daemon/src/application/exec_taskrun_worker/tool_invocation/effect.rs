@@ -79,15 +79,7 @@ impl super::super::DaemonAutomaticTaskRuns {
             .admit_d2_tool_target(workspace_id, &path)
             .map_err(|_| ())?;
         super::super::provider::d2_stage("effect_target_snapshot");
-        let (
-            files,
-            workspace_version,
-            root_revision,
-            root_identity,
-            trust,
-            root_file_identity,
-            target,
-        ) = self
+        let (files, root_file_identity, target) = self
             .root_admission
             .with_local_command_root(workspace_id, |root, wv, _, rv, ri, admission| {
                 let files = root
@@ -133,15 +125,7 @@ impl super::super::DaemonAutomaticTaskRuns {
                 if approved != *binding.approval_digest.as_bytes() {
                     return Err(runne_platform_desktop::RootHandleBrokerError::Rejected);
                 }
-                Ok((
-                    files,
-                    wv,
-                    rv,
-                    ri,
-                    admission.token,
-                    IdentityV1 { device, inode },
-                    target,
-                ))
+                Ok((files, IdentityV1 { device, inode }, target))
             })
             .map_err(|_| ())?;
         super::super::provider::d2_stage("effect_trust_lease");
@@ -150,10 +134,6 @@ impl super::super::DaemonAutomaticTaskRuns {
             prepared.requires_human,
         )
         .map_err(|_| ())?;
-        let trust_lease = self
-            .root_admission
-            .acquire_local_command_effect_lease(workspace_id, trust)
-            .map_err(|_| ())?;
         super::super::provider::d2_stage("effect_claim");
         let stream = self
             .store
@@ -201,44 +181,16 @@ impl super::super::DaemonAutomaticTaskRuns {
             )
             .map_err(|_| ())?;
         super::super::provider::d2_stage("effect_area_recorded");
-        let helper_binding = BindingV1 {
-            taskrun_id: binding.key.taskrun_id.to_string(),
-            attempt_id: binding.key.attempt_id.to_string(),
-            cycle_id: binding.key.cycle_id.to_string(),
-            proposal_index: binding.key.proposal_index,
-            taskrun_version: binding.expected_taskrun_version,
-            assignment_fence: assignment.fence.0,
-            invocation_digest: hex::encode(binding.semantic_digest.as_bytes()),
-            environment_digest: hex::encode(Sha256::digest(
-                format!(
-                    "{}\0{}",
-                    binding.environment_id, binding.environment_revision
-                )
-                .as_bytes(),
-            )),
-            approval_digest: hex::encode(binding.approval_digest.as_bytes()),
-            expires_at_unix_ms: u64::try_from(binding.approval_expires_at).map_err(|_| ())?,
-        };
-        let input = crate::safe_tool_helper::encode_request(
-            helper_binding.clone(),
-            path.clone(),
+        let helper_binding = super::permission_build::helper_binding(binding, assignment)?;
+        let input = super::permission_build::helper_request(
+            binding,
+            assignment,
             root_file_identity.clone(),
-            target.clone(),
+            target,
             &content,
         )?;
-        let run = self.run_d2_tool_helper(
-            &files,
-            &input,
-            &area,
-            workspace_id,
-            assignment,
-            binding,
-            &path,
-            workspace_version,
-            root_revision,
-            root_identity,
-            prepared,
-        );
+        drop(files);
+        let run = self.run_d2_tool_helper(&input, &area, assignment, binding, prepared);
         let after_exit_barrier =
             crate::application::exec_taskrun_worker::local::run::test_barrier::pause_at(
                 crate::application::exec_taskrun_worker::local::run::test_barrier::Point::AfterExit,
@@ -259,9 +211,6 @@ impl super::super::DaemonAutomaticTaskRuns {
                 .map_err(|_| ())?;
         }
         drop(local_stop);
-        if cleanup_proved && area.remove_empty().is_err() {
-            super::super::provider::d2_stage("effect_area_remove_failed");
-        }
         let result = self.finish_tool_effect(
             context,
             assignment,
@@ -274,7 +223,9 @@ impl super::super::DaemonAutomaticTaskRuns {
             after_exit_barrier,
             run,
         );
-        drop(trust_lease);
+        if cleanup_proved && area.remove_empty().is_err() {
+            super::super::provider::d2_stage("effect_area_remove_failed");
+        }
         result
     }
 }
@@ -285,4 +236,35 @@ fn now_millis() -> i64 {
         .ok()
         .and_then(|duration| i64::try_from(duration.as_millis()).ok())
         .unwrap_or(0)
+}
+
+fn helper_terminal_matches(
+    observed: &runne_platform::local_command_linux::PermissionHelperObservationV1,
+    binding: &ToolInvocationBindingV1,
+    assignment: &TaskRunAssignmentIdentity,
+    expected: &BindingV1,
+    root: &IdentityV1,
+    path: &str,
+) -> bool {
+    use runne_platform::local_command_linux::PermissionHelperOperationV1 as Operation;
+    let operation_matches = matches!(
+        (binding.tool_name.as_str(), observed.operation()),
+        ("workspace.file.read", Operation::Read)
+            | ("workspace.file.create_new", Operation::CreateNew)
+    );
+    let actual = observed.binding();
+    operation_matches
+        && observed.path() == path
+        && observed.arguments_digest() == binding.arguments_digest.as_bytes()
+        && observed.root_identity() == (root.device, root.inode)
+        && actual.taskrun_id == expected.taskrun_id
+        && actual.attempt_id == expected.attempt_id
+        && actual.cycle_id == expected.cycle_id
+        && actual.proposal_index == expected.proposal_index
+        && actual.taskrun_version == expected.taskrun_version
+        && actual.assignment_fence == assignment.fence.0
+        && actual.invocation_digest == expected.invocation_digest
+        && actual.environment_digest == expected.environment_digest
+        && actual.approval_digest == expected.approval_digest
+        && actual.expires_at_unix_ms == expected.expires_at_unix_ms
 }

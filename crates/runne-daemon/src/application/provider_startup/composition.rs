@@ -37,21 +37,24 @@ impl DaemonApplication {
                 })?
                 .prohibited_content_guard(),
         );
-        // Single process-wide project trust authority (T1): opened once next
-        // to the canonical store and shared by the root-admission gate, the
-        // replay delivery authorization and the provider dispatch gate.
         #[cfg(feature = "desktop-protected")]
-        let trust_authority: Option<Arc<ProjectTrustPolicyAuthority>> =
-            match runne_store::ProjectTrustStore::open(
+        let trust_store: Option<Arc<runne_store::ProjectTrustStore>> =
+            runne_store::ProjectTrustStore::open(
                 std::path::Path::new(&config.db_path),
                 bootstrap.authority_id,
-            ) {
-                Ok(trust_store) => Some(Arc::new(
-                    ProjectTrustPolicyAuthority::new(Arc::new(trust_store))
+            )
+            .ok()
+            .map(Arc::new);
+        #[cfg(feature = "desktop-protected")]
+        let trust_authority: Option<Arc<ProjectTrustPolicyAuthority>> =
+            trust_store.as_ref().map(|persistence| {
+                Arc::new(
+                    ProjectTrustPolicyAuthority::new(persistence.clone())
                         .with_byte_inspection(Arc::clone(&prohibited_content)),
-                )),
-                Err(_) => None,
-            };
+                )
+            });
+        #[cfg(feature = "desktop-protected")]
+        let permission_startup = super::permission_store::prepare(config)?;
         #[cfg(not(feature = "desktop-protected"))]
         let trust_authority: Option<Arc<ProjectTrustPolicyAuthority>> = None;
         let store_writer = open_runtime_connection(
@@ -68,14 +71,17 @@ impl DaemonApplication {
             replay_lineage,
             "runtime reader",
         )?;
-        let store = StoreTransaction::open_with_connections(
+        let store = super::permission_store::open(
             &config.db_path,
             store_writer,
             store_reader,
             authority.clone(),
             Arc::clone(&prohibited_content),
-        )
-        .map_err(|error| DaemonError::Bootstrap(format!("open runtime store: {error:?}")))?;
+            #[cfg(feature = "desktop-protected")]
+            &permission_startup,
+            #[cfg(feature = "desktop-protected")]
+            trust_store,
+        )?;
         let service: Arc<SqliteTaskRunService> = Arc::new(
             TaskRunService::new(
                 store.clone(),
@@ -281,6 +287,8 @@ impl DaemonApplication {
             executable_sha256,
             session_id,
             root_admission_keys,
+            #[cfg(feature = "desktop-protected")]
+            permission_startup,
             provider_readiness,
             enrollment_capability,
         )

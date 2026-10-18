@@ -10,6 +10,7 @@ pub struct ApprovalConfirmationParts {
     pub resource: String,
     pub action_digest: [u8; 32],
     pub policy_revision: u64,
+    pub approval_generation: u64,
     pub expires_at: i64,
 }
 
@@ -45,6 +46,7 @@ impl ApprovalConfirmationBinding {
             || parts.resource.is_empty()
             || parts.action_digest == [0; 32]
             || parts.policy_revision == 0
+            || parts.approval_generation == 0
             || parts.expires_at <= 0
         {
             return Err(AppCoreError::InvalidMutation);
@@ -165,7 +167,7 @@ impl AppCore {
             expected.request.decision,
             expected.parts.action_digest,
             expected.parts.policy_revision,
-            expected.renderer_generation,
+            expected.parts.approval_generation,
         )?)?;
         match self
             .dispatch_prepared_mutation_under_operation(&mut { lease }, None, false, false, false)
@@ -202,6 +204,7 @@ fn approval_binding(
             resource: value.resource().to_owned(),
             action_digest,
             policy_revision,
+            approval_generation: value.approval_generation(),
             expires_at: value.expires_at(),
         },
         request,

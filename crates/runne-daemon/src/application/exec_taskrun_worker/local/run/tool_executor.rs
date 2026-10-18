@@ -1,12 +1,10 @@
-use super::x2_supervisor::{X2Observation, X2Outcome, supervise_gated_child};
+use super::x2_supervisor::{X2Observation, X2Outcome, supervise_child};
 use crate::safe_tool_helper::{
     BindingV1, IdentityV1, OutputError, ReceiptV1, VersionV1, parse_output,
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
-use runne_application::permission_modes::{CompositeEffectScope, NativeScopeAdmissionReceipt};
 use runne_platform::local_command_linux::{
-    GatedLinuxChild, LinuxCommandContainmentV1, LinuxCommandExecutable, LinuxCommandOutputLimitsV1,
-    LinuxCommandSpec, LinuxCompositeScopeAdmission, SealedExecutableSnapshot,
+    LinuxCommandExecutable, LinuxCommandSpec, PermissionHelperChildV1, SealedExecutableSnapshot,
 };
 use runne_platform::process_managed_area::{
     LinuxManagedArea, LinuxManagedAreaRoot, ManagedAreaBinding,
@@ -100,6 +98,37 @@ pub(in crate::application) struct HelperRunFailure {
     pub stdout_eof: bool,
     pub stderr_eof: bool,
     pub exit_code: Option<i32>,
+}
+
+impl From<HelperRunError> for HelperRunFailure {
+    fn from(reason: HelperRunError) -> Self {
+        output_observation::failure(reason)
+    }
+}
+
+pub(in crate::application) struct HelperRunOutput<'area> {
+    child: PermissionHelperChildV1<'area>,
+    stdout: Vec<u8>,
+    stderr: Vec<u8>,
+}
+
+impl<'area> HelperRunOutput<'area> {
+    pub(in crate::application) fn stdout(&self) -> &[u8] {
+        &self.stdout
+    }
+
+    pub(in crate::application) fn stderr(&self) -> &[u8] {
+        &self.stderr
+    }
+
+    pub(in crate::application) fn terminal_evidence<'child>(
+        &'child self,
+    ) -> Result<
+        runne_platform::local_command_linux::PermissionHelperTerminalEvidenceV1<'child, 'area>,
+        runne_platform::local_command_linux::LinuxCommandError,
+    > {
+        self.child.terminal_evidence()
+    }
 }
 
 impl std::fmt::Debug for HelperRunFailure {

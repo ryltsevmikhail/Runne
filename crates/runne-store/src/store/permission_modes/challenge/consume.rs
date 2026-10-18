@@ -83,7 +83,7 @@ pub(super) fn consume(
     let changed = tx
         .execute(
             "UPDATE permission_mode_native_challenges
-         SET state=2,proof_identifier=?1,consumed_at_unix_ms=?2
+         SET state=2,proof_identifier=?1,consumed_at_unix_ms=?2,confirmation_phase=2
          WHERE challenge_binding_digest=?1 AND state=1 AND expires_at_unix_ms>?2",
             params![digest.as_bytes().as_slice(), now],
         )

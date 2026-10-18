@@ -3,6 +3,8 @@ use std::sync::{Arc, Mutex};
 
 use crate::canonical_provider::DaemonCanonicalProviderService;
 
+#[cfg(feature = "desktop-protected")]
+use crate::application::root_handle_admission::PermissionStartupBundle;
 use runne_application::local_session::LocalSessionService;
 use runne_application::prohibited_content::ProhibitedContentPort;
 use runne_runtime::{
@@ -13,6 +15,12 @@ use runne_runtime::{
 use runne_security::project_trust_policy::ProjectTrustPolicyAuthority;
 use runne_store::{ProjectWorkspaceStore, store::StoreTransaction};
 
+#[cfg(all(unix, feature = "desktop-protected"))]
+mod permission_control;
+#[cfg(all(unix, feature = "desktop-protected"))]
+mod permission_projection;
+#[cfg(all(unix, feature = "desktop-protected"))]
+use permission_projection::trust_error;
 #[cfg(feature = "desktop-protected")]
 mod trust_control;
 
@@ -20,6 +28,8 @@ mod trust_control;
 use super::super::process_unavailable::UnavailableProcessProvider;
 #[cfg(not(feature = "desktop-protected"))]
 use super::super::root_admission_unavailable::UnavailableRootAdmission;
+#[cfg(all(unix, feature = "desktop-protected"))]
+use crate::protected_activation::PermissionControlHost;
 #[cfg(feature = "desktop-protected")]
 use {
     super::super::native_process_provider::{
@@ -81,6 +91,7 @@ pub(super) fn compose(
     root_admission_keys: Option<runne_api::ProtectedActivationKeys>,
     protected_activation: bool,
     sessions: Arc<Mutex<LocalSessionService>>,
+    #[cfg(feature = "desktop-protected")] permission_startup: &PermissionStartupBundle,
 ) -> CommandHosts {
     let _ = (
         canonical_db_path,
@@ -95,23 +106,34 @@ pub(super) fn compose(
         None => TrustGate::closed(),
     };
     let repository = ProjectWorkspaceStore::from_store(store.clone());
+    let root_state = permission_startup.root_state();
     let authority = root_admission_keys
         .filter(|_| protected_activation)
         .map(|keys| {
-            RootHandleAdmissionAuthority::new(
+            RootHandleAdmissionAuthority::new_with_state(
                 &keys,
                 repository.clone(),
                 store.runtime_authority_id().0.clone(),
-                sessions,
+                Arc::clone(&sessions),
                 trust_gate,
+                root_state.clone(),
             )
         });
+    #[cfg(unix)]
+    let permission_control = authority.as_ref().map(|_| {
+        PermissionControlHost::new(
+            store.clone(),
+            repository.clone(),
+            Arc::clone(&sessions),
+            trust_authority.clone(),
+        )
+    });
     let gateway = authority
         .as_ref()
         .map_or_else(RootAdmissionGateway::unavailable, |value| {
             RootAdmissionGateway::protected(Arc::clone(value))
         });
-    let trust_control_routes = trust_authority.as_ref().map(|trust| {
+    let mut trust_control_routes = trust_authority.as_ref().map(|trust| {
         runne_http::project_trust_control::project_trust_control_router(
             runne_http::project_trust_control::ProjectTrustControlHttpState::new(
                 trust_control::TrustControlHost::new(
@@ -122,20 +144,30 @@ pub(super) fn compose(
             ),
         )
     });
+    #[cfg(unix)]
+    if let Some(host) = permission_control.as_ref() {
+        let pending =
+            runne_http::permission_modes::permission_mode_native_pending_router(host.clone());
+        let mode = runne_http::permission_modes::permission_mode_control_router(
+            permission_control::PermissionModeHttpHost::new(
+                host.clone(),
+                trust_authority.clone(),
+                gateway.clone(),
+            ),
+        );
+        trust_control_routes = Some(
+            trust_control_routes
+                .unwrap_or_default()
+                .merge(mode)
+                .merge(pending),
+        );
+    }
     let workspace_files = RuntimeWorkspaceFileHost::new(gateway.clone());
     let workspace_diffs = RuntimeWorkspaceDiffHost::new(gateway.clone());
     let workspace_editor = RuntimeWorkspaceEditorHost::new(gateway.clone());
     let process_invocations = AuthoritativeProcessInvocationRegistry::default();
     #[cfg(target_os = "linux")]
-    let permission_admission = super::super::http_startup_support::open_protected_roots(
-        canonical_db_path,
-        replay_integrity_key_path,
-    )
-    .and_then(|roots| {
-        let references = roots.iter().collect::<Vec<_>>();
-        runne_platform::local_command_linux::LinuxCompositeScopeAdmission::new(&references).ok()
-    })
-    .map(Arc::new);
+    let permission_admission = permission_startup.permission_admission();
     let process = RuntimeProcessHost::new(NativeProcessProvider::new(
         process_invocations.clone(),
         gateway.clone(),
@@ -153,7 +185,18 @@ pub(super) fn compose(
         workspace_diffs,
         workspace_editor,
         process,
-        root_control: authority.map(ProtectedRootControl::new),
+        root_control: {
+            #[cfg(unix)]
+            {
+                authority.zip(permission_control).map(|(authority, host)| {
+                    ProtectedRootControl::new_with_permission_control(authority, host)
+                })
+            }
+            #[cfg(not(unix))]
+            {
+                authority.map(ProtectedRootControl::new)
+            }
+        },
         trust_control_routes,
         root_admission: gateway,
         #[cfg(target_os = "linux")]

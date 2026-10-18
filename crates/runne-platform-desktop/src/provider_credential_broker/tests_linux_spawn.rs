@@ -19,11 +19,17 @@ use super::unix_daemon::linux_spawn::{
 #[path = "tests_linux_spawn_real_writer.rs"]
 mod tests_linux_spawn_real_writer;
 
+/// Compact per-case directory name beneath the actual temp root: the
+/// canonical receipt namespace runs the unit phase with a 51-byte TMPDIR
+/// and filesystem unix sockets must fit 107 `sun_path` bytes, so the
+/// budget is pinned by
+/// `fixture_socket_path_fits_sun_len_at_canonical_namespace_depth`.
+fn fixture_dirname(name: &str) -> String {
+    format!("rwspawn-{name}-{}", std::process::id())
+}
+
 fn fixture_dir(name: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!(
-        "runne-linux-writer-spawn-{name}-{}",
-        std::process::id()
-    ));
+    let dir = std::env::temp_dir().join(fixture_dirname(name));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).expect("fixture dir");
     dir
@@ -239,4 +245,56 @@ fn kill_never_targets_a_mismatched_start_identity() {
     // retained pidfd reap a natural exit instead of a signal.
     drop(parent_half);
     process.reap_retained_child().expect("natural exit reaped");
+}
+
+#[test]
+fn fixture_socket_path_fits_sun_len_at_canonical_namespace_depth() {
+    // Deterministic witness of the failure this fixture prefix once hit:
+    // the canonical receipt namespace ran the unit phase with a 51-byte
+    // TMPDIR, where the previous 25-byte `runne-linux-writer-spawn-`
+    // prefix produced socket paths of 108..111 bytes and six spawn tests
+    // panicked with "path must be shorter than SUN_LEN" while the
+    // 105..107-byte formations still bound. The synthetic base reproduces
+    // that depth without touching the environment.
+    let canonical_tmpdir = PathBuf::from(format!("/{}", "c".repeat(50)));
+    assert_eq!(canonical_tmpdir.as_os_str().len(), 51, "canonical depth");
+    // Fixed six-digit pid keeps both witness paths deterministic (94/111).
+    let witness_pid = 123_456u32;
+    let socket = canonical_tmpdir
+        .join(format!("rwspawn-pidfdfault-{witness_pid}"))
+        .join("fixture-bus.sock");
+    let live_name = fixture_dirname("pidfdfault");
+    let expected = format!("rwspawn-pidfdfault-{}", std::process::id());
+    assert_eq!(live_name, expected);
+    assert!(
+        socket.as_os_str().len() <= 107,
+        "deepest fixture socket path must fit sun_path: {socket:?}"
+    );
+    let prefix_before_fix = "runne-linux-writer-spawn-";
+    let stale = canonical_tmpdir
+        .join(format!("{prefix_before_fix}pidfdfault-{witness_pid}"))
+        .join("fixture-bus.sock");
+    assert!(
+        stale.as_os_str().len() > 107,
+        "the pre-fix formation must overflow sun_path at this depth"
+    );
+}
+
+#[test]
+fn fixture_socket_binds_absolute_validated_beneath_canonical_temp_root() {
+    // End-to-end fixture contract at the ambient canonical TMPDIR depth
+    // (51 bytes inside the receipt namespace): a real UnixListener bind
+    // plus strict SessionBusAddress validation succeed, the address stays
+    // absolute beneath std::env::temp_dir with the pinned socket file
+    // name. No environment mutation, no current-dir change.
+    let dir = fixture_dir("canon");
+    let address = fixture_socket(&dir);
+    let socket_path = dir.join("fixture-bus.sock");
+    assert!(socket_path.is_absolute(), "fixture path stays absolute");
+    assert!(
+        socket_path.starts_with(std::env::temp_dir()),
+        "fixture dir stays beneath the canonical temp root"
+    );
+    assert!(socket_path.exists(), "bound fixture socket materialized");
+    assert!(address.as_str().contains("fixture-bus.sock"));
 }

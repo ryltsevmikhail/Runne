@@ -165,6 +165,7 @@ impl LaunchSecret {
             readiness: Zeroizing::new(derive_key(&self.0, READINESS_DOMAIN)),
             renewal: Zeroizing::new(derive_key(&self.0, RENEW_DOMAIN)),
             shutdown: Zeroizing::new(derive_key(&self.0, SHUTDOWN_DOMAIN)),
+            native_key_epoch: 1,
         }
     }
 
@@ -188,6 +189,7 @@ pub struct ProtectedActivationKeys {
     readiness: Zeroizing<[u8; 32]>,
     renewal: Zeroizing<[u8; 32]>,
     shutdown: Zeroizing<[u8; 32]>,
+    native_key_epoch: u64,
 }
 
 /// Raw activation-key copies exposed only to test-support leak audits.
@@ -211,6 +213,18 @@ impl ProtectedActivationKeyMaterialForTest {
 }
 
 impl ProtectedActivationKeys {
+    /// Advances a replacement key set after verified readiness; renewals retain this key set.
+    pub fn advance_native_key_epoch_from(
+        &mut self,
+        previous: &Self,
+    ) -> Result<(), LaunchAuthorityError> {
+        self.native_key_epoch = previous
+            .native_key_epoch
+            .checked_add(1)
+            .ok_or(LaunchAuthorityError::InvalidContract)?;
+        Ok(())
+    }
+
     /// Copies the one-time HTTP bootstrap key into another zeroizing owner.
     #[must_use]
     pub fn bootstrap_key(&self) -> Zeroizing<[u8; 32]> {
@@ -225,6 +239,17 @@ impl ProtectedActivationKeys {
 
     fn readiness_key(&self) -> &[u8; 32] {
         &self.readiness
+    }
+
+    /// Builds a fixed-purpose private capability for the permission ceremony.
+    #[must_use]
+    pub fn permission_control_native_authenticator(
+        &self,
+    ) -> permission_control_v1::PermissionControlNativeAuthenticatorV1 {
+        permission_control_v1::PermissionControlNativeAuthenticatorV1::from_readiness_key(
+            self.readiness_key(),
+            self.native_key_epoch,
+        )
     }
 
     fn renewal_key_ref(&self) -> &[u8; 32] {

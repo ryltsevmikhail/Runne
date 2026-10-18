@@ -98,6 +98,8 @@ pub(super) fn lookup(
     let state = match (state, stored_decision, decision) {
         (2, Some(1), runne_api::ApprovalDecision::Approve) => ApprovalState::Approved,
         (3, Some(2), runne_api::ApprovalDecision::Deny) => ApprovalState::Denied,
+        (2, Some(1), runne_api::ApprovalDecision::Deny) => return Err(Error::Conflict),
+        (3, Some(2), runne_api::ApprovalDecision::Approve) => return Err(Error::Conflict),
         (4, _, _) => ApprovalState::Expired,
         (5, _, _) => ApprovalState::Cancelled,
         _ => return Err(Error::InvariantViolation),

@@ -29,6 +29,7 @@ fn parts() -> ApprovalConfirmationParts {
         resource: "workspace:/src/main.rs".to_owned(),
         action_digest: [4; 32],
         policy_revision: 7,
+        approval_generation: 3,
         expires_at: 1_800_000_005_000,
     }
 }
@@ -82,6 +83,13 @@ fn approval_substitutions(
     baseline_parts: &ApprovalConfirmationParts,
 ) -> Vec<ApprovalConfirmationBinding> {
     vec![
+        binding_with(
+            baseline_admission,
+            ApprovalConfirmationParts {
+                approval_generation: 4,
+                ..baseline_parts.clone()
+            },
+        ),
         binding_with(
             baseline_admission,
             ApprovalConfirmationParts {

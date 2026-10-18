@@ -14,6 +14,7 @@ fn summary() -> ApprovalSummary {
         [0x11; 32],
         7,
         3,
+        4,
         2_000,
         "Write one source file",
     )
@@ -25,6 +26,7 @@ fn approval_summary_is_safe_and_decidable_only_when_pending() {
     let value = summary();
     assert_eq!(value.state(), ApprovalState::Pending);
     assert!(value.requires_decision());
+    assert_eq!(value.approval_generation(), 4);
     assert_eq!(ApprovalDecision::Approve.as_str(), "approve");
     assert_eq!(ApprovalDecision::Deny.as_str(), "deny");
 }
@@ -42,6 +44,7 @@ fn approval_summary_rejects_control_or_oversized_display_data() {
             [0x11; 32],
             7,
             3,
+            4,
             2_000,
             "safe summary",
         )
@@ -62,9 +65,30 @@ fn approval_summary_rejects_invalid_version_and_expiry() {
         [0x11; 32],
         0,
         0,
+        4,
         2_000,
         "safe summary",
     )
     .expect_err("zero versions must fail");
     assert_eq!(error, ApprovalValidationError::InvalidVersion);
+}
+
+#[test]
+fn approval_summary_rejects_missing_generation() {
+    let error = ApprovalSummary::try_new(
+        ID.parse().unwrap(),
+        ID.parse().unwrap(),
+        None,
+        ID.parse().unwrap(),
+        "fs:write",
+        "workspace:/src/main.rs",
+        [0x11; 32],
+        7,
+        3,
+        0,
+        2_000,
+        "safe summary",
+    )
+    .expect_err("zero approval generation must fail closed");
+    assert_eq!(error, ApprovalValidationError::InvalidRendererGeneration);
 }

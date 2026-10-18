@@ -13,6 +13,21 @@ use std::collections::BTreeSet;
 use std::net::TcpListener;
 use std::os::unix::fs::OpenOptionsExt;
 
+#[path = "permission/closed_budget.rs"]
+mod closed_budget;
+#[path = "permission/closed_coverage.rs"]
+mod closed_coverage;
+#[path = "permission/fs_partial.rs"]
+mod fs_partial;
+#[path = "permission/network_dns.rs"]
+mod network_dns;
+#[path = "permission/network_none.rs"]
+mod network_none;
+#[path = "permission/network_none_syscalls.rs"]
+mod network_none_syscalls;
+#[path = "permission/network_qualification_support.rs"]
+mod network_qualification_support;
+
 #[test]
 fn typed_network_none_denies_socket_after_go() {
     let Some((_root, area, _identity)) = run_or_skip() else {

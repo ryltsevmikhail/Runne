@@ -31,6 +31,13 @@ type RoundRow = (
     Option<i64>,
 );
 
+#[path = "rounds/continuation_identity.rs"]
+mod continuation_identity;
+#[path = "rounds/rejected_admission.rs"]
+mod rejected_admission;
+#[path = "rounds/rejected_continuation.rs"]
+mod rejected_continuation;
+
 pub(crate) fn verify_cancelled_provider_rounds(
     tx: &Connection,
     taskrun_id: TaskRunId,
@@ -96,19 +103,6 @@ pub(crate) fn verify_cancelled_provider_rounds(
         .map_err(|_| integrity())?
         .collect::<Result<_, _>>()
         .map_err(|_| integrity())?;
-    let unbound_admission: bool = tx
-        .query_row(
-            "SELECT EXISTS(SELECT 1 FROM provider_execution_admissions a
-             WHERE a.taskrun_id=?1 AND a.execution_attempt_id=?2 AND NOT EXISTS(
-               SELECT 1 FROM taskrun_provider_round_bindings b WHERE b.taskrun_id=a.taskrun_id
-                 AND b.attempt_id=a.execution_attempt_id AND b.call_id=a.call_id))",
-            params![taskrun_id.as_bytes(), attempt_id.as_bytes()],
-            |row| row.get(0),
-        )
-        .map_err(|_| integrity())?;
-    if unbound_admission {
-        return Err(integrity());
-    }
     if rows.is_empty() {
         let invocation_exists: bool = tx
             .query_row(
@@ -130,7 +124,9 @@ pub(crate) fn verify_cancelled_provider_rounds(
                 |result| result.get(0),
             )
             .map_err(|_| integrity())?;
-        return if invocation_exists || dispatch_intent_exists {
+        let unbound_admission =
+            rejected_continuation::has_unbound_admission(tx, taskrun_id, attempt_id)?;
+        return if invocation_exists || dispatch_intent_exists || unbound_admission {
             Err(integrity())
         } else {
             Ok(())
@@ -277,6 +273,15 @@ pub(crate) fn verify_cancelled_provider_rounds(
             return Err(integrity());
         }
     }
+    rejected_continuation::verify_if_present(
+        tx,
+        taskrun_id,
+        attempt_id,
+        evidence,
+        original_claim_version,
+        cancel_version,
+        rows.len(),
+    )?;
     Ok(())
 }
 

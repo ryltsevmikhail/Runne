@@ -4,40 +4,119 @@ use runne_application::permission_modes::{
 };
 use std::os::fd::OwnedFd;
 
-/// Validated scope and app receipt paired with one platform-owned registry.
+/// Typed scope wrappers for the frozen V1 containment profiles.
 #[derive(Clone, Copy)]
 pub enum LinuxCommandContainmentV1<'a> {
     /// Workspace Landlock with an explicit network-none scope.
     WorkspaceBoundV1 {
-        /// Exact frozen invocation scope admitted by the runtime.
+        /// Exact scope being released.
         scope: &'a CompositeEffectScope,
-        /// App-issued opaque native scope handle bound to `scope`.
+        /// One-shot native receipt admitted for the exact scope.
         receipt: NativeScopeAdmissionReceipt,
-        /// Executor-owned registry retaining protected roots and one-shot state.
+        /// Runtime-owned registry holding protected roots and admission state.
         admission: &'a super::super::composite_admission::LinuxCompositeScopeAdmission,
     },
-    /// Broad or explicit no-network same-user containment in the gated executor.
+    /// Legacy broad same-user namespace containment.
     SameUserCompositeV1 {
-        /// Exact frozen invocation scope admitted by the runtime.
+        /// Exact scope being released.
         scope: &'a CompositeEffectScope,
-        /// App-issued opaque native scope handle bound to `scope`.
+        /// One-shot native receipt admitted for the exact scope.
         receipt: NativeScopeAdmissionReceipt,
-        /// Executor-owned registry retaining protected roots and one-shot state.
+        /// Runtime-owned registry holding protected roots and admission state.
         admission: &'a super::super::composite_admission::LinuxCompositeScopeAdmission,
     },
 }
 
+/// Typed wrapper for the Landlock ABI 3 same-user partial-rights profile.
+#[derive(Clone, Copy)]
+pub enum LinuxCommandContainmentV2<'a> {
+    /// Broad same-user scope with exact filesystem rights and V2 protected roots.
+    SameUserCompositeV2 {
+        /// Exact partial-rights scope being released.
+        scope: &'a CompositeEffectScope,
+        /// One-shot native receipt admitted for the exact scope.
+        receipt: NativeScopeAdmissionReceipt,
+        /// Runtime-owned registry holding protected roots and admission state.
+        admission: &'a super::super::composite_admission::LinuxCompositeScopeAdmission,
+    },
+}
+
+#[derive(Clone, Copy)]
+struct Profile<'a> {
+    scope: &'a CompositeEffectScope,
+    receipt: NativeScopeAdmissionReceipt,
+    admission: &'a super::super::composite_admission::LinuxCompositeScopeAdmission,
+    expected: ContainmentStrategy,
+}
+
 impl LinuxCommandSpec<'_> {
-    /// Checks the exact typed scope receipt and native prerequisites without forking.
+    /// Checks the exact typed V1 scope and native prerequisites without forking.
     pub fn preflight_with_containment(
         &self,
         containment: LinuxCommandContainmentV1<'_>,
     ) -> Result<(), LinuxCommandError> {
-        let (scope, receipt, admission, expected) = parts(containment);
-        if scope.containment != expected {
-            return Err(LinuxCommandError::CompositePolicyUnenforceable);
-        }
-        if expected == ContainmentStrategy::WorkspaceBoundV1 {
+        self.preflight_profile(parts_v1(containment))
+    }
+
+    /// Checks the exact typed V2 scope and Landlock profile without forking.
+    pub fn preflight_with_containment_v2(
+        &self,
+        containment: LinuxCommandContainmentV2<'_>,
+    ) -> Result<(), LinuxCommandError> {
+        self.preflight_profile(parts_v2(containment))
+    }
+
+    /// Starts the V1 gated child under its one-shot native receipt.
+    pub fn spawn_gated_with_containment<'a>(
+        &self,
+        area: &'a LinuxManagedArea,
+        containment: LinuxCommandContainmentV1<'_>,
+    ) -> Result<GatedLinuxChild<'a>, LinuxCommandError> {
+        self.spawn_profile(area, CommandStdio::discard()?, parts_v1(containment))
+    }
+
+    /// Starts a V1 child with bounded stdio and typed scope enforcement.
+    pub fn spawn_gated_with_containment_with_io<'a>(
+        &self,
+        area: &'a LinuxManagedArea,
+        input: &[u8],
+        limits: LinuxCommandOutputLimitsV1,
+        containment: LinuxCommandContainmentV1<'_>,
+    ) -> Result<GatedLinuxChild<'a>, LinuxCommandError> {
+        self.spawn_profile(
+            area,
+            CommandStdio::bounded(input, limits)?,
+            parts_v1(containment),
+        )
+    }
+
+    /// Starts a V2 child under exact Landlock ABI 3 filesystem rights.
+    pub fn spawn_gated_with_containment_v2<'a>(
+        &self,
+        area: &'a LinuxManagedArea,
+        containment: LinuxCommandContainmentV2<'_>,
+    ) -> Result<GatedLinuxChild<'a>, LinuxCommandError> {
+        self.spawn_profile(area, CommandStdio::discard()?, parts_v2(containment))
+    }
+
+    /// Starts a V2 child with bounded stdio and exact partial-rights enforcement.
+    pub fn spawn_gated_with_containment_v2_with_io<'a>(
+        &self,
+        area: &'a LinuxManagedArea,
+        input: &[u8],
+        limits: LinuxCommandOutputLimitsV1,
+        containment: LinuxCommandContainmentV2<'_>,
+    ) -> Result<GatedLinuxChild<'a>, LinuxCommandError> {
+        self.spawn_profile(
+            area,
+            CommandStdio::bounded(input, limits)?,
+            parts_v2(containment),
+        )
+    }
+
+    fn preflight_profile(&self, profile: Profile<'_>) -> Result<(), LinuxCommandError> {
+        validate_profile_scope(profile)?;
+        if profile.expected == ContainmentStrategy::WorkspaceBoundV1 {
             self.preflight()?;
         } else {
             if !self.executable.is_sealed_snapshot() {
@@ -46,60 +125,58 @@ impl LinuxCommandSpec<'_> {
             let _ = encode_vectors(&self.argv, &self.env)?;
             self.executable.validate_provenance()?;
             policy::validate_descriptors(self.executable.file(), self.workspace, self.cwd)?;
+            if profile.expected == ContainmentStrategy::SameUserCompositeV2 {
+                let rights = policy::native_fs_profile(&profile.scope.filesystem.permissions)?;
+                drop(policy::build_composite_ruleset(rights, &self.executable)?);
+            }
         }
-        admission.inspect(scope, receipt, self.workspace, self.cwd, false)?;
+        profile.admission.inspect(
+            profile.scope,
+            profile.receipt,
+            self.workspace,
+            self.cwd,
+            false,
+        )?;
         Ok(())
     }
 
-    /// Starts a gated child under the typed scope and its one-shot native receipt.
-    pub fn spawn_gated_with_containment<'a>(
-        &self,
-        area: &'a LinuxManagedArea,
-        containment: LinuxCommandContainmentV1<'_>,
-    ) -> Result<GatedLinuxChild<'a>, LinuxCommandError> {
-        self.spawn_with_containment(area, CommandStdio::discard()?, containment)
-    }
-
-    /// Starts the same gated child with bounded stdio and typed scope enforcement.
-    pub fn spawn_gated_with_containment_with_io<'a>(
-        &self,
-        area: &'a LinuxManagedArea,
-        input: &[u8],
-        limits: LinuxCommandOutputLimitsV1,
-        containment: LinuxCommandContainmentV1<'_>,
-    ) -> Result<GatedLinuxChild<'a>, LinuxCommandError> {
-        self.spawn_with_containment(area, CommandStdio::bounded(input, limits)?, containment)
-    }
-
-    fn spawn_with_containment<'a>(
+    fn spawn_profile<'a>(
         &self,
         area: &'a LinuxManagedArea,
         stdio: CommandStdio,
-        containment: LinuxCommandContainmentV1<'_>,
+        profile: Profile<'_>,
     ) -> Result<GatedLinuxChild<'a>, LinuxCommandError> {
-        let (scope, receipt, admission, expected) = parts(containment);
-        if scope.containment != expected {
-            return Err(LinuxCommandError::CompositePolicyUnenforceable);
-        }
+        validate_profile_scope(profile)?;
         if area.is_populated().map_err(|_| LinuxCommandError::Area)? {
             return Err(LinuxCommandError::Area);
         }
         let (argv, env) = encode_vectors(&self.argv, &self.env)?;
         self.executable.validate_provenance()?;
         policy::validate_descriptors(self.executable.file(), self.workspace, self.cwd)?;
-        let ruleset: Option<OwnedFd> = match expected {
+        let filesystem_profile = if profile.expected == ContainmentStrategy::SameUserCompositeV2 {
+            Some(policy::native_fs_profile(
+                &profile.scope.filesystem.permissions,
+            )?)
+        } else {
+            None
+        };
+        let ruleset: Option<OwnedFd> = match profile.expected {
             ContainmentStrategy::WorkspaceBoundV1 => {
                 Some(policy::build_ruleset(self.workspace, &self.executable)?)
             }
-            ContainmentStrategy::SameUserCompositeV1 => {
-                if !self.executable.is_sealed_snapshot() {
-                    return Err(LinuxCommandError::CompositePolicyUnenforceable);
-                }
-                None
-            }
+            ContainmentStrategy::SameUserCompositeV1 => None,
+            ContainmentStrategy::SameUserCompositeV2 => Some(policy::build_composite_ruleset(
+                filesystem_profile.expect("V2 profile was prepared"),
+                &self.executable,
+            )?),
         };
-        let (prepared, network_none) =
-            admission.inspect(scope, receipt, self.workspace, self.cwd, true)?;
+        let (prepared, network_none) = profile.admission.inspect(
+            profile.scope,
+            profile.receipt,
+            self.workspace,
+            self.cwd,
+            true,
+        )?;
         child::spawn(child::SpawnSpec {
             exe: self.executable.file(),
             workspace: self.workspace,
@@ -111,38 +188,57 @@ impl LinuxCommandSpec<'_> {
             stdio,
             composite: prepared.as_ref(),
             network_none,
+            filesystem_profile,
         })
     }
 }
 
-fn parts(
-    strategy: LinuxCommandContainmentV1<'_>,
-) -> (
-    &CompositeEffectScope,
-    NativeScopeAdmissionReceipt,
-    &super::super::composite_admission::LinuxCompositeScopeAdmission,
-    ContainmentStrategy,
-) {
-    match strategy {
+fn validate_profile_scope(profile: Profile<'_>) -> Result<(), LinuxCommandError> {
+    if profile.scope.containment != profile.expected
+        || (profile.scope.managed_policy.is_closed()
+            && profile.expected == ContainmentStrategy::WorkspaceBoundV1)
+    {
+        return Err(LinuxCommandError::CompositePolicyUnenforceable);
+    }
+    Ok(())
+}
+
+fn parts_v1(containment: LinuxCommandContainmentV1<'_>) -> Profile<'_> {
+    match containment {
         LinuxCommandContainmentV1::WorkspaceBoundV1 {
             scope,
             receipt,
             admission,
-        } => (
+        } => Profile {
             scope,
             receipt,
             admission,
-            ContainmentStrategy::WorkspaceBoundV1,
-        ),
+            expected: ContainmentStrategy::WorkspaceBoundV1,
+        },
         LinuxCommandContainmentV1::SameUserCompositeV1 {
             scope,
             receipt,
             admission,
-        } => (
+        } => Profile {
             scope,
             receipt,
             admission,
-            ContainmentStrategy::SameUserCompositeV1,
-        ),
+            expected: ContainmentStrategy::SameUserCompositeV1,
+        },
+    }
+}
+
+fn parts_v2(containment: LinuxCommandContainmentV2<'_>) -> Profile<'_> {
+    match containment {
+        LinuxCommandContainmentV2::SameUserCompositeV2 {
+            scope,
+            receipt,
+            admission,
+        } => Profile {
+            scope,
+            receipt,
+            admission,
+            expected: ContainmentStrategy::SameUserCompositeV2,
+        },
     }
 }

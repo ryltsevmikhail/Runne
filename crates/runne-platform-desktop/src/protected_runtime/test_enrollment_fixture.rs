@@ -180,6 +180,7 @@ fn ready_v3_parts(
         launcher: DevelopmentBundledRuntimeLauncher::new(), spec, process: Some(process),
         pending_profile: None, backoff: BundledRuntimeBackoff::new(), restart_at: None,
         state: BundledRuntimeLifecycleState::Ready,
+        permission_control_sequence: None,
         credential_service_rejoin: None,
     };
     let _ = std::fs::remove_dir(root);

@@ -1,57 +1,25 @@
 #![cfg(target_os = "linux")]
 
 use super::support::*;
-use runne_application::commands::{CommandOutcome, CompleteTaskRunInput};
-use runne_application::conversation_service::ConversationService;
+use runne_application::commands::CompleteTaskRunInput;
 use runne_application::ports::EventStore;
 use runne_domain::command::TerminalResult;
-use runne_domain::id::{ConversationId, WorkspaceId};
 use runne_domain::task_run::TaskRunEvent;
-use runne_store::store::{LocalCommandApprovalBinding, LocalCommandAttemptState};
+use runne_store::store::LocalCommandAttemptState;
 
-#[test]
-fn terminal_event_must_match_durable_local_exit_code() {
-    let database = Database::new("local-command-terminal-exit-guard");
-    let repository = database.repository();
-    create_project(&repository);
-    create_workspace(&repository);
-    let conversation_id = ConversationId::from_bytes(command(0x71).into_bytes());
-    ConversationService::new(database.store.clone(), database.store.clone(), authority())
-        .create_from_application(
-            &task_context(0x71, "local-terminal-conversation"),
-            runne_api::CreateConversationInput {
-                conversation_id,
-                workspace_id: WorkspaceId::from_bytes(WORKSPACE),
-                command_id: command(0x71),
-                idempotency_key: key("local-terminal-conversation"),
-                scope: runne_api::ConversationContextScope::Workspace,
-            },
-        )
-        .unwrap();
-    let local = runne_domain::task_run::TaskRunLocalCommand::new(
-        runne_domain::task_run::TaskRunExecutable::workspace_relative("bin/tool".into()).unwrap(),
-        ".".into(),
-        vec!["tool".into()],
-        vec![],
+#[tokio::test(flavor = "current_thread")]
+async fn terminal_event_must_match_durable_local_exit_code() {
+    let prepared = super::legacy_local_command_fixture::prepare(
+        "local-command-terminal-exit-guard",
+        0x71,
+        0x7c,
+        [3; 32],
+        [4; 32],
     )
-    .unwrap();
-    let CommandOutcome::TaskRunSubmitted { taskrun_id, .. } = database
-        .task_runs()
-        .submit_task_run(
-            &task_context(0x72, "local-terminal-submit"),
-            runne_application::commands::SubmitTaskRunInput {
-                conversation_id,
-                workspace_id: WorkspaceId::from_bytes(WORKSPACE),
-                input: runne_domain::task_run::TaskRunInput::new("description".into())
-                    .unwrap()
-                    .with_local_command(local.clone())
-                    .unwrap(),
-            },
-        )
-        .unwrap()
-    else {
-        panic!("submitted local TaskRun")
-    };
+    .await;
+    let database = prepared.database;
+    let taskrun_id = prepared.taskrun_id;
+    let approval_binding = prepared.binding;
     let assignment = super::execution_input::claim(&database, taskrun_id, 0x73);
     let stream_version = database
         .store
@@ -62,32 +30,21 @@ fn terminal_event_must_match_durable_local_exit_code() {
     let managed_root =
         runne_platform::process_managed_area::LinuxManagedAreaRoot::open_current_cgroup()
             .expect("delegated Linux cgroup-v2 root");
-    let binding = runne_platform::process_managed_area::ManagedAreaBinding::new(
+    let area_binding = runne_platform::process_managed_area::ManagedAreaBinding::new(
         *taskrun_id.as_bytes(),
         *assignment.attempt_id.as_bytes(),
         [0x72; 16],
     )
     .expect("valid area binding");
     let managed_area = managed_root
-        .create_area(binding)
+        .create_area(area_binding)
         .expect("private attempt area");
     let area = managed_area.identity().to_bytes();
     database
         .store
         .bind_local_command_approval(
             taskrun_id,
-            LocalCommandApprovalBinding {
-                command_digest: local.intent_digest(),
-                executable_digest: [3; 32],
-                workspace_version: 1,
-                admitted_root_version: 1,
-                admitted_root_identity: [4; 32],
-                trust_epoch: 1,
-                trust_revision: 1,
-                source_policy_version: 2,
-                command_policy_version: 1,
-                approval_id: [5; 16],
-            },
+            approval_binding,
             LocalCommandAttemptState::Approved,
         )
         .unwrap();

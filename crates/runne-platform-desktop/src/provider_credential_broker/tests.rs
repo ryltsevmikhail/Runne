@@ -9,6 +9,10 @@ use super::*;
 mod tests_linux_spawn;
 
 #[cfg(all(test, target_os = "linux"))]
+#[path = "tests_linux_spawn_faults.rs"]
+mod tests_linux_spawn_faults;
+
+#[cfg(all(test, target_os = "linux"))]
 #[path = "tests_linux_writer_admission.rs"]
 mod tests_linux_writer_admission;
 

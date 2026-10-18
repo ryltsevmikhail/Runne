@@ -60,7 +60,7 @@ _runne() {
     prev="${COMP_WORDS[COMP_CWORD-1]}"
 
     # Top-level commands
-    opts="conversation task provider status health doctor completion authority release help --help --version --format"
+    opts="conversation task provider permissions status health doctor completion authority release help --help --version --format"
 
     case "${prev}" in
         runne)
@@ -77,6 +77,30 @@ _runne() {
             ;;
         provider)
             COMPREPLY=( $(compgen -W "credential --help" -- ${cur}) )
+            return 0
+            ;;
+        permissions)
+            COMPREPLY=( $(compgen -W "status command mode approvals --help" -- ${cur}) )
+            return 0
+            ;;
+        mode)
+            COMPREPLY=( $(compgen -W "set --help" -- ${cur}) )
+            return 0
+            ;;
+        command)
+            COMPREPLY=( $(compgen -W "status" -- ${cur}) )
+            return 0
+            ;;
+        approvals)
+            COMPREPLY=( $(compgen -W "list respond" -- ${cur}) )
+            return 0
+            ;;
+        respond)
+            COMPREPLY=( $(compgen -W "--approval-id --decision --command-id --idempotency-key --help" -- ${cur}) )
+            return 0
+            ;;
+        --decision)
+            COMPREPLY=( $(compgen -W "approve deny" -- ${cur}) )
             return 0
             ;;
         credential)
@@ -129,6 +153,7 @@ _runne() {
         'conversation:Manage conversations'
         'task:Inspect runtime task runs (read-only)'
         'provider:Manage provider credentials'
+        'permissions:Read selected/effective modes and pending approvals'
         'status:Show runtime connection status'
         'health:Check runtime health status'
         'doctor:Run comprehensive system diagnostics'
@@ -174,6 +199,20 @@ _runne() {
                 provider)
                     _arguments \
                         '1:subcommand:((credential:"Manage credentials"))' \
+                        '--help[Show help]'
+                    ;;
+                permissions)
+                    _arguments \
+                        '1:subcommand:((status:"Read current selected/effective mode" command:"Read command outcome" mode:"Request a mode change" approvals:"List or respond to approvals"))' \
+                        '--workspace-id[Workspace ID]:id:' \
+                        '--command-id[Command ID]:id:' \
+                        '--idempotency-key[Caller-supplied idempotency key]:key:' \
+                        '--approval-id[Approval ID]:id:' \
+                        '--decision[Decision to confirm]:decision:(approve deny)' \
+                        '--mode[Requested mode]:mode:(ask_always risk_based full_access)' \
+                        '--expected-revision[Observed authorization revision]:revision:' \
+                        '--preset-version[Preset version]:version:(1)' \
+                        '--expires-at-unix-ms[none or positive expiry]:expiry:' \
                         '--help[Show help]'
                     ;;
                 credential)

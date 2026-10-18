@@ -165,33 +165,39 @@ fn two_writers_racing_on_start_and_complete_have_exactly_one_winner_each() {
         TaskRunId,
     ) -> Result<CommandOutcome, ApplicationError>;
     let race = |counter: u16, operation: RaceOperation| {
-        let barrier = Arc::new(Barrier::new(2));
-        let mut handles = Vec::new();
-        for offset in 0..2 {
-            let barrier = Arc::clone(&barrier);
-            let path = Arc::clone(&db_path);
-            let identity = Arc::clone(&identity);
-            handles.push(thread::spawn(move || {
-                let store = validated_reopen::reopen_store(
-                    path.as_str(),
-                    *identity,
-                    RuntimeAuthorityId("test-host".into()),
-                    available_guard(),
+        let stores = (0..2u16)
+            .map(|offset| {
+                (
+                    offset,
+                    validated_reopen::reopen_store(
+                        db_path.as_str(),
+                        *identity,
+                        RuntimeAuthorityId("test-host".into()),
+                        available_guard(),
+                    )
+                    .unwrap(),
                 )
-                .unwrap();
-                let service = TaskRunService::new(
-                    store.clone(),
-                    store.clone(),
-                    store.clone(),
-                    store.runtime_authority_id().clone(),
-                );
-                barrier.wait();
-                let result = operation(&service, &make_context(counter + offset), taskrun_id);
-                drop(store);
-                result
-            }));
-        }
-        handles
+            })
+            .collect::<Vec<_>>();
+        let barrier = Arc::new(Barrier::new(2));
+        stores
+            .into_iter()
+            .map(|(offset, store)| {
+                let barrier = Arc::clone(&barrier);
+                thread::spawn(move || {
+                    let service = TaskRunService::new(
+                        store.clone(),
+                        store.clone(),
+                        store.clone(),
+                        store.runtime_authority_id().clone(),
+                    );
+                    barrier.wait();
+                    let result = operation(&service, &make_context(counter + offset), taskrun_id);
+                    drop(store);
+                    result
+                })
+            })
+            .collect::<Vec<_>>()
             .into_iter()
             .map(|handle| handle.join().unwrap())
             .collect::<Vec<_>>()

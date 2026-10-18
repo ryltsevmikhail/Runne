@@ -121,6 +121,7 @@ include!("managed_task_run_commands.rs");
 include!("task_run_effects_command.rs");
 include!("task_run_successor_command.rs");
 include!("approval_commands.rs");
+include!("permission_mode_commands.rs");
 include!("conversation_commands.rs");
 #[tauri::command]
 #[allow(clippy::needless_pass_by_value)]
