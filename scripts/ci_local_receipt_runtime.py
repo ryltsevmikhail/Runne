@@ -88,16 +88,24 @@ def valid_executable_shape(value: object) -> bool:
 def resolve_trusted_runtime(root: Path | None = None) -> TrustedRuntime:
     account = pwd.getpwuid(os.geteuid())
     home = Path(account.pw_dir).resolve(strict=True)
-    # Container images (the hosted CI rust lane) install the rustup layout
-    # under CARGO_HOME/RUSTUP_HOME instead of the user home. Honor the
-    # standard environment when it is present; the trust checks below apply
-    # unchanged, and the developer-home layout remains the fallback.
-    cargo_bin = (
-        Path(os.environ["CARGO_HOME"]) if "CARGO_HOME" in os.environ else home / ".cargo"
-    ) / "bin"
-    rustup_home = (
-        Path(os.environ["RUSTUP_HOME"]) if "RUSTUP_HOME" in os.environ else home / ".rustup"
-    )
+    # Two layouts carry the trusted toolchains: the developer home
+    # (~/.cargo/bin + ~/.rustup) and container images that install them under
+    # CARGO_HOME/RUSTUP_HOME (the hosted CI rust lane). The execution
+    # namespace exports deliberately EMPTY CARGO_HOME/RUSTUP_HOME scratch
+    # directories, so the environment is preferred only when it actually
+    # carries the layout signature (cargo/bin and rustup/toolchains); the
+    # trust checks below apply unchanged to whichever set is chosen.
+    env_cargo = Path(os.environ["CARGO_HOME"]) if "CARGO_HOME" in os.environ else None
+    env_rustup = Path(os.environ["RUSTUP_HOME"]) if "RUSTUP_HOME" in os.environ else None
+    if (
+        env_cargo is not None
+        and env_rustup is not None
+        and (env_cargo / "bin").is_dir()
+        and (env_rustup / "toolchains").is_dir()
+    ):
+        cargo_bin, rustup_home = env_cargo / "bin", env_rustup
+    else:
+        cargo_bin, rustup_home = home / ".cargo/bin", home / ".rustup"
     for directory in (home, cargo_bin, rustup_home, *_system_directories()):
         _trusted_directory(directory)
     base_environment = _identity_environment()
