@@ -1,6 +1,7 @@
 //! Verification domain types — pure, no async, no IO.
 
 pub mod backup;
+pub mod bundle;
 pub mod compat;
 pub mod digest;
 pub mod evaluation;
