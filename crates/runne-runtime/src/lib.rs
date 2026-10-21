@@ -35,6 +35,7 @@ pub mod workspace_diff_host;
 pub mod workspace_editor_host;
 pub mod workspace_file_host;
 
+mod extension_query;
 mod supervisor;
 mod worker;
 

@@ -1,0 +1,10 @@
+mod capture_io;
+mod fencing;
+mod fixtures;
+mod map_shapes;
+mod normalization_isolation;
+mod precedence;
+mod privacy_bounds;
+mod query;
+mod storage_dispatch;
+mod vectors;
