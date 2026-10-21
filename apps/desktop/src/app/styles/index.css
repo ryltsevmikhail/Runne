@@ -1,4 +1,4 @@
-@import "../../../../../docs/desktop/brand/gocode-brand-tokens.css";
+@import "./brand-tokens.css";
 @import "./foundation.css";
 @import "./shell.css";
 @import "./shell-layout.css";

@@ -11,7 +11,7 @@ exclude = ["local-engine"]
 [workspace.package]
 version = "0.0.3"
 edition = "2024"
-license = "MIT"
+license = "Apache-2.0"
 rust-version = "1.95"
 
 # Protected bundled-runtime integration tests execute the real daemon and

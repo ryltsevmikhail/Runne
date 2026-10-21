@@ -3,6 +3,7 @@ resolver = "3"
 members = ["crates/runne-local-model", "crates/runne-inference-protocol", "crates/runne-model-store", "crates/runne-provider-local", "crates/runne-engine-broker", "crates/runne-inference-host", "crates/runne-engine-platform", "crates/runne-llama-worker"]
 
 [workspace.package]
+license = "Apache-2.0"
 edition = "2024"
 rust-version = "1.95"
 

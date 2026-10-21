@@ -1,4 +1,5 @@
 [package]
+license.workspace = true
 name = "runne-daemon-local-engine-effect"
 version = "0.1.0"
 edition = "2024"

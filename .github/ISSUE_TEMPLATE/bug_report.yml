@@ -1,0 +1,53 @@
+name: Bug report
+description: Report a reproducible problem in Runne.
+title: "[Bug]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not report vulnerabilities here. Use [private reporting](https://github.com/ryltsevmikhail/Runne/security/advisories/new). Remove credentials and personal data from all examples and logs.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues and this is not a security vulnerability report.
+          required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      description: Include the exact commit when building from source.
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Linux distribution, architecture, desktop/session, Rust, Node.js, pnpm, and bundled or external runtime mode. Linux is the only active execution-node target.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Provide a minimal example with numbered steps and relevant non-secret configuration.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Sanitized diagnostics
+      description: Relevant error output, screenshots, and checks tried. Do not upload credentials, private project content, or unredacted runtime logs.

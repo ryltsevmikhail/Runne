@@ -14,7 +14,8 @@ ROOT = Path(__file__).resolve().parents[2]
 PACKAGE = ROOT / "scripts/package-release-v2.sh"
 VERIFY = ROOT / "scripts/verify-release-v2.sh"
 
-# One live instance per new denylist format introduced by F-1.
+# Synthetic markers only: never use working credentials in these tests.
+# The JWT uses alg=none, sub=runne-test-only, and an invalid signature.
 _UNSAFE_SAMPLES = (
     "github_pat_11AAAAAAAAAAAAAAAAAAAAAAAA",  # GitHub fine-grained PAT
     "gho_AAAAAAAAAAAAAAAAAAAAAAAA",  # GitHub OAuth access token

@@ -85,7 +85,7 @@ impl SessionV1HostPort for FakeHost {
 
 fn service(host: FakeHost) -> OpenCodeSessionV1Service<FakeHost> {
     let openapi: serde_json::Value = serde_json::from_slice(include_bytes!(
-        "../../../upstream/opencode/packages/sdk/openapi.json"
+        "../../../contracts/compatibility/session-response-openapi.json"
     ))
     .unwrap();
     let schema_value = serde_json::json!({

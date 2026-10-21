@@ -88,10 +88,16 @@ fn frozen_v3_rc2_record_source_pin_matches_legacy_bytes() {
 }
 
 #[test]
+#[ignore = "requires unpublished historical source documents"]
 fn frozen_v4_program_source_pin_matches_legacy_bytes() {
-    let bytes = include_bytes!(
-        "../../../docs/superpowers/specs/2026-08-09-post-rc0-delivery-program-design.md"
-    );
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../docs/superpowers/specs/2026-08-09-post-rc0-delivery-program-design.md");
+    let bytes = fs::read(&path).unwrap_or_else(|error| {
+        panic!(
+            "requires original unpublished historical source {}: {error}",
+            path.display()
+        )
+    });
     assert_eq!(bytes.len(), 26_202);
     assert_eq!(
         format!("{:x}", Sha256::digest(bytes)),

@@ -1,0 +1,135 @@
+title = "Runne reviewed synthetic test fixtures"
+[extend]
+useDefault = true
+
+# Exceptions require BOTH an exact file path and exact reviewed match.
+# No directory-wide or credential-format-wide exclusions.
+
+[[rules]]
+id = "generic-api-key"
+[[rules.allowlists]]
+description = "Reviewed non-secret idempotency label, metadata row name, or public SHA-256 pin"
+condition = "AND"
+paths = ["(?:^|/)\\Qcrates/runne-cli/src/cli/permissions/approval_response_tests/fakes.rs\\E$"]
+regexTarget = "match"
+regexes = ["^\\Qidempotency_key: \"approval-key-01\"\\E$"]
+[[rules.allowlists]]
+description = "Reviewed non-secret idempotency label, metadata row name, or public SHA-256 pin"
+condition = "AND"
+paths = ["(?:^|/)\\Qcrates/runne-cli/src/cli/permissions/tests/command_tests.rs\\E$"]
+regexTarget = "match"
+regexes = ["^\\Q--idempotency-key\", \"approval-key-01\"\\E$"]
+[[rules.allowlists]]
+description = "Reviewed non-secret idempotency label, metadata row name, or public SHA-256 pin"
+condition = "AND"
+paths = ["(?:^|/)\\Qcrates/runne-cli/src/cli/permissions/tests/command_tests.rs\\E$"]
+regexTarget = "match"
+regexes = ["^\\Qintent.idempotency_key == \"approval-key-01\"\\E$"]
+[[rules.allowlists]]
+description = "Reviewed non-secret idempotency label, metadata row name, or public SHA-256 pin"
+condition = "AND"
+paths = ["(?:^|/)\\Qcrates/runne-cli/src/cli/permissions/approval_recovery_tests.rs\\E$"]
+regexTarget = "match"
+regexes = ["^\\Qidempotency_key: \"approval-key-01\"\\E$"]
+[[rules.allowlists]]
+description = "Reviewed non-secret idempotency label, metadata row name, or public SHA-256 pin"
+condition = "AND"
+paths = ["(?:^|/)\\Qcrates/runne-cli/src/cli/permissions/tests.rs\\E$"]
+regexTarget = "match"
+regexes = ["^\\Q--idempotency-key\", \"approval-key-01\"\\E$"]
+[[rules.allowlists]]
+description = "Reviewed non-secret idempotency label, metadata row name, or public SHA-256 pin"
+condition = "AND"
+paths = ["(?:^|/)\\Qcrates/runne-cli/src/cli/permissions/tests.rs\\E$"]
+regexTarget = "match"
+regexes = ["^\\Qintent.idempotency_key == \"approval-key-01\"\\E$"]
+[[rules.allowlists]]
+description = "Reviewed non-secret idempotency label, metadata row name, or public SHA-256 pin"
+condition = "AND"
+paths = ["(?:^|/)\\Qcrates/runne-cli/src/cli/permissions/approval_response_tests.rs\\E$"]
+regexTarget = "match"
+regexes = ["^\\Qidempotency_key: \"approval-key-01\"\\E$"]
+[[rules.allowlists]]
+description = "Reviewed non-secret idempotency label, metadata row name, or public SHA-256 pin"
+condition = "AND"
+paths = ["(?:^|/)\\Qcrates/runne-platform-desktop/src/protected_runtime/permission_control/test_support.rs\\E$"]
+regexTarget = "match"
+regexes = ["^\\Qidempotency_key: \"permission-v2-renewal\"\\E$"]
+[[rules.allowlists]]
+description = "Reviewed non-secret idempotency label, metadata row name, or public SHA-256 pin"
+condition = "AND"
+paths = ["(?:^|/)\\Qscripts/security/credential_secret_contract_rules.py\\E$"]
+regexTarget = "match"
+regexes = ["^\\Qprovider-credentials-v1.schema.json\": \"ff0a9e3840d286943a3a0f396258d9e27b4c01c774cf94f739983480092df09b\"\\E$"]
+[[rules.allowlists]]
+description = "Reviewed non-secret idempotency label, metadata row name, or public SHA-256 pin"
+condition = "AND"
+paths = ["(?:^|/)\\Qscripts/security/credential_secret_contract_rules.py\\E$"]
+regexTarget = "match"
+regexes = ["^\\Qopenapi.json\": \"4a270adaa6e362f62ec3a0a7769720440e2ba8db63006f23d8578a17a974fab2\"\\E$"]
+[[rules.allowlists]]
+description = "Reviewed non-secret idempotency label, metadata row name, or public SHA-256 pin"
+condition = "AND"
+paths = ["(?:^|/)\\Qcrates/runne-store/src/store/enrollment_launch_tests.rs\\E$"]
+regexTarget = "match"
+regexes = ["^\\Qkey = 'enrollment_launch_generation_consumed_v1'\\E$"]
+[[rules.allowlists]]
+description = "Reviewed non-secret idempotency label, metadata row name, or public SHA-256 pin"
+condition = "AND"
+paths = ["(?:^|/)\\Qcrates/local-store/src/tests.rs\\E$"]
+regexTarget = "match"
+regexes = ["^\\Qidempotency_key: \"idempotency-1\"\\E$"]
+[[rules.allowlists]]
+description = "Reviewed non-secret idempotency label, metadata row name, or public SHA-256 pin"
+condition = "AND"
+paths = ["(?:^|/)\\Qcrates/local-store/src/lib.rs\\E$"]
+regexTarget = "match"
+regexes = ["^\\Qidempotency_key: \"idempotency-1\"\\E$"]
+
+[[rules]]
+id = "jwt"
+[[rules.allowlists]]
+description = "Synthetic negative-test marker; not a usable credential"
+condition = "AND"
+paths = ["(?:^|/)\\Qscripts/tests/test_release_v2_unsafe_markers.py\\E$"]
+regexTarget = "match"
+regexes = ["^\\QeyJhbGciOiJub25lIn0.eyJzdWIiOiJydW5uZS10ZXN0LW9ubHkifQ.not-a-signature\"\\E$"]
+
+[[rules]]
+id = "private-key"
+[[rules.allowlists]]
+description = "Explicit fake canary; not a cryptographic private key"
+condition = "AND"
+paths = ["(?:^|/)\\Qcrates/runne-daemon/tests/support/nm10_rules.rs\\E$"]
+regexTarget = "match"
+regexes = ["^\\Q-----BEGIN RUNNE T1 FAKE PRIVATE KEY-----\\nRUNNE_T1_FAKE_PEM_BODY_5e6f7a8b\\n-----END RUNNE T1 FAKE PRIVATE KEY-----\\E$"]
+[[rules.allowlists]]
+description = "Explicit fake canary; not a cryptographic private key"
+condition = "AND"
+paths = ["(?:^|/)\\Qdocs/golden/t1/fake-canary-secrets-v1.json\\E$"]
+regexTarget = "match"
+regexes = ["^\\Q-----BEGIN RUNNE T1 FAKE PRIVATE KEY-----\\nRUNNE_T1_FAKE_PEM_BODY_5e6f7a8b\\n-----END RUNNE T1 FAKE PRIVATE KEY-----\\E$"]
+
+[[rules]]
+id = "slack-bot-token"
+[[rules.allowlists]]
+description = "Synthetic negative-test marker; not a usable credential"
+condition = "AND"
+paths = ["(?:^|/)\\Qscripts/tests/test_release_v2_unsafe_markers.py\\E$"]
+regexTarget = "match"
+regexes = ["^\\Qxoxb-1234567890-123456789012-abcdef\\E$"]
+
+[[rules]]
+id = "slack-legacy-workspace-token"
+[[rules.allowlists]]
+description = "Synthetic negative-test marker; not a usable credential"
+condition = "AND"
+paths = ["(?:^|/)\\Qscripts/tests/test_release_v2_unsafe_markers.py\\E$"]
+regexTarget = "match"
+regexes = ["^\\Qxoxa-1234567890\\E$"]
+[[rules.allowlists]]
+description = "Synthetic negative-test marker; not a usable credential"
+condition = "AND"
+paths = ["(?:^|/)\\Qscripts/tests/test_release_v2_unsafe_markers.py\\E$"]
+regexTarget = "match"
+regexes = ["^\\Qxoxr-1234567890\\E$"]

@@ -1,4 +1,5 @@
 [package]
+license.workspace = true
 name = "runne-provider-zai"
 version.workspace = true
 edition.workspace = true

@@ -217,27 +217,6 @@ class FoundationPlanTests(unittest.TestCase):
         self.assertIn("crates/runne-local-store/src/security_mutation.rs", plan)
         self.assertTrue((root / "crates/runne-local-store/src/security_mutation.rs").is_file())
 
-    def test_visual_workflow_paths_match_the_validator_layout(self) -> None:
-        from scripts.desktop.validate_visual_fixtures import DEFAULT_GOLDENS, DEFAULT_REGISTRY
-
-        root = Path(__file__).resolve().parents[2]
-        capture = (root / "scripts/desktop/donor-capture/capture.spec.ts").read_text(encoding="utf-8")
-        plan = (root / "docs/desktop/superpowers/plans/2026-07-26-donor-visual-capture.md").read_text(encoding="utf-8")
-        master = (root / "docs/superpowers/plans/2026-08-23-desktop-production-completion.md").read_text(encoding="utf-8")
-        visual_spec = (root / "docs/desktop/07-testing/DESKTOP_VISUAL_REGRESSION_SPEC.md").read_text(encoding="utf-8")
-
-        self.assertEqual(DEFAULT_REGISTRY, root / "docs/desktop/07-testing/fixtures/desktop-visual-fixtures.yaml")
-        self.assertEqual(DEFAULT_GOLDENS, root / "tests/desktop/visual/goldens")
-        self.assertTrue(DEFAULT_REGISTRY.is_file())
-        self.assertTrue(DEFAULT_GOLDENS.is_dir())
-        self.assertIn("../../../docs/desktop/07-testing/fixtures/desktop-visual-fixtures-phase0.yaml", capture)
-        self.assertIn("../../../tests/desktop/visual/goldens", capture)
-        self.assertIn("../../../docs/desktop/07-testing/fixtures/desktop-visual-fixtures-phase0.yaml", plan)
-        self.assertIn("../../../tests/desktop/visual/goldens", plan)
-        for text in (plan, master, visual_spec):
-            self.assertNotIn("docs/07-testing/fixtures", text)
-            self.assertNotIn("tests/visual/goldens", text)
-
 
 if __name__ == "__main__":
     unittest.main()

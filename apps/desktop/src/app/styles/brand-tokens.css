@@ -1,0 +1,25 @@
+:root {
+  --gocode-graphite: #151616;
+  --gocode-sidebar: #292a2c;
+  --gocode-warm-white: #f5f5f4;
+  --gocode-forge-orange: #ef8039;
+  --gocode-lead-green: #4dca81;
+  --gocode-review-violet: #a75dee;
+  --gocode-error-coral: #e56c62;
+
+  --gocode-space-xs: 4px;
+  --gocode-space-sm: 8px;
+  --gocode-space-md: 12px;
+  --gocode-space-lg: 16px;
+  --gocode-space-xl: 24px;
+  --gocode-space-2xl: 32px;
+
+  --gocode-radius-sm: 4px;
+  --gocode-radius-md: 8px;
+  --gocode-radius-lg: 12px;
+  --gocode-radius-xl: 16px;
+
+  --gocode-motion-fast: 160ms;
+  --gocode-motion-base: 220ms;
+  --gocode-motion-handoff: 360ms;
+}

@@ -1,26 +1,22 @@
 {
-  "name": "gocode",
+  "name": "runne",
   "version": "0.0.3",
   "private": true,
+  "license": "Apache-2.0",
   "packageManager": "pnpm@11.10.0",
   "engines": {
     "node": ">=22.0.0"
   },
   "scripts": {
     "build": "pnpm --filter @runne/desktop build",
-    "ci:local": "bash scripts/ci-local.sh",
-    "ci:local:scoped": "bash scripts/ci-local-scoped.sh",
+    "check:source": "pnpm typecheck && pnpm test && pnpm build && cargo test -p runne-domain -p runne-api -p runne-runtime-client -p runne-opencode-compat -p runne-http -p runne-project-owner-authority --locked",
     "dev": "pnpm --filter @runne/desktop dev",
     "install:local": "bash scripts/install-local.sh",
     "live-smoke:deepseek": "bash scripts/live-smoke-deepseek.sh",
     "lint": "eslint .",
     "lint:architecture": "python3 scripts/desktop/validate_architecture.py",
-    "validate:docs": "python3 scripts/desktop/validate-docs.py --strict",
     "test": "pnpm -r --if-present test",
     "test:e2e": "playwright test",
-    "site:dev": "pnpm --filter @runne/site dev",
-    "site:build": "pnpm --filter @runne/site build",
-    "site:check": "pnpm --filter @runne/site check",
     "typecheck": "pnpm --filter @runne/desktop typecheck && pnpm --filter @runne/product typecheck",
     "validate:benchmark-v1": "python3 -m unittest discover -s scripts/tests -p 'test_benchmark_v1*.py' -v && python3 scripts/verify-benchmark-v1.py verify-contract && python3 scripts/verify-benchmark-v1.py summarize --profile docs/benchmarks/v1/benchmark-profile-v1.json --outcomes docs/benchmarks/v1/fixtures/complete-cohort-v1.json"
   },

@@ -1,0 +1,3 @@
+# Default reviewer for all repository content.
+# Review enforcement requires a repository ruleset or branch protection.
+* @ryltsevmikhail

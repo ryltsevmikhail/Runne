@@ -129,7 +129,7 @@ fn app() -> axum::Router {
 
 fn state() -> OpenCodeSessionState<Host> {
     let openapi: serde_json::Value = serde_json::from_slice(include_bytes!(
-        "../../../upstream/opencode/packages/sdk/openapi.json"
+        "../../../contracts/compatibility/session-response-openapi.json"
     ))
     .unwrap();
     let schema = jsonschema::JSONSchema::options()

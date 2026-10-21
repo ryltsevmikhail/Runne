@@ -1,0 +1,32 @@
+name: Feature request
+description: Describe a problem and propose an improvement.
+title: "[Feature]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please search existing issues first. Requests are not implementation commitments. Security concerns belong in [private reports](https://github.com/ryltsevmikhail/Runne/security/advisories/new), not this form.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem and use case
+      description: Who needs this, and what is difficult today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed improvement
+      description: Describe the behavior you would like, without requiring a particular implementation.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Include existing workarounds and their limitations.
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Platform requirements, compatibility concerns, or examples. Do not include sensitive data.

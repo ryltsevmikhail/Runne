@@ -1,15 +1,24 @@
-RUNNE Runtime
+Runne
+Copyright (c) 2026 RUNNE Runtime contributors
+
+Runne is distributed under the Apache License, Version 2.0 (see LICENSE).
+Earlier revisions of Runne were distributed under the MIT License. Their
+copyright and permission notice is preserved in LICENSES/Runne-legacy-MIT.txt.
+This publication does not revoke rights granted under earlier licenses.
 
 This product includes interface material derived from the OpenCode project.
+Source: https://github.com/anomalyco/opencode
+Baseline: 66495a2a22cd0a57efcc4f721e65532f0987b4e8
+Copyright (c) 2025 opencode
+License: MIT (full text in LICENSES/OpenCode-MIT.txt)
 
-The OpenCode baseline used for reverse-specification is pinned at:
-  commit: 66495a2a22cd0a57efcc4f721e65532f0987b4e8
-  date: 2026-07-24
-  license: MIT
+contracts/compatibility/session-response-openapi.json is a reduced extraction
+of the baseline packages/sdk/openapi.json: only the session prompt response
+schema and its transitive component definitions are retained. The fixture
+was reduced and its descriptive metadata changed by Runne contributors.
+Compatibility schemas and protocol implementations retain their original
+identifiers for interoperability; this does not imply affiliation.
 
-OpenCode is copyright (c) the OpenCode contributors and is used under the
-terms of the MIT license. Attribution and licensing details are recorded in
-docs/00-foundation/LICENSE_AND_ATTRIBUTION.md.
-
-RUNNE Runtime is a separate project and not endorsed by or affiliated with
-the OpenCode project.
+Runne is a separate project, not endorsed by or affiliated with OpenCode,
+OpenAI, or other provider or dependency authors. Dependencies remain subject
+to their own licenses. No upstream source-code archives are distributed here.
