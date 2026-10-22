@@ -47,7 +47,7 @@ tauri.workspace = true
 # second gtk_init deadlocks the Tauri Wayland event loop before any dialog
 # maps. No effect on macOS/Windows native dialog implementations.
 tauri-plugin-dialog = { version = "=2.7.2", default-features = false, features = ["xdg-portal"] }
-tauri-plugin-single-instance = "=2.4.3"
+tauri-plugin-single-instance = "=2.4.5"
 notify-rust = { version = "=4.18.0", features = ["preview-macos-un"] }
 tokio.workspace = true
 thiserror.workspace = true
