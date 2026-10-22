@@ -2,6 +2,10 @@
 
 Runne is an open-source desktop application and provider-neutral runtime for AI coding-agent workflows. It combines a Rust runtime and CLI with a Vue 3 / Tauri desktop client and an in-repository Local Engine.
 
+[Source checks](https://github.com/ryltsevmikhail/Runne/actions/workflows/source-checks.yml) · [Issues](https://github.com/ryltsevmikhail/Runne/issues) · [Contributing](CONTRIBUTING.md)
+
+**Canonical repository:** [ryltsevmikhail/Runne on GitHub](https://github.com/ryltsevmikhail/Runne). Development, issue tracking, and pull requests now happen here. The previous SourceCraft repository is retained as a historical archive, not an active mirror or a prerequisite for building Runne.
+
 ## Why Runne?
 
 Coding agents need more than a model connection: they need durable task state, explicit permissions, recoverable execution, and a usable interface. Runne develops these pieces together while keeping the runtime independent of any single model provider.

@@ -2,6 +2,13 @@
 
 Runne is a desktop application and provider-neutral runtime for AI coding-agent workflows. Apply these instructions to changes throughout this repository.
 
+## Repository authority
+
+- GitHub `ryltsevmikhail/Runne` is the canonical repository for code, issues, and pull requests. Target `main` with focused branches and passing checks.
+- SourceCraft is a historical archive, not an upstream to synchronize automatically. Do not push there as part of normal development.
+- The public history was filtered. Never merge or mirror the unfiltered archival history into GitHub; port only explicitly reviewed code changes.
+- Keep internal plans, reports, and archival materials outside this checkout. Never add a sibling archive to the public Git index.
+
 ## Architectural boundaries
 
 - The runtime is the sole owner of authoritative state.
