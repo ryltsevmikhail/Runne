@@ -309,14 +309,6 @@
    "role": "transitive"
   },
   {
-   "name": "linux-raw-sys",
-   "version": "0.4.15",
-   "checksum": "d26c52dbd32dccf2d10cac7725f8eae5296885fb5703b261f7d0a0739ec807ab",
-   "license": "Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT",
-   "source": "crates.io",
-   "role": "transitive"
-  },
-  {
    "name": "llama-cpp-2",
    "version": "0.1.152",
    "checksum": "848a6a61f145c55f90aab7418e499939172a59be10f2caad451c87742e29898f",
@@ -462,14 +454,6 @@
   },
   {
    "name": "rustix",
-   "version": "0.38.44",
-   "checksum": "fdb5bc1ae2baa591800df16c9ca78619bf65c0488b41b96ccec5d11220d8c154",
-   "license": "Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT",
-   "source": "crates.io",
-   "role": "direct"
-  },
-  {
-   "name": "rustix",
    "version": "1.1.4",
    "checksum": "b6fe4565b9518b83ef4f91bb47ce29620ca828bd32cb7e408f0062e9930ba190",
    "license": "Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT",
@@ -590,8 +574,8 @@
   },
   {
    "name": "tempfile",
-   "version": "3.10.1",
-   "checksum": "85b77fafb263dd9d05cbeac119526425676db3784113aa9295c88498cbf8bff1",
+   "version": "3.27.0",
+   "checksum": "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd",
    "license": "MIT OR Apache-2.0",
    "source": "crates.io",
    "role": "direct"
@@ -702,96 +686,8 @@
   },
   {
    "name": "windows-sys",
-   "version": "0.52.0",
-   "checksum": "282be5f36a8ce781fad8c8ae18fa3f9beff57ec1b52cb3de0789201425d9a33d",
-   "license": "MIT OR Apache-2.0",
-   "source": "crates.io",
-   "role": "transitive"
-  },
-  {
-   "name": "windows-sys",
-   "version": "0.59.0",
-   "checksum": "1e38bc4d79ed67fd075bcc251a1c39b32a1776bbe92e5bef1f0bf1f8c531853b",
-   "license": "MIT OR Apache-2.0",
-   "source": "crates.io",
-   "role": "transitive"
-  },
-  {
-   "name": "windows-sys",
    "version": "0.61.2",
    "checksum": "ae137229bcbd6cdf0f7b80a31df61766145077ddf49416a728b02cb3921ff3fc",
-   "license": "MIT OR Apache-2.0",
-   "source": "crates.io",
-   "role": "transitive"
-  },
-  {
-   "name": "windows-targets",
-   "version": "0.52.6",
-   "checksum": "9b724f72796e036ab90c1021d4780d4d3d648aca59e491e6b98e725b84e99973",
-   "license": "MIT OR Apache-2.0",
-   "source": "crates.io",
-   "role": "transitive"
-  },
-  {
-   "name": "windows_aarch64_gnullvm",
-   "version": "0.52.6",
-   "checksum": "32a4622180e7a0ec044bb555404c800bc9fd9ec262ec147edd5989ccd0c02cd3",
-   "license": "MIT OR Apache-2.0",
-   "source": "crates.io",
-   "role": "transitive"
-  },
-  {
-   "name": "windows_aarch64_msvc",
-   "version": "0.52.6",
-   "checksum": "09ec2a7bb152e2252b53fa7803150007879548bc709c039df7627cabbd05d469",
-   "license": "MIT OR Apache-2.0",
-   "source": "crates.io",
-   "role": "transitive"
-  },
-  {
-   "name": "windows_i686_gnu",
-   "version": "0.52.6",
-   "checksum": "8e9b5ad5ab802e97eb8e295ac6720e509ee4c243f69d781394014ebfe8bbfa0b",
-   "license": "MIT OR Apache-2.0",
-   "source": "crates.io",
-   "role": "transitive"
-  },
-  {
-   "name": "windows_i686_gnullvm",
-   "version": "0.52.6",
-   "checksum": "0eee52d38c090b3caa76c563b86c3a4bd71ef1a819287c19d586d7334ae8ed66",
-   "license": "MIT OR Apache-2.0",
-   "source": "crates.io",
-   "role": "transitive"
-  },
-  {
-   "name": "windows_i686_msvc",
-   "version": "0.52.6",
-   "checksum": "240948bc05c5e7c6dabba28bf89d89ffce3e303022809e73deaefe4f6ec56c66",
-   "license": "MIT OR Apache-2.0",
-   "source": "crates.io",
-   "role": "transitive"
-  },
-  {
-   "name": "windows_x86_64_gnu",
-   "version": "0.52.6",
-   "checksum": "147a5c80aabfbf0c7d901cb5895d1de30ef2907eb21fbbab29ca94c5b08b1a78",
-   "license": "MIT OR Apache-2.0",
-   "source": "crates.io",
-   "role": "transitive"
-  },
-  {
-   "name": "windows_x86_64_gnullvm",
-   "version": "0.52.6",
-   "checksum": "24d5b23dc417412679681396f2b49f3de8c1473deb516bd34410872eff51ed0d",
-   "license": "MIT OR Apache-2.0",
-   "source": "crates.io",
-   "role": "transitive"
-  },
-  {
-   "name": "windows_x86_64_msvc",
-   "version": "0.52.6",
-   "checksum": "589f6da84c646204747d1270a2a5661ea66ed1cced2631d546fdfb155959f9ec",
    "license": "MIT OR Apache-2.0",
    "source": "crates.io",
    "role": "transitive"
@@ -846,7 +742,7 @@
   }
  },
  "inventory": {
-  "registry_crates": 99,
+  "registry_crates": 86,
   "generated": "2026-09-04 after Task 5 (SCM_RIGHTS transport pulls linux-raw-sys via rustix net)",
   "generator": "regenerated after Task 2 deps (serde, serde_json, sha2 + transitives)",
   "missing_from_cache": []
