@@ -6,9 +6,15 @@ Thank you for helping improve Runne. Small, focused fixes, tests, documentation 
 
 Read the [README](README.md) for setup and platform limitations and [AGENTS.md](AGENTS.md) for architectural boundaries. Search existing issues before opening one. For a substantial API, dependency, or architectural change, discuss the problem in an issue before implementing it. Report security concerns [privately](SECURITY.md), never through public issues or pull requests.
 
+## Where to contribute
+
+[GitHub](https://github.com/ryltsevmikhail/Runne) is the canonical source repository. Open new issues and pull requests here, targeting `main`; SourceCraft is retained only as a historical archive. Existing GitHub contributions do not need to be resubmitted elsewhere.
+
+If you have an old SourceCraft checkout, make a fresh clone from GitHub instead of changing its remote and merging unrelated histories. Public history was filtered during publication. Port only reviewed code changes from old branches; do not push archival branches, private documents, or a `--mirror` export to GitHub. Keep internal working notes outside the public checkout.
+
 ## Development workflow
 
-1. Fork and clone the repository, then create a focused branch.
+1. Fork and clone the GitHub repository, then create a focused branch from current `main`.
 2. Install the prerequisites and run `pnpm install --frozen-lockfile`.
 3. Make the smallest coherent change; add regression tests for behavior changes.
 4. Run checks for the affected components and record the commands and results in your pull request.

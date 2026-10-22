@@ -31,6 +31,9 @@ jobs:
       - name: Test core contracts
         run: cargo test -p runne-domain -p runne-api -p runne-runtime-client -p runne-opencode-compat -p runne-http -p runne-project-owner-authority --locked
 
+      - name: Test runtime metadata query boundaries
+        run: cargo test -p runne-runtime --lib extension_query --locked
+
   frontend:
     name: Frontend checks
     runs-on: ubuntu-24.04
