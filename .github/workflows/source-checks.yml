@@ -22,6 +22,10 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends libdbus-1-dev pkg-config
       - name: Install pinned Rust toolchain
         run: rustup toolchain install 1.97.1 --profile minimal --component rustfmt
       - name: Test core contracts
