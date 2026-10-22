@@ -44,7 +44,10 @@ impl ConfiguredExtensionRegistry {
         request: QueryRequest,
         state: &OwnerState,
     ) -> Result<MetadataReply, MetadataQueryError> {
-        use MetadataQueryError::*;
+        use MetadataQueryError::{
+            InvalidRequest, NotFound, OwnerClosed, ScopeDenied, StaleGeneration, StaleSnapshot,
+            UnsupportedContract,
+        };
         let c = &request.context;
         if c.principal != self.scope.principal || c.project != self.scope.project {
             return Err(ScopeDenied);
@@ -100,4 +103,8 @@ impl ConfiguredExtensionRegistry {
             .close(expected)
     }
 }
-identity::opaque!(ConfiguredExtensionRegistry);
+impl std::fmt::Debug for ConfiguredExtensionRegistry {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("ConfiguredExtensionRegistry(<opaque>)")
+    }
+}

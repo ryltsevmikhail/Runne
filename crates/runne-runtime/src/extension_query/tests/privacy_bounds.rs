@@ -205,12 +205,12 @@ fn allowed_secret_shaped_id_remains_internal_data() {
 fn reply_request_source_owner_debug_are_opaque() {
     let o = capture(&json()).unwrap();
     let r = o.query(request()).unwrap();
+    let marker = "ConfiguredExtensionRegistry(<opaque>)";
+    assert_eq!(format!("{o:?}"), marker);
+    assert_eq!(format!("{o:#?}"), marker);
+    assert_eq!(format!("{o:>80.5?}"), marker);
     let mut values = vec![
-        format!(
-            "{:?}",
-            super::super::capture::Source(file(json().as_bytes()))
-        ),
-        format!("{o:?}"),
+        format!("{:?}", capture::Source(file(json().as_bytes()))),
         format!("{:?}", request()),
         format!("{:?}", request().context),
         format!("{:?}", expected()),
