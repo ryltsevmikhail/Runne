@@ -34,7 +34,7 @@ serde_json_canonicalizer = "=0.3.2"
 # Already in the llama-cpp-2 0.1.152 dependency tree; pinned as a direct
 # dep of the worker for incremental UTF-8 token assembly (no new crates
 # in the resolved graph).
-encoding_rs = "=0.8.35"
+encoding_rs = "=0.8.42"
 llama-cpp-2 = "=0.1.152"
 # Lockstep pair of llama-cpp-2 0.1.152 (its own manifest requires
 # "0.1.152"; the caret range admits later 0.1.x, but the generated C
