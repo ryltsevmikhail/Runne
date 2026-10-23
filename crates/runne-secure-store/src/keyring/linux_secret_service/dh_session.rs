@@ -15,8 +15,7 @@
 use std::ops::{Mul, Rem, Shr};
 
 use aes::cipher::block_padding::Pkcs7;
-use aes::cipher::generic_array::GenericArray;
-use aes::cipher::{BlockDecryptMut, BlockEncryptMut, KeyIvInit};
+use aes::cipher::{BlockModeDecrypt, BlockModeEncrypt, KeyIvInit};
 use num::FromPrimitive;
 use num::bigint::BigUint;
 use num::integer::Integer;
@@ -171,12 +170,11 @@ pub fn random_iv() -> [u8; 16] {
 }
 
 pub fn encrypt_with_iv(data: &[u8], key: &[u8; 16], iv: &[u8; 16]) -> Vec<u8> {
-    let key = GenericArray::from_slice(key);
-    let iv = GenericArray::from_slice(iv);
     let capacity = data.len().saturating_add(AES_BLOCK_BYTES);
     let mut output = Zeroizing::new(vec![0; capacity]);
-    let ciphertext_len = Aes128CbcEnc::new(key, iv)
-        .encrypt_padded_b2b_mut::<Pkcs7>(data, &mut output)
+    let ciphertext_len = Aes128CbcEnc::new_from_slices(key, iv)
+        .expect("AES128 key and IV are exactly 16 bytes")
+        .encrypt_padded_b2b::<Pkcs7>(data, &mut output)
         .expect("output reserves one full PKCS#7 block")
         .len();
     output.truncate(ciphertext_len);
@@ -213,15 +211,15 @@ fn decrypt_padded_in_place(
         buffer.zeroize();
         return Err(SsBusError::Transport);
     }
-    let key = GenericArray::from_slice(key);
-    let iv = GenericArray::from_slice(iv);
-    let plaintext_len =
-        if let Ok(plaintext) = Aes128CbcDec::new(key, iv).decrypt_padded_mut::<Pkcs7>(buffer) {
-            plaintext.len()
-        } else {
-            buffer.zeroize();
-            return Err(SsBusError::Transport);
-        };
+    let plaintext_len = if let Ok(plaintext) = Aes128CbcDec::new_from_slices(key, iv)
+        .expect("key is 16 bytes and IV length was validated")
+        .decrypt_padded::<Pkcs7>(buffer)
+    {
+        plaintext.len()
+    } else {
+        buffer.zeroize();
+        return Err(SsBusError::Transport);
+    };
     buffer[plaintext_len..].zeroize();
     Ok(plaintext_len)
 }
@@ -256,3 +254,11 @@ impl Drop for DhSession {
 #[cfg(test)]
 #[path = "tests/dh_session.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "tests/cbc_compatibility.rs"]
+mod cbc_compatibility;
+
+#[cfg(test)]
+#[path = "tests/cbc_zeroize.rs"]
+mod cbc_zeroize;
