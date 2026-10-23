@@ -5,13 +5,19 @@
 #![cfg(feature = "backend-llama-cpp")]
 
 use encoding_rs::{CoderResult, Decoder, UTF_8};
-use llama_cpp_2::{model::LlamaModel, token::LlamaToken, TokenToStringError};
+use llama_cpp_2::{TokenToStringError, model::LlamaModel, token::LlamaToken};
 use std::num::NonZeroU16;
 
 #[test]
 fn real_consumer_api_binding_without_model() {
-    let _api: fn(&LlamaModel, LlamaToken, &mut Decoder, bool, Option<NonZeroU16>)
-        -> Result<String, TokenToStringError> = LlamaModel::token_to_piece;
+    let _api: fn(
+        &LlamaModel,
+        LlamaToken,
+        &mut Decoder,
+        bool,
+        Option<NonZeroU16>,
+    ) -> Result<String, TokenToStringError> = LlamaModel::token_to_piece;
+    std::hint::black_box(_api); // Retain the real native-linked symbol; never call it.
 }
 
 fn piece(decoder: &mut Decoder, bytes: &[u8], last: bool) -> (String, bool) {
@@ -29,8 +35,14 @@ fn every_scalar_split_retains_state_across_pieces() {
     for scalar in ["¢", "€", "😀"] {
         for split in 1..scalar.len() {
             let mut decoder = UTF_8.new_decoder();
-            assert_eq!(piece(&mut decoder, &scalar.as_bytes()[..split], false), ("".into(), false));
-            assert_eq!(piece(&mut decoder, &scalar.as_bytes()[split..], false), (scalar.into(), false));
+            assert_eq!(
+                piece(&mut decoder, &scalar.as_bytes()[..split], false),
+                ("".into(), false)
+            );
+            assert_eq!(
+                piece(&mut decoder, &scalar.as_bytes()[split..], false),
+                (scalar.into(), false)
+            );
             assert_eq!(piece(&mut decoder, b"!", true), ("!".into(), false));
         }
     }
@@ -47,7 +59,8 @@ fn every_scalar_split_retains_state_across_pieces() {
 
 #[test]
 fn long_mixed_text_crosses_simd_and_scalar_boundaries() {
-    let text = "abcdefghijklmnop¢€😀qrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ¢€😀abcdefghijklmnop";
+    let text =
+        "abcdefghijklmnop¢€😀qrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ¢€😀abcdefghijklmnop";
     assert!(text.len() > 64);
     for split in 0..=text.len() {
         let mut decoder = UTF_8.new_decoder();
@@ -115,8 +128,12 @@ fn output_full_consumed_count_and_retry_preserve_input() {
         assert!(!errors);
         assert_eq!(out.capacity(), capacity);
         out.reserve(16);
-        let (result, read, errors) = decoder.decode_to_string(&b"ABCDE"[consumed..], &mut out, true);
-        assert_eq!((result, read, errors), (CoderResult::InputEmpty, 5 - consumed, false));
+        let (result, read, errors) =
+            decoder.decode_to_string(&b"ABCDE"[consumed..], &mut out, true);
+        assert_eq!(
+            (result, read, errors),
+            (CoderResult::InputEmpty, 5 - consumed, false)
+        );
         assert_eq!(out, "ABCDE");
     }
 }
@@ -124,27 +141,42 @@ fn output_full_consumed_count_and_retry_preserve_input() {
 #[test]
 fn tiny_continuation_capacity_requires_retry_not_consumer_success() {
     let mut decoder = UTF_8.new_decoder();
-    assert_eq!(piece(&mut decoder, b"\xf0\x9f\x98", false), ("".into(), false));
+    assert_eq!(
+        piece(&mut decoder, b"\xf0\x9f\x98", false),
+        ("".into(), false)
+    );
     let mut out = String::with_capacity(1); // llama's current-piece-sized allocation
     assert_eq!(out.capacity(), 1);
     let result = decoder.decode_to_string(b"\x80", &mut out, false);
     assert_eq!(result, (CoderResult::OutputFull, 0, false));
     assert_eq!(out, "");
     out.reserve(16);
-    assert_eq!(decoder.decode_to_string(b"\x80", &mut out, true), (CoderResult::InputEmpty, 1, false));
+    assert_eq!(
+        decoder.decode_to_string(b"\x80", &mut out, true),
+        (CoderResult::InputEmpty, 1, false)
+    );
     assert_eq!(out, "😀");
     // At stream start FF is a possible UTF-16 BOM prefix, not yet an error.
     let mut decoder = UTF_8.new_decoder();
     let mut sniff = String::with_capacity(1);
-    assert_eq!(decoder.decode_to_string(b"\xff", &mut sniff, false), (CoderResult::InputEmpty, 1, false));
+    assert_eq!(
+        decoder.decode_to_string(b"\xff", &mut sniff, false),
+        (CoderResult::InputEmpty, 1, false)
+    );
     assert_eq!(sniff, "");
     assert_eq!(piece(&mut decoder, b"", true), ("�".into(), true));
     // After BOM sniffing, replacement needs three bytes for one input byte.
     let mut decoder = UTF_8.new_decoder();
     assert_eq!(piece(&mut decoder, b"a", false), ("a".into(), false));
     let mut out = String::with_capacity(1);
-    assert_eq!(decoder.decode_to_string(b"\xff", &mut out, false), (CoderResult::OutputFull, 0, false));
+    assert_eq!(
+        decoder.decode_to_string(b"\xff", &mut out, false),
+        (CoderResult::OutputFull, 0, false)
+    );
     out.reserve(16);
-    assert_eq!(decoder.decode_to_string(b"\xff", &mut out, true), (CoderResult::InputEmpty, 1, true));
+    assert_eq!(
+        decoder.decode_to_string(b"\xff", &mut out, true),
+        (CoderResult::InputEmpty, 1, true)
+    );
     assert_eq!(out, "�");
 }
