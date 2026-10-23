@@ -46,7 +46,7 @@ The runtime is the sole owner of authoritative state. Clients must not bypass au
 For Linux development:
 
 - Git, Bash, Python 3, and a native C/C++ build toolchain with `pkg-config` and D-Bus development headers (`libdbus-1-dev` on Debian/Ubuntu).
-- Node.js 22 or newer and **pnpm 11.10.0**, as pinned in the root manifest.
+- Development Node.js **`^22.22.2 || ^24.15.0 || >=26.0.0`** and **pnpm 11.10.0**, as pinned in the root manifest.
 - Rust via rustup: **1.97.1**, including rustfmt and Clippy, as pinned in `rust-toolchain.toml`. The declared minimum Rust version is 1.95.
 - For desktop builds, the [Tauri 2 Linux prerequisites](https://v2.tauri.app/start/prerequisites/#linux), including WebKitGTK 4.1, GTK 3, and the applicable AppIndicator development libraries. A graphical session and desktop portal are needed for GUI use.
 - Local-command execution additionally needs cgroup v2 and a writable delegated scope; the example below uses a systemd user session.
