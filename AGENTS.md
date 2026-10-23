@@ -29,7 +29,7 @@ Runne is a desktop application and provider-neutral runtime for AI coding-agent 
 
 ## Development checks
 
-Use Node.js 22+, pnpm 11.10.0, and the pinned Rust 1.97.1 toolchain (edition 2024; declared MSRV 1.95). See [README](README.md) for native dependencies.
+Use development Node.js `^22.22.2 || ^24.15.0 || >=26.0.0`, pnpm 11.10.0, and the pinned Rust 1.97.1 toolchain (edition 2024; declared MSRV 1.95). See [README](README.md) for native dependencies.
 
 ```bash
 pnpm install --frozen-lockfile

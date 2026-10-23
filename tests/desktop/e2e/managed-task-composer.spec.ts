@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 import { installManagedComposerAdapter, managedWorkspace, recoveryToken, taskRunId } from './managed-task-composer.support'
 
-test('starts from the real workspace composer and opens its canonical TaskRun', async ({ page }) => {
+test('starts from the real workspace composer and opens its canonical TaskRun', async ({ page }, testInfo) => {
   await installManagedComposerAdapter(page)
   await page.goto(`/workspaces/${managedWorkspace.workspaceId}`)
 
@@ -9,7 +9,7 @@ test('starts from the real workspace composer and opens its canonical TaskRun', 
   await expect(page.getByText('Effective provider, model, and policy details are unavailable from the runtime.')).toBeVisible()
   await prompt.fill('Inspect the workspace')
   await expect(page.getByRole('button', { name: 'Start task', exact: true })).toBeEnabled()
-  await page.screenshot({ path: '/home/ryltsevmg/runne/worktree-logs/dx1-desktop/composer-mock.png' })
+  await page.screenshot({ path: testInfo.outputPath('composer-mock.png') })
   await page.getByRole('button', { name: 'Start task', exact: true }).click()
 
   await expect(page).toHaveURL(new RegExp(`/task-runs/${taskRunId}$`))

@@ -5,7 +5,7 @@
   "license": "Apache-2.0",
   "packageManager": "pnpm@11.10.0",
   "engines": {
-    "node": ">=22.0.0"
+    "node": "^22.22.2 || ^24.15.0 || >=26.0.0"
   },
   "scripts": {
     "build": "pnpm --filter @runne/desktop build",
@@ -22,7 +22,7 @@
   },
   "devDependencies": {
     "@eslint/js": "9.39.5",
-    "@playwright/test": "1.62.0",
+    "@playwright/test": "1.64.1",
     "@types/node": "24.13.3",
     "@vitest/coverage-v8": "4.1.12",
     "eslint": "9.39.5",
