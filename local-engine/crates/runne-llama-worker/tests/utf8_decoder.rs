@@ -133,8 +133,15 @@ fn tiny_continuation_capacity_requires_retry_not_consumer_success() {
     out.reserve(16);
     assert_eq!(decoder.decode_to_string(b"\x80", &mut out, true), (CoderResult::InputEmpty, 1, false));
     assert_eq!(out, "😀");
-    // Replacement needs three output bytes despite only one input byte.
+    // At stream start FF is a possible UTF-16 BOM prefix, not yet an error.
     let mut decoder = UTF_8.new_decoder();
+    let mut sniff = String::with_capacity(1);
+    assert_eq!(decoder.decode_to_string(b"\xff", &mut sniff, false), (CoderResult::InputEmpty, 1, false));
+    assert_eq!(sniff, "");
+    assert_eq!(piece(&mut decoder, b"", true), ("�".into(), true));
+    // After BOM sniffing, replacement needs three bytes for one input byte.
+    let mut decoder = UTF_8.new_decoder();
+    assert_eq!(piece(&mut decoder, b"a", false), ("a".into(), false));
     let mut out = String::with_capacity(1);
     assert_eq!(decoder.decode_to_string(b"\xff", &mut out, false), (CoderResult::OutputFull, 0, false));
     out.reserve(16);
