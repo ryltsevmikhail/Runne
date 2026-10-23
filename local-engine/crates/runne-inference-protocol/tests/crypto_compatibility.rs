@@ -145,8 +145,14 @@ fn deterministic_handshake_stream_and_derivation_bytes() {
 fn exact_tag_tamper_replay_epoch_and_direction_errors() {
     let (mut client, _) = pair(1);
     let authentic = client.encode(&MessageV1::Health).unwrap();
-    let mut corrupt = vec![0; 32];
-    corrupt[0] = 1;
+    let (Cbor::Map(map), true) = frame::decode_frame(&authentic, 65536).unwrap() else {
+        panic!()
+    };
+    let Some(Cbor::Bytes(tag)) = map.get(b"mac".as_slice()) else {
+        panic!()
+    };
+    let mut corrupt = tag.clone();
+    corrupt[0] ^= 1;
     let cases = [
         (
             "empty-tag",
