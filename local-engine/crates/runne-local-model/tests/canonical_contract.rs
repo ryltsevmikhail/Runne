@@ -13,8 +13,9 @@ fn check(label: &str, value: &Value, expected: &str) {
     let hash = Sha256::digest(&bytes);
     assert_eq!(hash, Sha256::digest(expected.as_bytes()), "{label}: SHA256");
     println!(
-        "VECTOR {label} bytes={} sha256={hash:x}",
-        hex::encode(bytes)
+        "VECTOR {label} bytes={} sha256={}",
+        hex::encode(bytes),
+        hex::encode(hash)
     );
 }
 

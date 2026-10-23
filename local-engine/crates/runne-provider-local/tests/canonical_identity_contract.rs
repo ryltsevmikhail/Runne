@@ -7,7 +7,7 @@ use serde_json::json;
 use sha2::{Digest, Sha256};
 
 fn digest(bytes: &str) -> String {
-    format!("sha256:{:x}", Sha256::digest(bytes.as_bytes()))
+    format!("sha256:{}", hex::encode(Sha256::digest(bytes.as_bytes())))
 }
 
 #[test]
