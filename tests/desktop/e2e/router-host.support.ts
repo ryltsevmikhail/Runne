@@ -24,7 +24,11 @@ export async function installHostControl(page: Page, options: { pending?: Activa
     ;window.__hostFixture = control
     host.invoke = async (command, args) => {
       control.calls.push({ command, args })
-      try {
+      const id = control.calls.length
+      // Trace capture survives reload; the in-page attachment intentionally describes only its document.
+      const record = (phase: string, value: unknown) => console.debug('runne-router-fixture ' + JSON.stringify({ phase, id, document: performance.timeOrigin, command, value }))
+      record('invoke', args)
+      const dispatch = async () => {
         if (command === 'get_pending_external_activation') return options.pending ?? null
         if (command === 'get_bootstrap') return { theme: 'dark', runtimeMode: 'bundled', runtime: control.state, runtimeLifecycle: control.state === 'live' ? 'ready' : 'restarting', runtimeFailure: null } satisfies BootstrapState
         if (command === 'get_canonical_workspace') {
@@ -53,7 +57,13 @@ export async function installHostControl(page: Page, options: { pending?: Activa
         }
         return await invoke(command, args)
       }
+      try {
+        const value = await dispatch()
+        record('result', value)
+        return value
+      }
       catch (error) {
+        record('failure', error instanceof Error ? error.message : String(error))
         control.failures.push(error instanceof Error ? error.message : String(error))
         throw error
       }
