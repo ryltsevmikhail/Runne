@@ -38,7 +38,7 @@ security-framework = { version = "=3.7.0", features = ["OSX_10_15"] }
 runne-native-enrollment-authority = { path = "../runne-native-enrollment-authority", optional = true }
 aes = "=0.8.4"
 block-padding = { version = "=0.3.3", features = ["std"] }
-cbc = { version = "=0.1.2", features = ["block-padding", "alloc"] }
+cbc = { version = "=0.2.1", features = ["block-padding", "alloc"] }
 dbus = "=0.9.12"
 hkdf = "=0.12.4"
 keyring = { version = "=3.6.3", default-features = false, features = ["linux-native-sync-persistent", "crypto-rust"] }
