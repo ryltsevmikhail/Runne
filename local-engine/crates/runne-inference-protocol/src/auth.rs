@@ -4,7 +4,7 @@
 //! process execution, no I/O, no dynamic assembly.
 
 use crate::error::ProtocolError;
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use sha2::{Digest, Sha256};
 
 type HmacSha256 = Hmac<Sha256>;
