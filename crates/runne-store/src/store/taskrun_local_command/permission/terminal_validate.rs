@@ -78,15 +78,9 @@ pub(crate) fn validate(
         ),
     )
     .map_err(|_| invalid())?;
-    let policy_stop = terminal.current_selection != *binding.selection()
-        || terminal.trust != binding.closed_rules_snapshot()
-        || terminal.trust.record.status
-            == runne_application::project_trust::ProjectTrustStatus::Untrusted
-        || terminal
-            .current_selection
-            .expires_at_unix_ms
-            .is_some_and(|expiry| expiry <= now_ms())
-        || binding.approval().expires_at_unix_ms <= now_ms();
+    let assessment = super::retained_policy::assess_binding(tx, store, binding, terminal.lease)
+        .map_err(|_| invalid())?;
+    let policy_stop = assessment.stop.is_some();
     if policy_stop != terminal.policy_stop {
         return Err(invalid());
     }

@@ -6,6 +6,25 @@ use runne_application::{
 };
 
 impl StoreTransaction {
+    /// Observes current policy data only. This never admits or releases a child.
+    pub fn observe_local_command_permission_policy(
+        &self,
+        binding: &LocalCommandPermissionBindingV1,
+    ) -> Result<Option<u8>, EventStoreError> {
+        let lease = self.observe_local_command_permission_trust(binding)?;
+        let mut writer = self
+            .inner
+            .writer
+            .lock()
+            .map_err(|_| EventStoreError::Unavailable)?;
+        let tx = writer
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .map_err(|_| EventStoreError::Unavailable)?;
+        let assessment =
+            super::retained_policy::assess_binding(&tx, self, binding, lease.as_ref())?;
+        Ok(assessment.stop)
+    }
+
     /// Holds a current registered trust snapshot after validating this capture.
     pub fn observe_local_command_permission_trust(
         &self,

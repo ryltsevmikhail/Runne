@@ -55,7 +55,7 @@ pub(super) fn v51_matches(connection: &Connection, version: i64) -> SqliteResult
 
 /// Validates the frozen V51 objects when a later schema version is installed.
 pub(super) fn v51_base_matches(connection: &Connection, version: i64) -> SqliteResult<bool> {
-    if !matches!(version, 52..=68) {
+    if !matches!(version, 52..=69) {
         return Ok(false);
     }
     if !v50_base_matches(connection, version)? {

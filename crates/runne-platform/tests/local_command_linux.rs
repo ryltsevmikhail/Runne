@@ -10,6 +10,8 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+#[path = "local_command_linux/cleanup_evidence.rs"]
+mod cleanup_evidence;
 #[path = "local_command_linux/confinement.rs"]
 mod confinement;
 #[path = "local_command_linux/io.rs"]
@@ -145,9 +147,10 @@ fn run_or_skip() -> Option<(LinuxManagedAreaRoot, AreaGuard, [u8; 48])> {
 
 #[test]
 fn cancellation_before_release_never_executes_user_command() {
-    let Some((_root, area, _identity)) = run_or_skip() else {
+    let Some((_root, mut area, identity)) = run_or_skip() else {
         return;
     };
+    let area = area.0.take().expect("disarm selected area guard");
     eprintln!("RUN: cancellation_before_release_never_executes_user_command");
     let workspace = Workspace::new();
     let workspace_fd = workspace.file();
@@ -162,7 +165,7 @@ fn cancellation_before_release_never_executes_user_command() {
     child.cancel(Duration::ZERO).expect("cancel held gate");
     assert!(!marker.exists(), "user command must not run before release");
     assert!(!area.is_populated().expect("empty after cancel"));
-    area.remove();
+    cleanup_evidence::checked_remove(area, identity).expect("F1 checked cleanup evidence");
 }
 
 #[test]

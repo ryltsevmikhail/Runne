@@ -9,7 +9,11 @@ mod identity;
 mod model;
 mod phase;
 mod provided_classes;
+mod scope_compatibility;
 mod semantics;
+pub use scope_compatibility::*;
+#[cfg(test)]
+mod scope_compatibility_tests;
 
 pub use approval::{RetainedHumanEvidenceInputV1, RetainedHumanEvidenceV1};
 pub use current_facts::{

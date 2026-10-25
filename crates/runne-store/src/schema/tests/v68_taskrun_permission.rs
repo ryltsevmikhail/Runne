@@ -45,7 +45,7 @@ fn v68_rejects_ambiguous_historical_local_command_rows() {
 #[test]
 fn v68_runtime_inserts_only_immutable_new_routes() {
     let connection = Connection::open_in_memory().unwrap();
-    apply_migrations(&connection).unwrap();
+    apply_migrations_internal(&connection, 68).unwrap();
     insert_v68_preflight(&connection, [0x33; 16], "preflight");
     assert!(!v68_matches(&connection, 68).unwrap());
     connection
@@ -93,7 +93,7 @@ fn v68_runtime_inserts_only_immutable_new_routes() {
 #[test]
 fn v68_whole_matcher_rejects_route_catalog_tampering_and_marker_only_upgrade() {
     let connection = Connection::open_in_memory().unwrap();
-    apply_migrations(&connection).unwrap();
+    apply_migrations_internal(&connection, 68).unwrap();
     connection
         .execute("DROP TRIGGER taskrun_local_permission_routes_immutable", [])
         .unwrap();
@@ -110,7 +110,7 @@ fn v68_whole_matcher_rejects_route_catalog_tampering_and_marker_only_upgrade() {
 #[test]
 fn v68_no_effect_proof_fails_closed_without_retained_capture_or_receipt() {
     let connection = Connection::open_in_memory().unwrap();
-    apply_migrations(&connection).unwrap();
+    apply_migrations_internal(&connection, 68).unwrap();
     let taskrun = runne_domain::id::TaskRunId::from_bytes([0x35; 16]);
     insert_v68_preflight(&connection, *taskrun.as_bytes(), "preflight");
     connection
@@ -121,21 +121,29 @@ fn v68_no_effect_proof_fails_closed_without_retained_capture_or_receipt() {
         )
         .unwrap();
 
-    assert!(crate::store::taskrun_local_command::permission::no_effect::current_route(
-        &connection, taskrun
-    )
-    .unwrap());
-    assert!(!crate::store::taskrun_local_command::permission::no_effect::pre_release_matches(
-        &connection,
-        taskrun,
-        runne_domain::id::AttemptId::from_bytes([0x36; 16]),
-        &runne_application::ports::RuntimeAuthorityId("test-authority".into()),
-    )
-    .unwrap());
-    assert!(!crate::store::taskrun_local_command::permission::no_effect::settled_matches(
-        &connection, taskrun
-    )
-    .unwrap());
+    assert!(
+        crate::store::taskrun_local_command::permission::no_effect::current_route(
+            &connection,
+            taskrun
+        )
+        .unwrap()
+    );
+    assert!(
+        !crate::store::taskrun_local_command::permission::no_effect::pre_release_matches(
+            &connection,
+            taskrun,
+            runne_domain::id::AttemptId::from_bytes([0x36; 16]),
+            &runne_application::ports::RuntimeAuthorityId("test-authority".into()),
+        )
+        .unwrap()
+    );
+    assert!(
+        !crate::store::taskrun_local_command::permission::no_effect::settled_matches(
+            &connection,
+            taskrun
+        )
+        .unwrap()
+    );
 }
 
 fn insert_v68_preflight(connection: &Connection, taskrun_id: [u8; 16], state: &str) {

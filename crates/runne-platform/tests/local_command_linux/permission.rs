@@ -28,6 +28,27 @@ mod network_none_syscalls;
 #[path = "permission/network_qualification_support.rs"]
 mod network_qualification_support;
 
+fn protected_canary(root: &Path) -> PathBuf {
+    let canary = root.join("protected-secret");
+    std::fs::write(&canary, b"control-plane canary").expect("seed protected canary");
+    assert_eq!(
+        std::fs::read(&canary).expect("parent can read protected canary"),
+        b"control-plane canary"
+    );
+    canary
+}
+
+#[test]
+fn protected_canary_fixture_is_readable_with_expected_content() {
+    let protected = tempfile::tempdir().expect("owned protected fixture root");
+    let canary = protected_canary(protected.path());
+    assert_eq!(canary.parent(), Some(protected.path()));
+    assert_eq!(
+        std::fs::read(&canary).expect("protected fixture must exist and be readable"),
+        b"control-plane canary"
+    );
+}
+
 #[test]
 fn typed_network_none_denies_socket_after_go() {
     let Some((_root, area, _identity)) = run_or_skip() else {
@@ -142,6 +163,7 @@ fn typed_full_access_allows_real_outside_write_and_loopback_socket() {
         let _ = network_tx.send(bytes[..count].to_vec());
     });
     let protected = tempfile::tempdir().expect("protected control-plane root");
+    let protected_canary = protected_canary(protected.path());
     let protected_file = std::fs::OpenOptions::new()
         .read(true)
         .custom_flags(libc::O_PATH | libc::O_CLOEXEC)
@@ -182,12 +204,11 @@ fn typed_full_access_allows_real_outside_write_and_loopback_socket() {
     let receipt = admit_invocation_scope(&scope, &admission).expect("broad native scope");
     let executable = File::open("/usr/bin/bash").expect("Bash executable");
     let sealed = SealedExecutableSnapshot::from_held_file(&executable).expect("sealed Bash");
-    let script = format!(
-        "if cat {}/protected-secret >/dev/null; then exit 42; fi; printf broad-write > {}; exec 3<>/dev/tcp/127.0.0.1/{}; printf network-ok >&3",
-        protected.path().display(),
-        outside.display(),
-        port
-    );
+    let readable_control = workspace.0.join("workspace read control");
+    std::fs::write(&readable_control, b"workspace-readable").expect("seed readable control");
+    let script = "[ \"$(cat -- \"$2\")\" = workspace-readable ] || exit 41; \
+        if cat -- \"$1\" >/dev/null; then exit 42; fi; \
+        printf broad-write > \"$3\"; exec 3<>\"/dev/tcp/127.0.0.1/$4\"; printf network-ok >&3";
     let command = LinuxCommandSpec {
         executable: LinuxCommandExecutable::SealedSnapshot(&sealed),
         workspace: &workspace_fd,
@@ -196,6 +217,11 @@ fn typed_full_access_allows_real_outside_write_and_loopback_socket() {
             OsString::from("/usr/bin/bash"),
             OsString::from("-c"),
             OsString::from(script),
+            OsString::from("broad-control"),
+            protected_canary.into_os_string(),
+            readable_control.into_os_string(),
+            outside.clone().into_os_string(),
+            OsString::from(port),
         ],
         env: Vec::new(),
     };

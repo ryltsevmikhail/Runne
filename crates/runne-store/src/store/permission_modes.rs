@@ -8,10 +8,23 @@ mod identity;
 mod managed_identity;
 mod model;
 mod receipt_codec;
+pub(in crate::store) use command::current_on_connection;
 
 #[cfg(test)]
 #[path = "permission_modes/tests_v2.rs"]
 mod tests_v2;
+
+#[cfg(all(test, target_os = "linux"))]
+#[path = "permission_modes/tests_capture_retention.rs"]
+mod tests_capture_retention;
+
+#[cfg(all(test, target_os = "linux"))]
+#[path = "permission_modes/tests_context_capture.rs"]
+mod tests_context_capture;
+
+#[cfg(all(test, target_os = "linux"))]
+#[path = "permission_modes/tests_admitted_retention.rs"]
+mod tests_admitted_retention;
 
 pub use model::{
     ClosedRulesManagedIdentityV2, LegacyRecordIdentityV1, ManagedIdentityChallengeBindingV2,

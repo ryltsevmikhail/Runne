@@ -61,6 +61,8 @@ pub(super) fn v42_structure_matches(
                 | (67, 1, 67, 2278)
                 | (68, 1, 67, 2327)
                 | (68, 1, 68, 2346)
+                | (69, 1, 68, 2396)
+                | (69, 1, 69, 2415)
         )
     } else {
         matches!(marker, (42, 1, 41, 884) | (42, 1, 42, 903))
@@ -187,7 +189,9 @@ pub(super) fn v42_structure_matches(
     if marker.0 >= 64 {
         v64_add_schema_extensions(&mut tables, &mut indexes, &mut triggers);
     }
-    if marker.0 >= 68 {
+    if marker.0 >= 69 {
+        v69_add_schema_extensions(&mut tables, &mut indexes, &mut triggers);
+    } else if marker.0 >= 68 {
         v68_add_schema_extensions(&mut tables, &mut indexes, &mut triggers);
     } else if marker.0 >= 67 {
         v67_add_schema_extensions(&mut tables, &mut indexes, &mut triggers);

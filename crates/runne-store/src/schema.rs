@@ -23,7 +23,7 @@ use sha2::{Digest, Sha256};
 use std::io::Read;
 
 /// Current schema version. Increment when adding new DDL migrations.
-pub const CURRENT_SCHEMA_VERSION: i64 = 68;
+pub const CURRENT_SCHEMA_VERSION: i64 = 69;
 
 /// Fail-closed reason returned before a file-backed database is made writable.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -167,6 +167,7 @@ include!("schema/migrations/v66_permission_confirmation.rs");
 include!("schema/migrations/v67_permission_managed_identity.rs");
 include!("schema/migrations/v68_taskrun_permission.rs");
 include!("schema/migrations/v68_terminal_reopen_match.rs");
+include!("schema/migrations/v69_permission_retained_context.rs");
 include!("schema/taskrun_permission.rs");
 #[cfg(feature = "test-support")]
 include!("schema/test_support_matcher_diagnosis.rs");
@@ -267,7 +268,7 @@ mod tests {
     include!("schema/tests/v66_permission_confirmation.rs");
     #[path = "v67_permission_managed_identity.rs"]
     mod v67_permission_managed_identity;
-    include!("schema/tests/v68_taskrun_permission.rs");
+    include!("schema/tests/permission_schema_modules.rs");
     include!("schema/tests/v68_permission_terminal_reopen.rs");
     include!("schema/tests/recovery_compatibility.rs");
     include!("schema/tests/recovery_compatibility_v24.rs");

@@ -120,6 +120,9 @@ pub(super) fn apply_v65_migration(connection: &Connection) -> SqliteResult<()> {
 }
 
 pub(super) fn v65_matches(connection: &Connection, version: i64) -> SqliteResult<bool> {
+    if version == 69 {
+        return v69_matches(connection, version);
+    }
     if version == 68 {
         return v68_matches(connection, version);
     }
