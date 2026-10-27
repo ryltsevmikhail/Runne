@@ -1,4 +1,12 @@
 //! Guest-only physical ordered API histories; not overlap/crash/Human qualification.
+#[path = "tests_native_ordered/concurrent_fence.rs"]
+mod concurrent_fence;
+#[path = "tests_native_ordered/concurrent_race.rs"]
+mod concurrent_race;
+#[path = "tests_native_ordered/concurrent_workers.rs"]
+mod concurrent_workers;
+#[path = "tests_native_ordered/concurrent_revoke.rs"]
+mod concurrent_revoke;
 #[path = "tests_native_ordered/receipts.rs"]
 mod receipts;
 #[path = "tests_native_ordered/support.rs"]
@@ -230,3 +238,6 @@ fn go_and_natural_exit_before_revoke_settle_factual_effect_as_policy_stopped() {
     drop(child);
     area.finish();
 }
+
+#[path = "tests_native_ordered/live_revoke.rs"]
+mod live_revoke;

@@ -113,3 +113,39 @@ fn changed_mode_stops_current_prepared_capture() {
         Some(2)
     );
 }
+
+#[cfg(target_os = "linux")]
+#[path = "tests_capture_retention/postexit_crash.rs"]
+mod postexit_crash;
+
+#[cfg(target_os = "linux")]
+#[path = "tests_capture_retention/cancellation_crash.rs"]
+mod cancellation_crash;
+
+#[cfg(target_os = "linux")]
+#[path = "tests_shell_corpus.rs"]
+mod shell_corpus;
+
+#[cfg(target_os = "linux")]
+#[path = "tests_path_replacement.rs"]
+mod path_replacement;
+
+#[cfg(target_os = "linux")]
+#[path = "tests_capture_retention/running_orphan.rs"]
+mod running_orphan;
+
+#[cfg(target_os = "linux")]
+#[path = "tests_terminal_retry.rs"]
+mod terminal_retry;
+
+#[cfg(target_os = "linux")]
+#[path = "tests_lost_ack_request.rs"]
+mod lost_ack_request;
+
+#[cfg(target_os = "linux")]
+#[path = "tests_capture_retention/lost_ack.rs"]
+mod lost_ack;
+
+#[cfg(target_os = "linux")]
+#[path = "tests_capture_retention/success_recovery.rs"]
+mod success_recovery;

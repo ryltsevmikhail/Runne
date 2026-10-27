@@ -31,20 +31,8 @@ pub(crate) fn run_startup_gates_raw(conn: &Connection, _db_path: &str) -> Sqlite
     #[cfg(target_os = "macos")]
     verify_pragma(conn, "fullfsync", "1")?;
 
-    // Set file permissions on Unix
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        for suffix in &["", "-wal", "-shm"] {
-            let path = format!("{}{}", _db_path, suffix);
-            if let Ok(meta) = std::fs::metadata(&path) {
-                let mut perms = meta.permissions();
-                perms.set_mode(0o600);
-                std::fs::set_permissions(&path, perms)
-                    .map_err(|error| rusqlite::Error::ToSqlConversionFailure(Box::new(error)))?;
-            }
-        }
-    }
+    // Factory open/admission owns file policy. Integrity/readiness inspection
+    // must not chmod caller-selected paths (including CWD-relative sidecars).
 
     Ok(())
 }
@@ -66,3 +54,7 @@ fn verify_pragma(conn: &Connection, pragma: &str, expected: &str) -> SqliteResul
 }
 
 // ── Migration V1: initial schema ─────────────────────────────────────────
+
+#[cfg(all(test, target_os = "linux"))]
+#[path = "startup_permission_tests.rs"]
+mod startup_permission_tests;

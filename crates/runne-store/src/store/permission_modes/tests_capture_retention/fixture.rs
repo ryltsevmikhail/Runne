@@ -24,6 +24,10 @@ use std::{
     sync::{Arc, Mutex, MutexGuard},
 };
 
+#[path = "fixture_existing_database.rs"]
+mod existing_database;
+pub(super) use existing_database::{ControllerDatabase, ExistingDatabase};
+
 pub(super) struct Fixture {
     pub root: tempfile::TempDir,
     pub store: StoreTransaction,
@@ -53,7 +57,33 @@ pub(super) fn now() -> i64 {
 
 impl Fixture {
     pub fn new() -> Self {
-        let root = tempfile::tempdir().unwrap();
+        Self::with_root(tempfile::tempdir().unwrap())
+    }
+
+    pub fn with_root(root: tempfile::TempDir) -> Self {
+        Self::with_root_and_fence(root, |fence| fence)
+    }
+
+    // Test-only seam: decorate the same genuine descriptor owner before registration.
+    pub fn with_root_and_fence(
+        root: tempfile::TempDir,
+        decorate: impl FnOnce(Arc<dyn PermissionRootFenceOwnerV1>) -> Arc<dyn PermissionRootFenceOwnerV1>,
+    ) -> Self {
+        Self::with_root_fence_database(root, decorate, None)
+    }
+
+    pub fn with_root_and_existing_database(
+        root: tempfile::TempDir,
+        database: ExistingDatabase<'_>,
+    ) -> Self {
+        Self::with_root_fence_database(root, |fence| fence, Some(database))
+    }
+
+    fn with_root_fence_database(
+        root: tempfile::TempDir,
+        decorate: impl FnOnce(Arc<dyn PermissionRootFenceOwnerV1>) -> Arc<dyn PermissionRootFenceOwnerV1>,
+        existing: Option<ExistingDatabase<'_>>,
+    ) -> Self {
         let daemon = root.path().join("runtime/daemon");
         std::fs::create_dir_all(&daemon).unwrap();
         use std::os::unix::fs::PermissionsExt;
@@ -69,7 +99,8 @@ impl Fixture {
             LinuxCompositeScopeAdmission::new(&[&File::open(protected).unwrap()]).unwrap(),
         );
         let owner = LinuxPermissionOwnerV1::new(native.clone()).unwrap();
-        let authority = uuid::Uuid::now_v7().into_bytes();
+        let authority = existing.as_ref().map(|d| d.authority)
+            .unwrap_or_else(|| uuid::Uuid::now_v7().into_bytes());
         let runtime = RuntimeAuthorityId(hex::encode(authority));
         let project = ProjectId::from_bytes(uuid::Uuid::now_v7().into_bytes());
         let workspace_id = WorkspaceId::from_bytes(uuid::Uuid::now_v7().into_bytes());
@@ -80,20 +111,19 @@ impl Fixture {
         trust
             .commit(trust_id, ProjectTrustStatus::Trusted, 0, initial.token())
             .unwrap();
-        let db = daemon.join("store.sqlite");
-        let writer = schema::open_managed_connection(&db, ConnectionMode::Writer).unwrap();
-        schema::apply_migrations(&writer).unwrap();
-        schema::ensure_authority_id(&writer, &authority).unwrap();
-        schema::ensure_event_log_lineage_id(&writer).unwrap();
-        let reader = schema::open_managed_connection(&db, ConnectionMode::Reader).unwrap();
-        let fence = Arc::new(TestHeldRootFence {
-            file: Mutex::new(held.try_clone().unwrap()),
-            workspace: workspace_id,
-            version: 2,
-            identity: *LinuxCompositeScopeAdmission::workspace_root_identity(&held)
-                .unwrap()
-                .as_bytes(),
-        });
+        let (db, writer, reader) = match existing {
+            Some(database) => database.open().unwrap(),
+            None => {
+                let db = daemon.join("store.sqlite");
+                let writer = schema::open_managed_connection(&db, ConnectionMode::Writer).unwrap();
+                schema::apply_migrations(&writer).unwrap();
+                schema::ensure_authority_id(&writer, &authority).unwrap();
+                schema::ensure_event_log_lineage_id(&writer).unwrap();
+                let reader = schema::open_managed_connection(&db, ConnectionMode::Reader).unwrap();
+                (db, writer, reader)
+            }
+        };
+        let fence = decorate(held_root_fence(&held, workspace_id, 2));
         let store = StoreTransaction::open_with_connections_and_permission_owner(
             db.to_str().unwrap(),
             writer,
@@ -163,6 +193,21 @@ impl Fixture {
     pub fn trust_id(&self) -> ProjectTrustProjectId {
         ProjectTrustProjectId::from_bytes(self.project.into_bytes())
     }
+}
+
+pub(super) fn held_root_fence(
+    held: &File,
+    workspace: WorkspaceId,
+    version: u64,
+) -> Arc<dyn PermissionRootFenceOwnerV1> {
+    Arc::new(TestHeldRootFence {
+        file: Mutex::new(held.try_clone().unwrap()),
+        workspace,
+        version,
+        identity: *LinuxCompositeScopeAdmission::workspace_root_identity(held)
+            .unwrap()
+            .as_bytes(),
+    })
 }
 
 // Test-only root authority with a real descriptor and serialized lifetime.

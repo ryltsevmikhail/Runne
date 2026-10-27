@@ -26,6 +26,10 @@ mod tests_context_capture;
 #[path = "permission_modes/tests_admitted_retention.rs"]
 mod tests_admitted_retention;
 
+#[cfg(all(test, target_os = "linux"))]
+#[path = "permission_modes/tests_g2_corrupt_policy.rs"]
+mod tests_g2_corrupt_policy;
+
 pub use model::{
     ClosedRulesManagedIdentityV2, LegacyRecordIdentityV1, ManagedIdentityChallengeBindingV2,
     ManagedIdentityMetadata, PermissionModeSelectionManagedIdentity,

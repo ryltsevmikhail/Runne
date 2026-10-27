@@ -228,3 +228,6 @@ fn profile_mismatch(name: &str, actual: &str, expected: &str) -> rusqlite::Error
         Some(format!("PRAGMA {name} = '{actual}', expected '{expected}'")),
     )
 }
+
+#[cfg(all(test, target_os = "linux"))]
+include!("test_original_anchor.rs");
