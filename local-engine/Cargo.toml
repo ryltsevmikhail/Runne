@@ -27,7 +27,7 @@ runne-inference-protocol = { path = "crates/runne-inference-protocol" }
 runne-inference-host = { path = "crates/runne-inference-host" }
 runne-engine-platform = { path = "crates/runne-engine-platform" }
 tempfile = "=3.27.0"
-rusqlite = { version = "=0.34.0", features = ["bundled"] }
+rusqlite = { version = "=0.41.0", features = ["bundled"] }
 rustix = { version = "=1.1.4", features = ["fs", "net", "process"] }
 tokio-util = { version = "=0.7.20", features = ["io"] }
 serde_json_canonicalizer = "=0.4.1"
