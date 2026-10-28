@@ -19,7 +19,7 @@ hmac = "=0.13.0"
 hkdf = "=0.13.0"
 sha2 = "=0.11.1"
 hex = "=0.4.3"
-serde_json = "=1.0.151"
+serde_json = "=1.0.154"
 runne-local-model = { path = "crates/runne-local-model" }
 runne-model-store = { path = "crates/runne-model-store" }
 runne-engine-broker = { path = "crates/runne-engine-broker" }
