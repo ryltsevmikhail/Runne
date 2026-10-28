@@ -39,4 +39,4 @@ llama-cpp-2 = "=0.1.152"
 # Lockstep pair of llama-cpp-2 0.1.152 (its own manifest requires
 # "0.1.152"; the caret range admits later 0.1.x, but the generated C
 # API drifts — sampler inits — so the pair is pinned exactly).
-llama-cpp-sys-2 = "=0.1.152"
+llama-cpp-sys-2 = "=0.1.160"
