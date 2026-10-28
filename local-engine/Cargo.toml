@@ -28,7 +28,7 @@ runne-inference-host = { path = "crates/runne-inference-host" }
 runne-engine-platform = { path = "crates/runne-engine-platform" }
 tempfile = "=3.27.0"
 rusqlite = { version = "=0.34.0", features = ["bundled"] }
-rustix = { version = "=1.1.4", features = ["fs", "net", "process"] }
+rustix = { version = "=1.1.5", features = ["fs", "net", "process"] }
 tokio-util = { version = "=0.7.20", features = ["io"] }
 serde_json_canonicalizer = "=0.4.1"
 # Already in the llama-cpp-2 0.1.152 dependency tree; pinned as a direct
