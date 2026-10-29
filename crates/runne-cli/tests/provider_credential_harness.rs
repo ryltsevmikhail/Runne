@@ -7,11 +7,10 @@ use provider_credential_cases::CHILD_CASES;
 use std::collections::VecDeque;
 use std::ffi::OsString;
 use std::io::Write as _;
-use std::io::{IsTerminal as _, Read};
 use std::process::{Child, Command, Stdio};
 
 use runne_secure_store::{
-    NativeProviderCredentialStore, ProviderCredentialAccessPolicy, ProviderCredentialId,
+    ProviderCredentialAccessPolicy, ProviderCredentialId, ProviderCredentialMaterial,
     ProviderCredentialStatus, ProviderCredentialStore, SecureStoreError,
 };
 
@@ -89,6 +88,7 @@ enum CliError {
     Help(String),
     Usage,
     CredentialOperation,
+    CredentialRequiresTerminal,
     UnsupportedCredentialBackend,
 }
 
@@ -97,7 +97,9 @@ impl CliError {
         match self {
             Self::Help(_) => 0,
             Self::Usage => 2,
-            Self::CredentialOperation | Self::UnsupportedCredentialBackend => 4,
+            Self::CredentialOperation
+            | Self::CredentialRequiresTerminal
+            | Self::UnsupportedCredentialBackend => 4,
         }
     }
 }
@@ -108,6 +110,9 @@ impl std::fmt::Display for CliError {
             Self::Help(text) => text,
             Self::Usage => TEST_USAGE,
             Self::CredentialOperation => "provider credential operation failed",
+            Self::CredentialRequiresTerminal => {
+                "provider credential enrollment requires a foreground terminal"
+            }
             Self::UnsupportedCredentialBackend => "provider credential backend is unsupported",
         })
     }
@@ -119,7 +124,6 @@ mod credential_test_support;
 fn main() {
     assert_eq!(peek(&VecDeque::new()), None);
     let _ = NativeCredentialIdentityResolver;
-    let _ = run_provider_credential;
     let mut arguments = std::env::args_os().skip(1);
     if arguments.next().as_deref() == Some(std::ffi::OsStr::new("--child")) {
         run_child(arguments.collect());
@@ -137,23 +141,16 @@ fn main() {
     assert_eq!(delete.outcome.stdout, "");
     assert_eq!(
         delete.outcome.stderr,
-        "provider credential backend is unsupported\n"
+        "provider credential operation failed\n"
     );
     assert_eq!(delete.outcome.exit_code, 4);
-    assert_eq!(delete.resolver_calls, 0);
+    assert_eq!(delete.resolver_calls, 1);
 
     let set = credential_test_support::run(
-        [
-            "provider",
-            "credential",
-            "set",
-            "--provider",
-            "openai",
-            "--stdin",
-        ]
-        .into_iter()
-        .map(OsString::from)
-        .collect(),
+        ["provider", "credential", "set", "--provider", "openai"]
+            .into_iter()
+            .map(OsString::from)
+            .collect(),
         &mut b"stdin-secret".as_slice(),
         false,
         "set",
@@ -161,10 +158,10 @@ fn main() {
     assert_eq!(set.outcome.stdout, "");
     assert_eq!(
         set.outcome.stderr,
-        "provider credential backend is unsupported\n"
+        "provider credential enrollment requires a foreground terminal\n"
     );
     assert_eq!(set.outcome.exit_code, 4);
-    assert_eq!(set.resolver_calls, 0);
+    assert_eq!(set.resolver_calls, 1);
     subprocess_scenarios();
 }
 
@@ -206,10 +203,12 @@ fn subprocess_scenarios() {
 fn expected_stderr(scenario: &str, code: i32) -> &'static str {
     match (scenario, code) {
         (_, 0) => "",
-        (
-            "set" | "delete" | "exact4096" | "tty" | "set-resolver-error" | "set-backend-error",
-            _,
-        ) => "provider credential backend is unsupported\n",
+        ("set" | "exact4096", _) => {
+            "provider credential enrollment requires a foreground terminal\n"
+        }
+        ("set-resolver-error" | "delete" | "set-backend-error" | "backend-error", _) => {
+            "provider credential operation failed\n"
+        }
         _ => "provider credential operation failed\n",
     }
 }
@@ -229,7 +228,7 @@ fn spawn_child(scenario: &str, command: &[&str], _input: &[u8], _terminal: bool)
 
 fn run_child(mut arguments: Vec<OsString>) -> ! {
     let scenario = arguments.remove(0).into_string().expect("scenario");
-    let terminal = scenario == "tty";
+    let terminal = matches!(scenario.as_str(), "tty" | "set-backend-error");
     let result =
         credential_test_support::run(arguments, &mut std::io::stdin(), terminal, &scenario);
     write_process_outcome(&result.outcome)

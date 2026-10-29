@@ -3,6 +3,7 @@ use super::{
     state::{Panel, State},
 };
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use runne_secure_store::ProviderCredentialMaterial;
 use tokio::sync::mpsc::Sender;
 
 pub(super) fn key(
@@ -12,6 +13,9 @@ pub(super) fn key(
 ) -> std::io::Result<bool> {
     if key.kind == KeyEventKind::Release {
         return Ok(true);
+    }
+    if state.credential_prompt.is_some() {
+        return credential_key(state, key, commands);
     }
     let send = |command| send_command(commands, command);
     if key.modifiers.contains(KeyModifiers::CONTROL) {
@@ -114,6 +118,10 @@ fn submit(
     let text = state.editor.take();
     match text.trim() {
         "" => {}
+        "/login" | "/login deepseek" => {
+            begin_credential(state, crate::ProviderCredentialId::DeepSeek)?
+        }
+        "/login openai" => begin_credential(state, crate::ProviderCredentialId::OpenAi)?,
         "/new" => send(UiCommand::NewSession)?,
         "/register" => send(UiCommand::RegisterProject)?,
         "/sessions" => {
@@ -173,4 +181,68 @@ const fn scroll(state: &mut State, down: bool) {
     } else {
         state.scroll.saturating_sub(5)
     };
+}
+
+fn begin_credential(
+    state: &mut State,
+    provider: crate::ProviderCredentialId,
+) -> std::io::Result<()> {
+    if state.snapshot.active || state.submission_pending {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::WouldBlock,
+            "Task or submission pending; finish or cancel it before entering a key",
+        ));
+    }
+    state.secret.clear();
+    state.credential_prompt = Some(provider);
+    state.notice =
+        "Enter the API key (input hidden) · Enter saves to Keychain · Esc cancels".into();
+    Ok(())
+}
+
+fn credential_key(
+    state: &mut State,
+    key: KeyEvent,
+    commands: &Sender<UiCommand>,
+) -> std::io::Result<bool> {
+    if key.kind == KeyEventKind::Release {
+        return Ok(true);
+    }
+    match key.code {
+        KeyCode::Esc => state.cancel_credential(),
+        KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+            state.cancel_credential();
+        }
+        KeyCode::Enter => {
+            let Some(provider) = state.credential_prompt.take() else {
+                return Ok(true);
+            };
+            let secret = std::mem::take(&mut state.secret);
+            let material = match ProviderCredentialMaterial::new(secret.as_bytes().to_vec()) {
+                Ok(material) => material,
+                Err(_) => {
+                    state.notice = "Error: key is empty or exceeds the credential bound".into();
+                    return Ok(true);
+                }
+            };
+            match crate::store_provider_credential_material(provider, &material) {
+                Ok(()) => {
+                    send_command(commands, UiCommand::RestartRuntime)?;
+                    state.notice = "Key saved to Keychain; restarting the runtime".into();
+                }
+                Err(error) => {
+                    state.notice = format!("Error: {error}; the key was not saved");
+                }
+            }
+        }
+        KeyCode::Backspace => {
+            state.secret.pop();
+        }
+        KeyCode::Char(character) if !character.is_control() => {
+            let mut encoded = [0_u8; 4];
+            state.push_secret(character.encode_utf8(&mut encoded));
+        }
+        _ => {}
+    }
+    Ok(true)
 }

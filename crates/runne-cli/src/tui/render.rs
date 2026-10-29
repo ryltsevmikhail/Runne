@@ -90,7 +90,7 @@ pub(super) fn lines(state: &State, width: u16, height: u16) -> Vec<String> {
         Panel::Diff => format!("Proposed / recorded diff\n{}", state.snapshot.diff),
         Panel::Permissions => state.snapshot.approvals.iter().enumerate().map(|(i, a)| format!("{} {}\n{}\n[y] approve this action / [n] deny", if i == state.selection { ">" } else { " " }, a.title, a.detail)).collect::<Vec<_>>().join("\n\n"),
         Panel::Sessions => format!("Sessions — type to search: {}\n{}", state.query, state.sessions().iter().enumerate().map(|(i, s)| format!("{} {}  {}", if i == state.selection { ">" } else { " " }, s.title, s.updated)).collect::<Vec<_>>().join("\n")),
-        Panel::Help => "Enter send · Alt+Enter newline · paste never sends\nCtrl+C cancel active task · Ctrl+Q quit client\nCtrl+N new session · Ctrl+R refresh\nF2 sessions/search · F3 actions/output · F4 diff · F5 permissions\nUp/Down select session or approval · Enter open session\nPageUp/PageDown scroll · Esc chat\n/register trusts the displayed project root through runtime\n/new /sessions /diff /permissions /help /quit\nApproval: y allows the selected exact action, n denies it.\nQuit waits for a safe runtime exit; active or uncertain tasks must resolve first.".into(),
+        Panel::Help => "Enter send · Alt+Enter newline · paste never sends\nCtrl+C cancel active task · Ctrl+Q quit client\nCtrl+N new session · Ctrl+R refresh\nF2 sessions/search · F3 actions/output · F4 diff · F5 permissions\nUp/Down select session or approval · Enter open session\nPageUp/PageDown scroll · Esc chat\n/register trusts the displayed project root through runtime\n/login deepseek stores the provider key in Keychain (input hidden)\n/new /sessions /diff /permissions /help /quit\nApproval: y allows the selected exact action, n denies it.\nQuit waits for a safe runtime exit; active or uncertain tasks must resolve first.".into(),
     };
     let mut result = vec![wrap(&header, width).remove(0)];
     if height < 6 {
@@ -101,7 +101,11 @@ pub(super) fn lines(state: &State, width: u16, height: u16) -> Vec<String> {
     result.push(wrap(&format!("Status: {}", state.snapshot.status), width).remove(0));
     result.push(wrap(&format!("Project: {}", state.snapshot.project), width).remove(0));
     let header_height = result.len();
-    let input = wrap(&format!("> {}", state.editor.display()), width);
+    let input = if state.credential_prompt.is_some() {
+        wrap("> [input hidden] · Enter save · Esc cancel", width)
+    } else {
+        wrap(&format!("> {}", state.editor.display()), width)
+    };
     let input_height = input
         .len()
         .min(5)

@@ -268,6 +268,7 @@ mod macos;
 pub use macos::MacOsKeychainStore;
 
 #[cfg(target_os = "macos")]
+pub use macos::MacOsPlainProviderCredentialStore;
 pub use macos::MacOsProviderCredentialStore as NativeProviderCredentialStore;
 
 #[cfg(all(target_os = "macos", feature = "test-support"))]

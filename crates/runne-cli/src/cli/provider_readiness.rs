@@ -227,6 +227,9 @@ pub fn probe_credential(id: ProviderCredentialId) -> CredentialProbe {
     let Some(access) = credential_access_policy() else {
         return CredentialProbe::Unavailable;
     };
+    #[cfg(target_os = "macos")]
+    let store = runne_secure_store::MacOsPlainProviderCredentialStore::new();
+    #[cfg(not(target_os = "macos"))]
     let store = NativeProviderCredentialStore::new();
     match store.provider_credential_status(id, &access) {
         Ok(ProviderCredentialStatus::Configured) => CredentialProbe::Configured,

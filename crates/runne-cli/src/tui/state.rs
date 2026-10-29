@@ -1,4 +1,5 @@
 use super::{UiEvent, UiSnapshot, editor::Editor};
+use zeroize::Zeroizing;
 
 #[derive(Default, PartialEq)]
 pub(super) enum Panel {
@@ -23,6 +24,8 @@ pub(super) struct State {
     pub exit_allowed: bool,
     pub submission_pending: bool,
     pub submitted_approvals: std::collections::HashSet<(String, String)>,
+    pub credential_prompt: Option<crate::ProviderCredentialId>,
+    pub secret: Zeroizing<String>,
 }
 
 impl State {
@@ -61,6 +64,24 @@ impl State {
             UiEvent::Status(text) => self.notice = text,
             UiEvent::Error(text) => self.notice = format!("Error: {text}"),
         }
+    }
+
+    pub fn push_secret(&mut self, text: &str) {
+        if self.secret.len() >= runne_secure_store::MAX_PROVIDER_CREDENTIAL_BYTES {
+            return;
+        }
+        let remaining = runne_secure_store::MAX_PROVIDER_CREDENTIAL_BYTES - self.secret.len();
+        let mut end = text.len().min(remaining);
+        while !text.is_char_boundary(end) {
+            end -= 1;
+        }
+        self.secret.push_str(&text[..end]);
+    }
+
+    pub fn cancel_credential(&mut self) {
+        self.credential_prompt = None;
+        self.secret.clear();
+        self.notice = "Credential entry cancelled".into();
     }
 
     pub fn sessions(&self) -> Vec<&super::SessionEntry> {

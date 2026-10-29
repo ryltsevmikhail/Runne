@@ -14,7 +14,8 @@ use runne_runtime_client::{
 };
 use runne_secure_store::{
     NativeProviderCredentialStore, ProviderCredentialAccessPolicy, ProviderCredentialId,
-    ProviderCredentialStatus, ProviderCredentialStore, SecureStoreError,
+    ProviderCredentialMaterial, ProviderCredentialStatus, ProviderCredentialStore,
+    SecureStoreError,
 };
 
 /// Global CLI state parsed from arguments.
@@ -29,6 +30,7 @@ include!("cli/process_entry.rs");
 mod linux_cli_credential_host;
 
 mod directory_scope;
+mod secret_input;
 mod state_dir;
 mod tui;
 mod tui_backend;
@@ -243,6 +245,51 @@ include!("cli/session.rs");
 include!("cli/task_help.rs");
 include!("cli/provider_credential.rs");
 include!("cli/provider_credential_broker.rs");
+
+fn run_provider_credential(arguments: VecDeque<OsString>) -> Result<CommandOutput, CliError> {
+    #[cfg(target_os = "macos")]
+    let mut backend = runne_secure_store::MacOsPlainProviderCredentialStore::new();
+    #[cfg(not(target_os = "macos"))]
+    let mut backend = NativeProviderCredentialStore::new();
+    run_provider_credential_with(
+        arguments,
+        &mut backend,
+        &NativeCredentialIdentityResolver,
+        cfg!(target_os = "macos"),
+        &secret_input::read_provider_credential,
+    )
+}
+
+/// Stores already-read material through the same native identity policy used by
+/// the CLI command. The TUI calls this without routing the key through argv,
+/// environment, a pipe, or the runtime channel.
+pub(crate) fn store_provider_credential_material(
+    id: ProviderCredentialId,
+    material: &ProviderCredentialMaterial,
+) -> Result<(), CliError> {
+    if !cfg!(target_os = "macos") {
+        return Err(CliError::UnsupportedCredentialBackend);
+    }
+    let access = NativeCredentialIdentityResolver.resolve()?;
+    #[cfg(target_os = "macos")]
+    let store = runne_secure_store::MacOsPlainProviderCredentialStore::new();
+    #[cfg(not(target_os = "macos"))]
+    let store = NativeProviderCredentialStore::new();
+    store
+        .store_provider_credential(id, material, &access)
+        .map_err(|error| map_credential_error(&error))?;
+    require_outcome(
+        store
+            .provider_credential_status(id, &access)
+            .map(|status| match status {
+                ProviderCredentialStatus::Configured => CredentialOutcome::Configured,
+                ProviderCredentialStatus::Missing => CredentialOutcome::Missing,
+                ProviderCredentialStatus::Unsupported => CredentialOutcome::Unsupported,
+            }),
+        CredentialOutcome::Configured,
+    )
+}
+
 include!("cli/parsing.rs");
 include!("cli/token_parsing.rs");
 include!("cli/error.rs");

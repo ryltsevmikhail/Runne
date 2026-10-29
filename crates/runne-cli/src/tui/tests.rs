@@ -210,3 +210,50 @@ fn page_down_scrolls_help_forward_and_page_up_returns() {
     .unwrap();
     assert_eq!(state.scroll, 0);
 }
+
+#[test]
+fn login_prompt_hides_typed_key_and_never_puts_it_in_the_editor() {
+    let (tx, mut rx) = tokio::sync::mpsc::channel(8);
+    let mut state = state::State::default();
+    state.editor.paste("/login deepseek");
+    input::key(
+        &mut state,
+        KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+        &tx,
+    )
+    .unwrap();
+    assert!(state.credential_prompt.is_some());
+    assert!(state.editor.text().is_empty());
+    for character in "sk-secret".chars() {
+        input::key(
+            &mut state,
+            KeyEvent::new(KeyCode::Char(character), KeyModifiers::NONE),
+            &tx,
+        )
+        .unwrap();
+    }
+    assert_eq!(state.secret.as_str(), "sk-secret");
+    assert!(state.editor.text().is_empty());
+    assert_eq!(
+        render::lines(&state, 80, 24)[22],
+        "> [input hidden] · Enter save · Esc cancel"
+    );
+    assert!(rx.try_recv().is_err());
+    input::key(
+        &mut state,
+        KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE),
+        &tx,
+    )
+    .unwrap();
+    assert!(state.credential_prompt.is_none());
+    assert!(state.secret.is_empty());
+}
+
+#[test]
+fn pasted_key_goes_to_the_hidden_buffer_not_the_editor() {
+    let mut state = state::State::default();
+    state.credential_prompt = Some(crate::ProviderCredentialId::DeepSeek);
+    state.push_secret("pasted-secret");
+    assert_eq!(state.secret.as_str(), "pasted-secret");
+    assert!(state.editor.text().is_empty());
+}

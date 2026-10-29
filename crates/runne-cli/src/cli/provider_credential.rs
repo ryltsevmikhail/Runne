@@ -28,6 +28,15 @@ trait CredentialBackend {
         id: ProviderCredentialId,
         access: &ProviderCredentialAccessPolicy,
     ) -> Result<CredentialOutcome, SecureStoreError>;
+
+    fn store(
+        &self,
+        id: ProviderCredentialId,
+        material: &runne_secure_store::ProviderCredentialMaterial,
+        access: &ProviderCredentialAccessPolicy,
+    ) -> Result<(), SecureStoreError>;
+
+    fn delete(&self, id: ProviderCredentialId) -> Result<(), SecureStoreError>;
 }
 
 impl<T: ProviderCredentialStore> CredentialBackend for T {
@@ -42,6 +51,19 @@ impl<T: ProviderCredentialStore> CredentialBackend for T {
                 ProviderCredentialStatus::Missing => CredentialOutcome::Missing,
                 ProviderCredentialStatus::Unsupported => CredentialOutcome::Unsupported,
             })
+    }
+
+    fn store(
+        &self,
+        id: ProviderCredentialId,
+        material: &runne_secure_store::ProviderCredentialMaterial,
+        access: &ProviderCredentialAccessPolicy,
+    ) -> Result<(), SecureStoreError> {
+        self.store_provider_credential(id, material, access)
+    }
+
+    fn delete(&self, id: ProviderCredentialId) -> Result<(), SecureStoreError> {
+        self.delete_provider_credential(id)
     }
 }
 
@@ -77,34 +99,20 @@ fn packaged_daemon_path(writer: &std::path::Path) -> Result<std::path::PathBuf, 
         .ok_or(CliError::CredentialOperation)
 }
 
-fn run_provider_credential(arguments: VecDeque<OsString>) -> Result<CommandOutput, CliError> {
-    let mut backend = NativeProviderCredentialStore::new();
-    run_provider_credential_with(
-        arguments,
-        &mut std::io::stdin(),
-        std::io::stdin().is_terminal(),
-        &mut backend,
-        &NativeCredentialIdentityResolver,
-        cfg!(target_os = "macos"),
-    )
-}
-
 fn run_provider_credential_with(
     arguments: VecDeque<OsString>,
-    input: &mut impl Read,
-    stdin_is_terminal: bool,
-    backend: &mut impl CredentialBackend,
+    backend: &impl CredentialBackend,
     resolver: &impl CredentialIdentityResolver,
     native_backend_supported: bool,
+    read_secret: &impl Fn(ProviderCredentialId) -> Result<runne_secure_store::ProviderCredentialMaterial, CliError>,
 ) -> Result<CommandOutput, CliError> {
     let command = parse_provider_credential(arguments)?;
     execute_provider_credential_on_platform(
         command,
-        input,
-        stdin_is_terminal,
         backend,
         resolver,
         native_backend_supported,
+        read_secret,
     )
 }
 
@@ -133,7 +141,6 @@ fn parse_provider_credential(
                 return Err(CliError::Help(PROVIDER_CREDENTIAL_SET_HELP.to_owned()));
             }
             let provider = parse_provider(&mut arguments)?;
-            expect_token(&mut arguments, "--stdin")?;
             ProviderCredentialCommand::Set(provider)
         }
         "status" => {
@@ -169,29 +176,35 @@ fn parse_provider(arguments: &mut VecDeque<OsString>) -> Result<ProviderCredenti
 
 fn execute_provider_credential_on_platform(
     command: ProviderCredentialCommand,
-    input: &mut impl Read,
-    stdin_is_terminal: bool,
-    backend: &mut impl CredentialBackend,
+    backend: &impl CredentialBackend,
     resolver: &impl CredentialIdentityResolver,
     native_backend_supported: bool,
+    read_secret: &impl Fn(ProviderCredentialId) -> Result<runne_secure_store::ProviderCredentialMaterial, CliError>,
 ) -> Result<CommandOutput, CliError> {
     match command {
-        ProviderCredentialCommand::Set(_) | ProviderCredentialCommand::Delete(_) => {
-            let _ = (
-                input,
-                stdin_is_terminal,
-                backend,
-                resolver,
-                native_backend_supported,
-            );
-            Err(CliError::UnsupportedCredentialBackend)
+        ProviderCredentialCommand::Set(id) => {
+            require_native(native_backend_supported)?;
+            let access = resolver.resolve()?;
+            let material = read_secret(id)?;
+            backend
+                .store(id, &material, &access)
+                .map_err(|error| map_credential_error(&error))?;
+            require_outcome(backend.status(id, &access), CredentialOutcome::Configured)?;
+            Ok(CommandOutput::text(CredentialOutcome::Configured.stdout()))
+        }
+        ProviderCredentialCommand::Delete(id) => {
+            require_native(native_backend_supported)?;
+            let access = resolver.resolve()?;
+            backend
+                .delete(id)
+                .map_err(|error| map_credential_error(&error))?;
+            require_outcome(backend.status(id, &access), CredentialOutcome::Missing)?;
+            Ok(CommandOutput::text(CredentialOutcome::Missing.stdout()))
         }
         ProviderCredentialCommand::Status(id) => {
             // Unsupported provider/capability is a rejection before any input
             // is read; it must never render as a success outcome (exit 0).
-            if !native_backend_supported {
-                return Err(CliError::UnsupportedCredentialBackend);
-            }
+            require_native(native_backend_supported)?;
             let access = resolver.resolve()?;
             match backend
                 .status(id, &access)
@@ -201,6 +214,24 @@ fn execute_provider_credential_on_platform(
                 outcome => Ok(CommandOutput::text(outcome.stdout())),
             }
         }
+    }
+}
+
+const fn require_native(supported: bool) -> Result<(), CliError> {
+    if supported {
+        Ok(())
+    } else {
+        Err(CliError::UnsupportedCredentialBackend)
+    }
+}
+
+fn require_outcome(
+    actual: Result<CredentialOutcome, SecureStoreError>,
+    expected: CredentialOutcome,
+) -> Result<(), CliError> {
+    match actual.map_err(|error| map_credential_error(&error))? {
+        outcome if outcome == expected => Ok(()),
+        _ => Err(CliError::CredentialOperation),
     }
 }
 

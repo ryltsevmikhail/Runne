@@ -16,6 +16,7 @@ pub enum UiCommand {
     Send(String),
     NewSession,
     RegisterProject,
+    RestartRuntime,
     SelectSession(String),
     Cancel,
     Approval {
@@ -115,7 +116,11 @@ pub async fn run(
                     Err(error) => return Err(error),
                 },
                 Event::Paste(text) => {
-                    state.editor.paste(&text);
+                    if state.credential_prompt.is_some() {
+                        state.push_secret(&text);
+                    } else {
+                        state.editor.paste(&text);
+                    }
                     true
                 }
                 _ => true,

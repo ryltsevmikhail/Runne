@@ -111,21 +111,24 @@ Usage:
 
 Subcommands:
   login deepseek   Linux foreground-terminal enrollment (daemon must be stopped)
-  status           Check legacy credential status
+  status           Check native credential status
 
-Legacy commands:
-  set      Unavailable direct credential enrollment
-  delete   Unavailable direct credential deletion
+Commands:
+  set      Read a key from the foreground terminal and store it in Keychain
+  delete   Remove the native credential
 
 Run 'runne help provider credential <subcommand>' for more information.";
 
 /// Help text for `provider credential set`.
 pub const PROVIDER_CREDENTIAL_SET_HELP: &str = "\
-Direct provider credential enrollment is unavailable.
+Store one provider credential in the login Keychain.
 
-The legacy stdin command is retained only for compatibility and always
-returns an unsupported credential-backend error. Credential material is
-not read from standard input.";
+Usage:
+  runne provider credential set --provider openai
+  runne provider credential set --provider deepseek
+
+The key is read without echo from the controlling terminal. Standard input,
+arguments, environment variables and files are never credential sources.";
 
 /// Help text for `provider credential status`.
 pub const PROVIDER_CREDENTIAL_STATUS_HELP: &str = "\
@@ -149,10 +152,14 @@ Examples:
 
 /// Help text for `provider credential delete`.
 pub const PROVIDER_CREDENTIAL_DELETE_HELP: &str = "\
-Direct provider credential deletion is unavailable.
+Remove one native provider credential.
 
-The legacy command is retained only for compatibility and always returns
-an unsupported credential-backend error.";
+Usage:
+  runne provider credential delete --provider openai
+  runne provider credential delete --provider deepseek
+
+A successful delete reports 'missing' only after the native store confirms
+the exact item is gone.";
 
 /// Help text for the `status` command.
 pub const STATUS_HELP: &str = "\

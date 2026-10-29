@@ -23,14 +23,7 @@ pub struct ChildCase {
     pub expected_code: i32,
 }
 
-const SET_COMMAND: &[&str] = &[
-    "provider",
-    "credential",
-    "set",
-    "--provider",
-    "openai",
-    "--stdin",
-];
+const SET_COMMAND: &[&str] = &["provider", "credential", "set", "--provider", "openai"];
 const STATUS_COMMAND: &[&str] = &["provider", "credential", "status", "--provider", "openai"];
 const DELETE_COMMAND: &[&str] = &["provider", "credential", "delete", "--provider", "openai"];
 const LARGE_CREDENTIAL: &[u8; 4_096] = &[b'x'; 4_096];
@@ -83,8 +76,8 @@ pub const CHILD_CASES: &[ChildCase] = &[
         input: b"credential",
         stdin: StdinExpectation::UnusedByChild,
         terminal: true,
-        expected_stdout: "",
-        expected_code: 4,
+        expected_stdout: "configured\n",
+        expected_code: 0,
     },
     ChildCase {
         scenario: "backend-error",
@@ -109,7 +102,7 @@ pub const CHILD_CASES: &[ChildCase] = &[
         command: SET_COMMAND,
         input: b"stdin-secret",
         stdin: StdinExpectation::UnusedByChild,
-        terminal: false,
+        terminal: true,
         expected_stdout: "",
         expected_code: 4,
     },

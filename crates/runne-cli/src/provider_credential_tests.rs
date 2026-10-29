@@ -1,4 +1,5 @@
 use super::*;
+use std::cell::Cell;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt as _;
 
@@ -15,8 +16,7 @@ fn assert_provider_forms(provider: &str, id: ProviderCredentialId) {
             "credential",
             "set",
             "--provider",
-            provider,
-            "--stdin"
+            provider
         ])),
         Ok(ProviderCredentialCommand::Set(parsed)) if parsed == id
     ));
@@ -43,8 +43,17 @@ fn assert_provider_forms(provider: &str, id: ProviderCredentialId) {
 }
 
 #[test]
-fn credential_commands_reject_open_or_ambiguous_provider_forms() {
+fn credential_commands_reject_open_pipe_file_and_environment_forms() {
     for invalid in [
+        [
+            "provider",
+            "credential",
+            "set",
+            "--provider",
+            "openai",
+            "--stdin",
+        ]
+        .as_slice(),
         [
             "provider",
             "credential",
@@ -72,7 +81,6 @@ fn credential_commands_reject_open_or_ambiguous_provider_forms() {
             "--file",
         ]
         .as_slice(),
-        ["provider", "credential", "set", "--provider", "openai"].as_slice(),
         ["provider", "credential", "status", "--provider", "other"].as_slice(),
     ] {
         assert!(parse_provider_credential(args(invalid)).is_err());
@@ -80,119 +88,125 @@ fn credential_commands_reject_open_or_ambiguous_provider_forms() {
 }
 
 #[test]
-fn credential_execution_uses_closed_outputs_and_redacts_backend_errors() {
+fn set_stores_once_and_reports_configured_only_after_readback() {
     let resolver = FakeResolver::new();
-    let mut backend = FakeBackend::default();
-    assert!(matches!(
-        execute_provider_credential_on_platform(
-            ProviderCredentialCommand::Set(ProviderCredentialId::OpenAi),
-            &mut b"secret".as_slice(),
-            false,
-            &mut backend,
-            &resolver,
-            true
-        ),
-        Err(CliError::UnsupportedCredentialBackend)
-    ));
-    backend.configured = true;
-    assert_eq!(
-        execute_provider_credential_on_platform(
-            ProviderCredentialCommand::Status(ProviderCredentialId::OpenAi),
-            &mut b"".as_slice(),
-            false,
-            &mut backend,
-            &resolver,
-            true
-        )
-        .unwrap(),
-        CommandOutput::text("configured")
-    );
-    assert!(matches!(
-        execute_provider_credential_on_platform(
-            ProviderCredentialCommand::Delete(ProviderCredentialId::OpenAi),
-            &mut b"".as_slice(),
-            false,
-            &mut backend,
-            &resolver,
-            true
-        ),
-        Err(CliError::UnsupportedCredentialBackend)
-    ));
-    backend.failure = true;
-    let error = execute_provider_credential_on_platform(
-        ProviderCredentialCommand::Status(ProviderCredentialId::OpenAi),
-        &mut b"sensitive-marker".as_slice(),
-        false,
-        &mut backend,
+    let backend = FakeBackend::default();
+    let output = execute_provider_credential_on_platform(
+        ProviderCredentialCommand::Set(ProviderCredentialId::DeepSeek),
+        &backend,
         &resolver,
         true,
+        &|_| Ok(material(b"generated-one-off-key")),
+    )
+    .unwrap();
+    assert_eq!(output, CommandOutput::text("configured"));
+    assert_eq!(backend.stores.get(), 1);
+    assert!(backend.configured.get());
+}
+
+#[test]
+fn delete_removes_and_reports_missing_only_after_readback() {
+    let resolver = FakeResolver::new();
+    let backend = FakeBackend {
+        configured: Cell::new(true),
+        ..FakeBackend::default()
+    };
+    let output = execute_provider_credential_on_platform(
+        ProviderCredentialCommand::Delete(ProviderCredentialId::DeepSeek),
+        &backend,
+        &resolver,
+        true,
+        &|_| panic!("delete must not read a secret"),
+    )
+    .unwrap();
+    assert_eq!(output, CommandOutput::text("missing"));
+    assert_eq!(backend.deletes.get(), 1);
+    assert!(!backend.configured.get());
+}
+
+#[test]
+fn set_does_not_report_success_when_readback_stays_missing() {
+    let resolver = FakeResolver::new();
+    let backend = FakeBackend::default();
+    backend.drop_store.set(true);
+    assert!(matches!(
+        execute_provider_credential_on_platform(
+            ProviderCredentialCommand::Set(ProviderCredentialId::DeepSeek),
+            &backend,
+            &resolver,
+            true,
+            &|_| Ok(material(b"generated-one-off-key")),
+        ),
+        Err(CliError::CredentialOperation)
+    ));
+}
+
+#[test]
+fn credential_execution_redacts_backend_errors_and_never_reports_unsupported_as_success() {
+    let resolver = FakeResolver::new();
+    let backend = FakeBackend::default();
+    backend.failure.set(true);
+    let error = execute_provider_credential_on_platform(
+        ProviderCredentialCommand::Set(ProviderCredentialId::OpenAi),
+        &backend,
+        &resolver,
+        true,
+        &|_| Ok(material(b"generated-one-off-key")),
     )
     .unwrap_err()
     .to_string();
     assert_eq!(error, "provider credential operation failed");
-    assert!(!error.contains("sensitive-marker"));
     assert!(!error.contains("backend-detail"));
+
+    let unsupported = FakeBackend::default();
+    unsupported.unsupported.set(true);
+    assert!(matches!(
+        execute_provider_credential_on_platform(
+            ProviderCredentialCommand::Status(ProviderCredentialId::OpenAi),
+            &unsupported,
+            &resolver,
+            true,
+            &|_| panic!("status must not read a secret"),
+        ),
+        Err(CliError::UnsupportedCredentialBackend)
+    ));
+}
+
+#[test]
+fn unsupported_native_backend_rejects_before_identity_or_secret_read() {
+    let resolver = FakeResolver::new();
+    let backend = FakeBackend::default();
+    for command in [
+        ProviderCredentialCommand::Set(ProviderCredentialId::OpenAi),
+        ProviderCredentialCommand::Delete(ProviderCredentialId::OpenAi),
+        ProviderCredentialCommand::Status(ProviderCredentialId::OpenAi),
+    ] {
+        assert!(matches!(
+            execute_provider_credential_on_platform(
+                command,
+                &backend,
+                &resolver,
+                false,
+                &|_| panic!("secret must not be read"),
+            ),
+            Err(CliError::UnsupportedCredentialBackend)
+        ));
+    }
+    assert_eq!(resolver.calls.get(), 0);
+}
+
+fn material(bytes: &[u8]) -> ProviderCredentialMaterial {
+    ProviderCredentialMaterial::new(bytes.to_vec()).expect("test material")
 }
 
 fn args(values: &[&str]) -> VecDeque<OsString> {
     values.iter().map(OsString::from).collect()
 }
 
-#[test]
-fn credential_status_unsupported_outcome_is_rejected_not_exit_zero() {
-    let resolver = FakeResolver::new();
-    let mut backend = FakeBackend {
-        unsupported: true,
-        ..Default::default()
-    };
-    let mut input = std::io::Cursor::new(b"sentinel-marker".to_vec());
-    assert!(matches!(
-        execute_provider_credential_on_platform(
-            ProviderCredentialCommand::Status(ProviderCredentialId::OpenAi),
-            &mut input,
-            false,
-            &mut backend,
-            &resolver,
-            true
-        ),
-        Err(CliError::UnsupportedCredentialBackend)
-    ));
-    assert_eq!(
-        input.position(),
-        0,
-        "stdin must not be read for the rejection"
-    );
-}
-
-#[test]
-fn credential_status_without_native_backend_is_rejected_before_stdin_is_read() {
-    let resolver = FakeResolver::new();
-    let mut backend = FakeBackend {
-        configured: true,
-        ..Default::default()
-    };
-    let mut input = std::io::Cursor::new(b"sentinel-marker".to_vec());
-    assert!(matches!(
-        execute_provider_credential_on_platform(
-            ProviderCredentialCommand::Status(ProviderCredentialId::OpenAi),
-            &mut input,
-            false,
-            &mut backend,
-            &resolver,
-            false
-        ),
-        Err(CliError::UnsupportedCredentialBackend)
-    ));
-    assert_eq!(
-        input.position(),
-        0,
-        "stdin must not be read for the rejection"
-    );
-}
-
 struct FakeResolver {
     _temporary: tempfile::TempDir,
     executable: std::path::PathBuf,
+    calls: Cell<usize>,
 }
 
 impl FakeResolver {
@@ -210,14 +224,14 @@ impl FakeResolver {
         Self {
             _temporary: temporary,
             executable,
+            calls: Cell::new(0),
         }
     }
 }
 
-include!("provider_credential_path_tests.rs");
-
 impl CredentialIdentityResolver for FakeResolver {
     fn resolve(&self) -> Result<ProviderCredentialAccessPolicy, CliError> {
+        self.calls.set(self.calls.get() + 1);
         ProviderCredentialAccessPolicy::new(&self.executable, &self.executable)
             .map_err(|_| CliError::CredentialOperation)
     }
@@ -225,9 +239,12 @@ impl CredentialIdentityResolver for FakeResolver {
 
 #[derive(Default)]
 struct FakeBackend {
-    configured: bool,
-    failure: bool,
-    unsupported: bool,
+    configured: Cell<bool>,
+    failure: Cell<bool>,
+    unsupported: Cell<bool>,
+    drop_store: Cell<bool>,
+    stores: Cell<usize>,
+    deletes: Cell<usize>,
 }
 
 impl CredentialBackend for FakeBackend {
@@ -236,59 +253,39 @@ impl CredentialBackend for FakeBackend {
         _id: ProviderCredentialId,
         _access: &ProviderCredentialAccessPolicy,
     ) -> Result<CredentialOutcome, SecureStoreError> {
-        if self.failure {
+        if self.failure.get() {
             return Err(SecureStoreError::OperationFailed("backend-detail".into()));
         }
-        if self.unsupported {
+        if self.unsupported.get() {
             return Ok(CredentialOutcome::Unsupported);
         }
-        Ok(if self.configured {
+        Ok(if self.configured.get() {
             CredentialOutcome::Configured
         } else {
             CredentialOutcome::Missing
         })
     }
-}
-#[tokio::test]
-async fn broker_mode_is_not_reachable_from_async_dispatch() {
-    assert!(matches!(
-        run(
-            vec![OsString::from(
-                runne_provider::PROVIDER_CREDENTIAL_BROKER_MODE_V1
-            )],
-            OutputFormat::Text
-        )
-        .await,
-        Err(CliError::UnknownCommand(_))
-    ));
-    assert!(matches!(
-        run(
-            vec![
-                OsString::from(runne_provider::PROVIDER_CREDENTIAL_BROKER_MODE_V1),
-                OsString::from("credential=secret"),
-            ],
-            OutputFormat::Text,
-        )
-        .await,
-        Err(CliError::UnknownCommand(_))
-    ));
-}
 
-#[test]
-fn broker_secret_envelope_reader_rejects_invalid_or_oversized_eof_input() {
-    for invalid in [
-        b"".as_slice(),
-        b"secret\n".as_slice(),
-        b"secret\ntrailing".as_slice(),
-    ] {
-        assert!(matches!(
-            read_sealed_pair_envelope(&mut std::io::Cursor::new(invalid)),
-            Err(CliError::CredentialOperation)
-        ));
+    fn store(
+        &self,
+        _id: ProviderCredentialId,
+        _material: &ProviderCredentialMaterial,
+        _access: &ProviderCredentialAccessPolicy,
+    ) -> Result<(), SecureStoreError> {
+        self.stores.set(self.stores.get() + 1);
+        if self.failure.get() {
+            return Err(SecureStoreError::OperationFailed("backend-detail".into()));
+        }
+        self.configured.set(!self.drop_store.get());
+        Ok(())
     }
-    let oversized = vec![b'a'; runne_provider::CredentialSecretEnvelopeCodec::MAX_BYTES + 1];
-    assert!(matches!(
-        read_sealed_pair_envelope(&mut std::io::Cursor::new(oversized)),
-        Err(CliError::CredentialOperation)
-    ));
+
+    fn delete(&self, _id: ProviderCredentialId) -> Result<(), SecureStoreError> {
+        self.deletes.set(self.deletes.get() + 1);
+        if self.failure.get() {
+            return Err(SecureStoreError::OperationFailed("backend-detail".into()));
+        }
+        self.configured.set(false);
+        Ok(())
+    }
 }

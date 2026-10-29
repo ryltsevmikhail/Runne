@@ -41,6 +41,7 @@ fn start_owner(fixture: &Fixture, workspace: CanonicalId) -> BackendOwner {
         selected_profile: None,
         supervisor: Some(supervisor),
         project,
+        runtime_root: fixture.root.clone(),
         renewed_at: Instant::now(),
         pending_registration: None,
         registration_intent_saved: false,

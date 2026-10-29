@@ -23,6 +23,7 @@ pub struct BackendOwner {
     pub selected_profile: Option<runne_api::SelectedProviderProfile>,
     supervisor: Option<ProtectedBundledRuntimeSupervisor>,
     project: PathBuf,
+    runtime_root: PathBuf,
     renewed_at: Instant,
     pending_registration: Option<CanonicalId>,
     registration_intent_saved: bool,
@@ -99,6 +100,7 @@ pub async fn start_protected(
         selected_profile,
         supervisor: Some(supervisor),
         project,
+        runtime_root,
         renewed_at: Instant::now(),
         pending_registration: None,
         registration_intent_saved: false,
@@ -110,6 +112,23 @@ pub async fn start_protected(
 }
 
 impl BackendOwner {
+    /// Restarts the protected runtime after a native credential mutation.
+    ///
+    /// The installation, project root and admitted workspace stay the same;
+    /// no trust is granted and no other state is reset.
+    pub async fn restart(&mut self) -> Result<(), String> {
+        let runtime_root = self.runtime_root.clone();
+        let project = self.project.clone();
+        let workspace = self.workspace_id;
+        if let Some(supervisor) = self.supervisor.as_mut() {
+            let _ = supervisor.stop();
+        }
+        self.supervisor = None;
+        let owner = start_protected(runtime_root, project, workspace).await?;
+        *self = owner;
+        Ok(())
+    }
+
     pub async fn maintain(&mut self) -> Result<(), String> {
         if self.renewed_at.elapsed() < RENEW_AFTER {
             return Ok(());
