@@ -1,33 +1,71 @@
 use super::*;
+use crate::safe_tool_helper::platform;
 
 pub(super) fn openat(root: &File, path: &CString, flags: i32) -> Result<File, ()> {
-    let fd = unsafe {
-        libc::openat(
-            root.as_raw_fd(),
-            path.as_ptr(),
-            flags | libc::O_CLOEXEC,
-            0o600,
-        )
-    };
-    if fd < 0 {
-        return Err(());
-    }
-    Ok(unsafe { File::from_raw_fd(fd) })
+    platform::open_beneath(root, path, flags, 0o600).map_err(|_| ())
 }
 
 pub(super) fn reopen_pinned_read(pinned: &File) -> Result<File, &'static str> {
-    let proc_path =
-        CString::new(format!("/proc/self/fd/{}", pinned.as_raw_fd())).map_err(|_| "read_denied")?;
-    let fd = unsafe {
-        libc::open(
-            proc_path.as_ptr(),
-            libc::O_RDONLY | libc::O_NONBLOCK | libc::O_CLOEXEC,
+    platform::reopen_pinned_read(pinned)
+}
+
+pub(super) fn read_dir(file: &File) -> Result<Vec<std::ffi::OsString>, &'static str> {
+    use std::os::unix::ffi::OsStrExt;
+
+    // A fresh open description has its own directory offset; sharing the
+    // caller's offset would make a second listing observe an exhausted walk.
+    let duplicate = unsafe {
+        libc::openat(
+            file.as_raw_fd(),
+            c".".as_ptr(),
+            libc::O_RDONLY | libc::O_DIRECTORY | libc::O_CLOEXEC,
         )
     };
-    if fd < 0 {
-        return Err("read_denied");
+    if duplicate < 0 {
+        return Err("list_failed");
     }
-    Ok(unsafe { File::from_raw_fd(fd) })
+    let directory = unsafe { libc::fdopendir(duplicate) };
+    if directory.is_null() {
+        unsafe {
+            libc::close(duplicate);
+        }
+        return Err("list_failed");
+    }
+    let mut names = Vec::new();
+    loop {
+        let entry = unsafe { libc::readdir(directory) };
+        if entry.is_null() {
+            break;
+        }
+        let name = unsafe { CStr::from_ptr((*entry).d_name.as_ptr()) }.to_bytes();
+        if name == b"." || name == b".." {
+            continue;
+        }
+        names.push(std::ffi::OsStr::from_bytes(name).to_os_string());
+    }
+    unsafe {
+        libc::closedir(directory);
+    }
+    Ok(names)
+}
+
+pub(super) fn stat_at(dir: &File, name: &std::ffi::OsStr) -> Result<libc::stat, &'static str> {
+    use std::os::unix::ffi::OsStrExt;
+
+    let name = CString::new(name.as_bytes()).map_err(|_| "list_failed")?;
+    let mut stat = unsafe { std::mem::zeroed::<libc::stat>() };
+    if unsafe {
+        libc::fstatat(
+            dir.as_raw_fd(),
+            name.as_ptr(),
+            &mut stat,
+            libc::AT_SYMLINK_NOFOLLOW,
+        )
+    } != 0
+    {
+        return Err("list_failed");
+    }
+    Ok(stat)
 }
 
 pub(super) fn identity(file: &File) -> Result<IdentityV1, &'static str> {
@@ -36,7 +74,7 @@ pub(super) fn identity(file: &File) -> Result<IdentityV1, &'static str> {
         return Err("root_invalid");
     }
     Ok(IdentityV1 {
-        device: stat.st_dev,
+        device: u64::try_from(stat.st_dev).map_err(|_| "stat_failed")?,
         inode: stat.st_ino,
     })
 }
@@ -44,7 +82,7 @@ pub(super) fn identity(file: &File) -> Result<IdentityV1, &'static str> {
 pub(super) fn version(file: &File) -> Result<VersionV1, &'static str> {
     let stat = stat(file)?;
     Ok(VersionV1 {
-        device: stat.st_dev,
+        device: u64::try_from(stat.st_dev).map_err(|_| "stat_failed")?,
         inode: stat.st_ino,
         size: u64::try_from(stat.st_size).map_err(|_| "target_invalid")?,
         mtime_sec: stat.st_mtime,

@@ -94,7 +94,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     {
         return terminal_adoption_command::run(&arguments[1..]);
     }
-    #[cfg(target_os = "linux")]
+    #[cfg(unix)]
     if arguments.len() == 1 && arguments[0].to_str() == Some("--safe-tool-helper-v1") {
         return runne_daemon::safe_tool_helper::run().map_err(|_| "safe tool helper failed".into());
     }

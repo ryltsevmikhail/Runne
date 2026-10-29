@@ -11,7 +11,7 @@ mod io;
 #[cfg(not(test))]
 use io::Fault;
 #[cfg(test)]
-use io::Fault;
+pub(crate) use io::Fault;
 #[cfg(all(test, target_os = "macos"))]
 pub(crate) use io::set_fault;
 #[cfg(all(test, target_os = "macos"))]

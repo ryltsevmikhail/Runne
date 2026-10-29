@@ -1,4 +1,5 @@
 use super::*;
+
 pub(super) fn run(
     root: &File,
     tool: &str,
@@ -10,56 +11,50 @@ pub(super) fn run(
     let mut truncated = false;
     while let Some((path, depth)) = pending.pop() {
         let dir = coding_fs::open(root, &path, libc::O_RDONLY | libc::O_DIRECTORY)?;
-        let entries = std::fs::read_dir(format!("/proc/self/fd/{}", dir.as_raw_fd()))
-            .map_err(|_| "list_failed")?;
-        let mut names = Vec::new();
-        for entry in entries {
+        let mut names: Vec<String> = read_dir(&dir)?
+            .into_iter()
+            .filter_map(|name| name.into_string().ok())
+            .collect();
+        names.sort();
+        for name in names {
             visited += 1;
             if visited > 1000 {
                 truncated = true;
                 break;
             }
-            let entry = entry.map_err(|_| "list_failed")?;
-            let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
-                continue;
-            };
             if name == ".git" || name == ".env" || name.starts_with(".env.") || name == ".ssh" {
                 continue;
             }
-            names.push(name);
-        }
-        names.sort();
-        for name in names {
-            let path = if path == "." {
-                name
+            let child = if path == "." {
+                name.clone()
             } else {
                 format!("{path}/{name}")
             };
-            if runne_security::project_trust_policy::normalize_source_path(&path)
+            if runne_security::project_trust_policy::normalize_source_path(&child)
                 .map(|parts| runne_security::project_trust_policy::denied_by_frozen_set(&parts))
                 .unwrap_or(true)
             {
                 continue;
             }
-            let Ok(file) = coding_fs::open(root, &path, libc::O_PATH) else {
+            let info = stat_at(&dir, std::ffi::OsStr::new(&name))?;
+            if info.st_mode & libc::S_IFMT == libc::S_IFLNK {
                 continue;
-            };
-            let info = stat(&file)?;
+            }
             if info.st_mode & libc::S_IFMT == libc::S_IFDIR {
                 if depth < 16 {
-                    pending.push((path, depth + 1));
+                    pending.push((child, depth + 1));
                 } else {
                     truncated = true;
                 }
             } else if info.st_mode & libc::S_IFMT == libc::S_IFREG && info.st_nlink == 1 {
                 if tool == "workspace.files.list" {
-                    found.push(serde_json::json!({"path":path,"bytes":info.st_size}));
-                } else if let Ok(bytes) = coding_fs::bounded_read(root, &path)
+                    found.push(serde_json::json!({"path":child,"bytes":info.st_size}));
+                } else if let Ok(bytes) = coding_fs::bounded_read(root, &child)
                     && let Ok(text) = std::str::from_utf8(&bytes)
                 {
                     for (line, text) in text.lines().enumerate() {
                         if text.contains(&args.query) {
-                            found.push(serde_json::json!({"path":path,"line":line+1,"text":text.chars().take(256).collect::<String>()}));
+                            found.push(serde_json::json!({"path":child,"line":line+1,"text":text.chars().take(256).collect::<String>()}));
                             if found.len() >= args.limit {
                                 break;
                             }

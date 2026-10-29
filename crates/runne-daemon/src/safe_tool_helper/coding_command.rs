@@ -8,17 +8,34 @@ pub(super) fn run(
     args: &coding_arguments::CodingArguments,
 ) -> Result<Vec<u8>, &'static str> {
     let current_root = coding_fs::namespace_root(root)?;
-    let cwd = coding_fs::open(&current_root, &args.path, libc::O_PATH | libc::O_DIRECTORY)?;
-    let mut child = Command::new(&args.argv[0])
+    let cwd = coding_fs::open(&current_root, &args.path, O_PATH | libc::O_DIRECTORY)?;
+    let mut command = Command::new(&args.argv[0]);
+    command
         .args(&args.argv[1..])
-        .current_dir(format!("/proc/self/fd/{}", cwd.as_raw_fd()))
         .env_clear()
         .env("PATH", "/usr/bin:/bin")
         .env("LANG", "C.UTF-8")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        .process_group(0)
+        .process_group(0);
+    #[cfg(target_os = "linux")]
+    command.current_dir(format!("/proc/self/fd/{}", cwd.as_raw_fd()));
+    #[cfg(target_os = "macos")]
+    {
+        // macOS fdescfs entries are not directories, so enter the pinned
+        // descriptor directly in the child before exec.
+        let cwd_fd = cwd.as_raw_fd();
+        unsafe {
+            command.pre_exec(move || {
+                if libc::fchdir(cwd_fd) != 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                Ok(())
+            });
+        }
+    }
+    let mut child = command
         .spawn()
         .map_err(|error| match error.raw_os_error() {
             Some(libc::EACCES) => "command_spawn_access",
@@ -93,6 +110,6 @@ fn drain(reader: &mut impl Read, bytes: &mut Vec<u8>, truncated: &mut bool) {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "linux"))]
 #[path = "coding_cwd_tests.rs"]
 mod cwd_tests;

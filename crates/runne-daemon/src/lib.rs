@@ -20,7 +20,7 @@ pub mod protected_activation;
 pub mod provider_activation;
 pub mod recovery;
 pub mod replay_key;
-#[cfg(target_os = "linux")]
+#[cfg(unix)]
 pub mod safe_tool_helper;
 pub mod shutdown;
 /// Measured image pins for the adopted terminal installation.

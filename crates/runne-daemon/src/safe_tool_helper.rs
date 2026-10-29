@@ -2,7 +2,7 @@
 
 use base64::{Engine, engine::general_purpose::STANDARD};
 use sha2::{Digest, Sha256};
-use std::ffi::CString;
+use std::ffi::{CStr, CString};
 use std::fs::File;
 use std::io::{Read, Write};
 use std::os::fd::AsRawFd;
@@ -12,7 +12,7 @@ pub(crate) mod coding_arguments;
 mod coding_command;
 pub(crate) mod coding_fs;
 mod coding_listing;
-#[cfg(test)]
+#[cfg(all(test, target_os = "linux"))]
 mod coding_tests;
 #[cfg(feature = "test-support")]
 pub(crate) mod credential_companion_test_support;
@@ -26,12 +26,12 @@ mod request;
 ))]
 #[path = "safe_tool_helper/target_race_fixture.rs"]
 mod target_race_fixture;
-#[cfg(all(feature = "desktop-protected", target_os = "linux"))]
+#[cfg(all(feature = "desktop-protected", unix))]
 pub(crate) use request::encode_request;
 pub use request::{HelperProcessError, run};
 mod validate;
 mod verification;
-#[cfg(all(feature = "desktop-protected", target_os = "linux"))]
+#[cfg(all(feature = "desktop-protected", unix))]
 pub(crate) use output::OutputError;
 pub(crate) use output::parse_output;
 use protocol::ErrorV1;
@@ -75,7 +75,7 @@ fn execute(root: &File, input: &[u8]) -> Result<ReceiptV1, &'static str> {
                 return Err("root_changed");
             }
             let pinned =
-                openat(root, &path, libc::O_PATH | libc::O_NOFOLLOW).map_err(|_| "read_denied")?;
+                openat(root, &path, O_PATH | libc::O_NOFOLLOW).map_err(|_| "read_denied")?;
             let before = version(&pinned)?;
             if before != expected || before.size as usize > MAX_CONTENT || !regular_single(&pinned)?
             {
@@ -97,7 +97,7 @@ fn execute(root: &File, input: &[u8]) -> Result<ReceiptV1, &'static str> {
             {
                 return Err("effect_started_target_changed");
             }
-            let named = openat(root, &path, libc::O_PATH | libc::O_NOFOLLOW)
+            let named = openat(root, &path, O_PATH | libc::O_NOFOLLOW)
                 .map_err(|_| "effect_started_target_changed")?;
             if version(&named).map_err(effect_error)? != before
                 || !regular_single(&named).map_err(effect_error)?
@@ -153,7 +153,7 @@ fn execute(root: &File, input: &[u8]) -> Result<ReceiptV1, &'static str> {
             if actual != bytes || identity(root).map_err(effect_error)? != root_identity {
                 return Err("effect_started_target_changed");
             }
-            let named = openat(root, &path, libc::O_PATH | libc::O_NOFOLLOW)
+            let named = openat(root, &path, O_PATH | libc::O_NOFOLLOW)
                 .map_err(|_| "effect_started_target_changed")?;
             if version(&named).map_err(effect_error)? != target
                 || !regular_single(&named).map_err(effect_error)?
@@ -170,7 +170,9 @@ fn execute(root: &File, input: &[u8]) -> Result<ReceiptV1, &'static str> {
 }
 
 use unix_io::*;
+mod platform;
 mod unix_io;
+use platform::O_PATH;
 
 fn receipt(
     operation: &'static str,
@@ -204,6 +206,10 @@ fn effect_error(_: &'static str) -> &'static str {
 
 use std::os::fd::FromRawFd;
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "linux"))]
 #[path = "safe_tool_helper/tests.rs"]
 mod tests;
+
+#[cfg(all(test, target_os = "macos"))]
+#[path = "safe_tool_helper/tests_macos.rs"]
+mod tests_macos;
