@@ -174,6 +174,68 @@ fn verify_held_rejects_a_symlink_at_the_private_path() {
 }
 
 #[test]
+fn verify_held_rejects_a_hard_link_to_the_held_image() {
+    let directory = tempfile::tempdir().unwrap();
+    let workspace = File::open(directory.path()).unwrap();
+    let prepared = MacOsPermissionOwnerV1::new()
+        .unwrap()
+        .preparation()
+        .prepare_target(command(), &workspace, &workspace, sealed())
+        .unwrap();
+    let path = prepared.snapshot().path().to_path_buf();
+    let held = path.with_extension("held");
+    std::fs::rename(&path, &held).unwrap();
+    std::fs::hard_link(&held, &path).unwrap();
+    assert_eq!(prepared.verify_held(), Err(CommandError::Unverified));
+}
+
+#[test]
+fn verify_held_rejects_a_replaced_private_directory() {
+    let directory = tempfile::tempdir().unwrap();
+    let workspace = File::open(directory.path()).unwrap();
+    let prepared = MacOsPermissionOwnerV1::new()
+        .unwrap()
+        .preparation()
+        .prepare_target(command(), &workspace, &workspace, sealed())
+        .unwrap();
+    let path = prepared.snapshot().path().to_path_buf();
+    let image_directory = path.parent().unwrap().to_path_buf();
+    std::fs::rename(&image_directory, image_directory.with_extension("held")).unwrap();
+    std::fs::create_dir(&image_directory).unwrap();
+    let replacement = image_directory.join("image");
+    std::fs::write(&replacement, b"#!/bin/sh\nexit 0\n").unwrap();
+    std::fs::set_permissions(&replacement, std::fs::Permissions::from_mode(0o500)).unwrap();
+    assert_eq!(prepared.verify_held(), Err(CommandError::Unverified));
+}
+
+#[test]
+fn verify_held_does_not_block_on_a_fifo_at_the_private_path() {
+    use std::os::unix::ffi::OsStrExt;
+    let directory = tempfile::tempdir().unwrap();
+    let workspace = File::open(directory.path()).unwrap();
+    let prepared = std::sync::Arc::new(
+        MacOsPermissionOwnerV1::new()
+            .unwrap()
+            .preparation()
+            .prepare_target(command(), &workspace, &workspace, sealed())
+            .unwrap(),
+    );
+    let path = prepared.snapshot().path().to_path_buf();
+    std::fs::rename(&path, path.with_extension("held")).unwrap();
+    let fifo = std::ffi::CString::new(path.as_os_str().as_bytes()).unwrap();
+    assert_eq!(unsafe { libc::mkfifo(fifo.as_ptr(), 0o600) }, 0);
+    let (sender, receiver) = std::sync::mpsc::channel();
+    let worker = std::sync::Arc::clone(&prepared);
+    std::thread::spawn(move || {
+        let _ = sender.send(worker.verify_held());
+    });
+    assert_eq!(
+        receiver.recv_timeout(std::time::Duration::from_secs(2)),
+        Ok(Err(CommandError::Unverified))
+    );
+}
+
+#[test]
 fn preparation_view_keeps_the_owner_identity_alive() {
     let directory = tempfile::tempdir().unwrap();
     let workspace = File::open(directory.path()).unwrap();

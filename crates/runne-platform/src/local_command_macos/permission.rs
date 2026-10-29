@@ -61,9 +61,10 @@ pub struct PermissionTargetObservationV1 {
 
 /// Held descriptors and sealed bytes fixed by one preparation.
 ///
-/// Only [`Self::observation`] and [`Self::command`] are public. Descriptors and
-/// the sealed image stay inside this module, so the type grants no way to
-/// launch a child before a reviewed release gate exists.
+/// Only [`Self::observation`], [`Self::command`] and [`Self::verify_held`] are
+/// public. Descriptors and the sealed image stay inside this module, so the
+/// type grants no way to launch a child before a reviewed release gate exists;
+/// `verify_held` re-proves the bound facts but is not a launch permission.
 pub struct PreparedMacOsPermissionTargetV1 {
     command: TaskRunLocalCommand,
     workspace: File,

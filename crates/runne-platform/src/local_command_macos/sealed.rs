@@ -121,7 +121,9 @@ impl SealedExecutableSnapshot {
     ///
     /// A release step must call this immediately before opening the path and
     /// still prefer executing the held descriptor, because the path can be
-    /// replaced after any check.
+    /// replaced after any check. The path is opened with `O_NOFOLLOW` and
+    /// `O_NONBLOCK`: a symlink is refused, and a FIFO planted at the private
+    /// path cannot stall the check before the regular-file test rejects it.
     ///
     /// # Errors
     /// Returns unverified when the path is gone, names another object, or the
@@ -129,7 +131,7 @@ impl SealedExecutableSnapshot {
     pub(super) fn verify_path_binding(&self) -> Result<(), CommandError> {
         let opened = OpenOptions::new()
             .read(true)
-            .custom_flags(libc::O_NOFOLLOW)
+            .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
             .open(self.path())
             .map_err(|_| CommandError::Unverified)?;
         let held = fstat(&self.file).map_err(|_| CommandError::Unavailable)?;
