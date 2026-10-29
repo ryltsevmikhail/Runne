@@ -49,7 +49,7 @@ pub use credential::{
     CredentialBrokerCommandCodec, CredentialBrokerFrame, CredentialBrokerFrameCodec,
     CredentialBrokerTarget, CredentialClaimBinding, CredentialCleanupRecoveryRequest,
     CredentialCompletionReceipt, CredentialDispatchCapability, CredentialDisposition,
-    CredentialEnrollmentAuthorityPair, CredentialEnrollmentError,
+    CredentialCliHostInstallationBinding, CredentialEnrollmentAuthorityPair, CredentialEnrollmentError,
     CredentialEnrollmentMeasurementAuthority, CredentialEnrollmentStoreAuthority, CredentialFence,
     CredentialGcClaim, CredentialInstallationOwnerId, CredentialIssueTicketBindingV1,
     CredentialLease, CredentialLegacyCleanupBinding, CredentialLifecycleAuthority,

@@ -31,6 +31,7 @@ pub struct NativeKeyringStore {
     pub(super) profile_id: String,
     pub(super) anchor_profile: Option<[u8; 32]>,
     pub(super) version_authority: Option<NativeCredentialAuthority>,
+    pub(super) provider_namespace: Option<[u8; 16]>,
 }
 
 impl NativeKeyringStore {
@@ -45,6 +46,7 @@ impl NativeKeyringStore {
             profile_id: profile_id.as_ref().to_owned(),
             anchor_profile: None,
             version_authority: None,
+            provider_namespace: None,
         }
     }
 
@@ -54,6 +56,7 @@ impl NativeKeyringStore {
             profile_id: profile_id.as_ref().to_owned(),
             anchor_profile: Some(profile),
             version_authority: None,
+            provider_namespace: None,
         }
     }
 
@@ -62,6 +65,16 @@ impl NativeKeyringStore {
         Self {
             version_authority: Some(authority),
             ..Self::new()
+        }
+    }
+
+    /// Creates a separate owner-session credential namespace for a CLI runtime.
+    /// It never adopts or migrates the legacy provider account.
+    #[must_use]
+    pub fn new_cli_host_versioned(authority: NativeCredentialAuthority, runtime: [u8; 16]) -> Self {
+        Self {
+            provider_namespace: Some(runtime),
+            ..Self::new_versioned(authority)
         }
     }
 

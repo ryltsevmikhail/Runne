@@ -15,7 +15,10 @@ impl NativeProviderCredentialVersionStore for NativeKeyringStore {
     ) -> Result<ProviderCredentialStatus, SecureStoreError> {
         provider_id(reference)?;
         validate_reader_or_writer(access)?;
-        let Some(encoded) = Self::read_version(reference)?.filter(|bytes| !bytes.is_empty()) else {
+        let Some(encoded) = self
+            .read_version(reference)?
+            .filter(|bytes| !bytes.is_empty())
+        else {
             return Ok(ProviderCredentialStatus::Missing);
         };
         validate_stored(&StoredProviderCredential::decode(&encoded)?, access)?;
@@ -30,8 +33,9 @@ impl NativeProviderCredentialVersionStore for NativeKeyringStore {
     ) -> Result<crate::ProviderCredentialSourceRevision, SecureStoreError> {
         provider_id(reference)?;
         validate_reader_or_writer(access)?;
-        let encoded =
-            Self::read_version(reference)?.ok_or(SecureStoreError::ProviderCredentialNotFound)?;
+        let encoded = self
+            .read_version(reference)?
+            .ok_or(SecureStoreError::ProviderCredentialNotFound)?;
         let stored = StoredProviderCredential::decode(&encoded)?;
         validate_stored(&stored, access)?;
         stored
@@ -59,7 +63,7 @@ impl NativeProviderCredentialVersionStore for NativeKeyringStore {
         provider_id(&reference)?;
         access.validate_writer_current()?;
         access.remeasure()?;
-        if let Some(existing) = Self::read_version(&reference)? {
+        if let Some(existing) = self.read_version(&reference)? {
             let stored = StoredProviderCredential::decode(&existing)?;
             validate_stored(&stored, access)?;
             if stored.material_matches(credential) {
@@ -81,7 +85,7 @@ impl NativeProviderCredentialVersionStore for NativeKeyringStore {
             access_digest(access),
             crate::ProviderCredentialSourceRevision::new(source_revision)?,
         )?;
-        Self::write_version(&reference, &encoded)
+        self.write_version(&reference, &encoded)
     }
 
     fn load_version(
@@ -93,7 +97,7 @@ impl NativeProviderCredentialVersionStore for NativeKeyringStore {
             .version_authority()?
             .authorize_load(capability)
             .map_err(|_| SecureStoreError::CredentialAccessDenied)?;
-        Self::load_provider_version(reference, access)
+        self.load_provider_version(reference, access)
     }
 
     fn delete_version(
@@ -104,7 +108,7 @@ impl NativeProviderCredentialVersionStore for NativeKeyringStore {
         let reference = authority
             .authorize_delete(&claim)
             .map_err(|_| SecureStoreError::CredentialAccessDenied)?;
-        Self::delete_version_ref(reference)?;
+        self.delete_version_ref(reference)?;
         authority
             .prove_deletion(claim)
             .map_err(|_| SecureStoreError::CredentialAccessDenied)

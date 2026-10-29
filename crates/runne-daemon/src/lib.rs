@@ -12,6 +12,8 @@ pub mod doctor;
 pub mod error;
 pub mod host;
 pub mod launch_identity;
+#[cfg(target_os = "linux")]
+pub mod linux_cli_credential_host;
 pub mod lock;
 pub mod operational_telemetry;
 pub mod protected_activation;

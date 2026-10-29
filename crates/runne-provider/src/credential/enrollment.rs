@@ -1,5 +1,6 @@
 mod authority;
 mod binding;
+mod cli_host_installation;
 mod completion_receipt;
 mod identity;
 mod measured_qualification;
@@ -11,6 +12,7 @@ mod protocol;
 mod qualification_fence;
 mod qualification_fence_receipt;
 mod qualified_release;
+pub use cli_host_installation::CredentialCliHostInstallationBinding;
 mod recovery_admission;
 mod service_protocol;
 mod service_qualification_protocol;

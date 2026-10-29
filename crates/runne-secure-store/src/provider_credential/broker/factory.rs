@@ -71,6 +71,28 @@ impl NativeProviderCredentialReaders {
         }
     }
 
+    /// Creates standalone Linux readers isolated by the runtime database authority.
+    #[cfg(target_os = "linux")]
+    #[must_use]
+    pub fn new_cli_host(access: ProviderCredentialAccessPolicy, runtime: [u8; 16]) -> Self {
+        let (lifecycle_authority, native) = CredentialAuthorityPair::new().split();
+        Self {
+            lifecycle_authority,
+            readback: Arc::new(VersionStoreReadback::new(
+                NativeProviderCredentialStore::new_cli_host_versioned(native.clone(), runtime),
+                access.clone(),
+            )),
+            dispatch: Arc::new(VersionStoreDispatchMaterializer::new(
+                NativeProviderCredentialStore::new_cli_host_versioned(native.clone(), runtime),
+                access.clone(),
+            )),
+            verification: Arc::new(VersionStoreVerificationReadback::new(
+                NativeProviderCredentialStore::new_cli_host_versioned(native, runtime),
+                access,
+            )),
+        }
+    }
+
     /// Separates the store-owned issuer from the reader-only values.
     #[must_use]
     pub fn into_parts(self) -> NativeProviderCredentialReaderParts {

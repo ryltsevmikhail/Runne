@@ -18,20 +18,22 @@ use runne_secure_store::{
 };
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
-
 /// Global CLI state parsed from arguments.
 struct CliState {
     format: OutputFormat,
     arguments: Vec<OsString>,
 }
 
-fn main() {
-    let arguments = std::env::args_os().skip(1).collect();
-    let outcome = run_entrypoint(arguments);
-    write_process_outcome(&outcome);
-}
+include!("cli/process_entry.rs");
+
+#[cfg(target_os = "linux")]
+mod linux_cli_credential_host;
 
 fn run_entrypoint(arguments: Vec<OsString>) -> ProcessOutcome {
+    #[cfg(target_os = "linux")]
+    if linux_cli_credential_host::selected(&arguments) {
+        return linux_cli_credential_host::run();
+    }
     #[cfg(all(target_os = "macos", feature = "persistent-reference-probe"))]
     if persistent_reference_probe::selected(&arguments) {
         return persistent_reference_probe::outcome();

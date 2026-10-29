@@ -13,6 +13,8 @@ use super::{
 };
 
 pub(crate) mod claim;
+#[path = "cli_host_installation_authority.rs"]
+mod cli_host_installation;
 mod legacy_import;
 mod migration_metadata;
 mod pair;

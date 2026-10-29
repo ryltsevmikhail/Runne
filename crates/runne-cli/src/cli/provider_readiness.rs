@@ -41,6 +41,16 @@ struct ExternalConfigWire {
     max_in_flight: Option<u32>,
     shutdown_timeout_ms: Option<u64>,
     provider_activation: Option<ExternalProviderActivationWire>,
+    linux_cli_credential_host: Option<ExternalCliCredentialHostWire>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+#[allow(dead_code)]
+struct ExternalCliCredentialHostWire {
+    cli_sha256: String,
+    daemon_sha256: String,
+    host_sha256: String,
 }
 
 #[derive(serde::Deserialize)]

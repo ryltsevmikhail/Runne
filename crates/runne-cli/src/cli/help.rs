@@ -110,7 +110,8 @@ Usage:
   runne provider credential <subcommand> [<args>]
 
 Subcommands:
-  status   Check credential status
+  login deepseek   Linux foreground-terminal enrollment (daemon must be stopped)
+  status           Check legacy credential status
 
 Legacy commands:
   set      Unavailable direct credential enrollment
@@ -197,6 +198,7 @@ pub fn help_for(command_path: &[&str]) -> &'static str {
         ["permissions", "approvals", "list"] => PERMISSIONS_APPROVALS_LIST_HELP,
         ["permissions", "approvals", "respond"] => PERMISSIONS_APPROVALS_RESPOND_HELP,
         ["provider", "credential"] => PROVIDER_CREDENTIAL_HELP,
+        ["provider", "credential", "login"] => PROVIDER_CREDENTIAL_LOGIN_HELP,
         ["provider", "credential", "set"] => PROVIDER_CREDENTIAL_SET_HELP,
         ["provider", "credential", "status"] => PROVIDER_CREDENTIAL_STATUS_HELP,
         ["provider", "credential", "delete"] => PROVIDER_CREDENTIAL_DELETE_HELP,
@@ -292,3 +294,6 @@ Examples:
   runne completion zsh > ~/.zsh/completion/_runne
   runne completion fish > ~/.config/fish/completions/runne.fish
   runne completion powershell > $PROFILE";
+
+/// Help for standalone Linux owner-session DeepSeek enrollment.
+pub const PROVIDER_CREDENTIAL_LOGIN_HELP: &str = "Usage: runne provider credential login deepseek\n\nLinux only. Stop the runtime first. Requires explicitly configured CLI/daemon image pins.\nThe key is read without echo from the foreground terminal, never stdin, argv or environment.\nNo provider request is sent. Native backend/readback failures never mark the key ready.";
