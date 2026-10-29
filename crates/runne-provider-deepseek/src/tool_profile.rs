@@ -42,7 +42,7 @@ impl DeepSeekResponsesToolProfile {
         if text.provider_id() != "deepseek" {
             return Err(DeepSeekProfileError::InvalidProfile);
         }
-        let tools = ProviderToolDeclarationV1::coding_agent_v1();
+        let tools = ProviderToolDeclarationV1::coding_agent_current_platform();
         let encoded = serde_json::to_vec(&ProfileBinding {
             profile_id: DEEPSEEK_RESPONSES_TOOL_PROFILE_ID,
             text_profile_digest: text.profile_digest(),

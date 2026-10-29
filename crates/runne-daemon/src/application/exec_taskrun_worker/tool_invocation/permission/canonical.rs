@@ -10,8 +10,10 @@ pub(in crate::application::exec_taskrun_worker::tool_invocation) fn canonical_ar
     crate::safe_tool_helper::coding_arguments::parse(&call.tool_name, &value)?;
     let schema = IntegrityDigest::from_bytes(
         Sha256::digest(
-            serde_json::to_vec(&runne_provider::ProviderToolDeclarationV1::coding_agent_v1())
-                .map_err(|_| ())?,
+            serde_json::to_vec(
+                &runne_provider::ProviderToolDeclarationV1::coding_agent_current_platform(),
+            )
+            .map_err(|_| ())?,
         )
         .into(),
     );

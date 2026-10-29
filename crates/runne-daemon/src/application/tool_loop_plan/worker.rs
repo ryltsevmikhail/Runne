@@ -137,7 +137,7 @@ impl crate::application::exec_taskrun_worker::DaemonAutomaticTaskRuns {
             .as_ref()
             .is_some_and(|provider| provider.coding_agent_tools_enabled());
         let declarations = if coding {
-            runne_provider::ProviderToolDeclarationV1::coding_agent_v1()
+            runne_provider::ProviderToolDeclarationV1::coding_agent_current_platform()
         } else {
             vec![
                 runne_provider::ProviderToolDeclarationV1::for_name(

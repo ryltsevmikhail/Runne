@@ -15,6 +15,19 @@ impl ProviderToolDeclarationV1 {
         .map(Self::for_name)
         .collect()
     }
+
+    /// Returns the inventory this execution node can actually enforce.
+    ///
+    /// macOS has no verified containment for arbitrary commands yet, so the
+    /// command tool is not declared there. File tools remain bounded by the
+    /// native helper.
+    pub fn coding_agent_current_platform() -> Vec<Self> {
+        let mut tools = Self::coding_agent_v1();
+        if cfg!(target_os = "macos") {
+            tools.retain(|tool| tool.name() != ProviderToolNameV1::WorkspaceCommandRun);
+        }
+        tools
+    }
 }
 
 fn coding_tool_parameters(name: ProviderToolNameV1) -> Value {
@@ -39,4 +52,19 @@ fn coding_tool_parameters(name: ProviderToolNameV1) -> Value {
         _ => unreachable!("legacy schemas stay in the legacy declaration"),
     };
     serde_json::json!({"type":"object","properties":properties,"required":required,"additionalProperties":false})
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn current_platform_inventory_matches_enforceable_tools() {
+        let tools = ProviderToolDeclarationV1::coding_agent_current_platform();
+        let has_command = tools
+            .iter()
+            .any(|tool| tool.name() == ProviderToolNameV1::WorkspaceCommandRun);
+        assert_eq!(has_command, !cfg!(target_os = "macos"));
+        assert_eq!(tools.len(), if cfg!(target_os = "macos") { 5 } else { 6 });
+    }
 }

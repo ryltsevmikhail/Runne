@@ -32,7 +32,7 @@ pub(crate) fn verify_bound_receipt(
     let coding = binding.environment_id == super::coding_arguments::ENVIRONMENT;
     let expected_operation = super::coding_arguments::operation(&binding.tool_name)?;
     let schema = if coding {
-        runne_provider::ProviderToolDeclarationV1::coding_agent_v1()
+        runne_provider::ProviderToolDeclarationV1::coding_agent_current_platform()
     } else {
         vec![
             runne_provider::ProviderToolDeclarationV1::for_name(

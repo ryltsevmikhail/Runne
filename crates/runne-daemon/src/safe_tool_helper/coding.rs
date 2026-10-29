@@ -49,7 +49,10 @@ pub(super) fn execute(
         "workspace.files.list" | "workspace.files.search" => {
             coding_listing::run(root, tool, &args)?
         }
+        #[cfg(not(target_os = "macos"))]
         "workspace.command.run" => coding_command::run(root, &args)?,
+        #[cfg(target_os = "macos")]
+        "workspace.command.run" => return Err("command_unavailable"),
         _ => return Err("unknown_operation"),
     };
     let directory = matches!(

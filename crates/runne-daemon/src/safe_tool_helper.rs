@@ -9,6 +9,7 @@ use std::os::fd::AsRawFd;
 
 mod coding;
 pub(crate) mod coding_arguments;
+#[cfg(not(target_os = "macos"))]
 mod coding_command;
 pub(crate) mod coding_fs;
 mod coding_listing;

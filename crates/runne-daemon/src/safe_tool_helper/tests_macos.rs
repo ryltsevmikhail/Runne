@@ -149,37 +149,22 @@ fn list_and_search_walk_the_pinned_directory() {
 }
 
 #[test]
-fn command_runs_inside_the_pinned_directory() {
+fn command_is_not_available_on_macos() {
     let (directory, root) = fixture();
-    fs::create_dir(directory.join("work")).unwrap();
-    let work_version = version(&File::open(directory.join("work")).unwrap()).unwrap();
-    let receipt = coding(
-        &root,
-        "workspace.command.run",
-        serde_json::json!({
-            "cwd": "work",
-            "argv": ["/bin/pwd"],
-            "timeout_ms": 5000,
-        }),
-        Some(work_version),
-    )
-    .unwrap();
-    let output: serde_json::Value =
-        serde_json::from_slice(&STANDARD.decode(receipt.bytes_base64).unwrap()).unwrap();
-    let stdout = String::from_utf8(
-        STANDARD
-            .decode(output["stdout_base64"].as_str().unwrap())
-            .unwrap(),
-    )
-    .unwrap();
+    let directory_version = version(&File::open(&directory).unwrap()).unwrap();
     assert_eq!(
-        stdout.trim(),
-        std::fs::canonicalize(directory.join("work"))
-            .unwrap()
-            .to_str()
-            .unwrap()
+        coding(
+            &root,
+            "workspace.command.run",
+            serde_json::json!({
+                "cwd": ".",
+                "argv": ["/bin/pwd"],
+                "timeout_ms": 5000,
+            }),
+            Some(directory_version),
+        ),
+        Err("command_unavailable")
     );
-    assert_eq!(output["exit_code"], 0);
     fs::remove_dir_all(directory).unwrap();
 }
 

@@ -221,7 +221,7 @@ where
             inspect_plain_bytes(service, &output)?;
         }
     }
-    let name = runne_provider::ProviderToolDeclarationV1::coding_agent_v1()
+    let name = runne_provider::ProviderToolDeclarationV1::coding_agent_current_platform()
         .into_iter()
         .map(|d| d.name())
         .find(|n| n.as_str() == binding.tool_name)
