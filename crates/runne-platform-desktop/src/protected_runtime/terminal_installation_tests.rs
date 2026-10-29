@@ -3,10 +3,11 @@ use std::os::unix::fs::PermissionsExt;
 #[test]
 fn terminal_source_requires_exact_config_and_original_images() {
     let directory = tempfile::tempdir().unwrap();
-    std::fs::set_permissions(directory.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
-    let root = directory.path().join("data");
-    let bin = directory.path().join("bin");
-    let config_directory = directory.path().join("config/runne-daemon");
+    let base = std::fs::canonicalize(directory.path()).unwrap();
+    std::fs::set_permissions(&base, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let root = base.join("data");
+    let bin = base.join("bin");
+    let config_directory = base.join("config/runne-daemon");
     for path in [&root, &bin, &config_directory] {
         std::fs::create_dir_all(path).unwrap();
         std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700)).unwrap();
@@ -16,8 +17,15 @@ fn terminal_source_requires_exact_config_and_original_images() {
     std::fs::set_permissions(&config, std::fs::Permissions::from_mode(0o600)).unwrap();
     let cli = bin.join("runne");
     let daemon = bin.join("runned");
-    let host = bin.join("runne-credential-host");
+    let host = if cfg!(target_os = "macos") {
+        cli.clone()
+    } else {
+        bin.join("runne-credential-host")
+    };
     for path in [&cli, &daemon, &host] {
+        if path.exists() {
+            continue;
+        }
         std::fs::write(path, b"synthetic executable").unwrap();
         std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o500)).unwrap();
     }
@@ -46,11 +54,11 @@ fn terminal_source_requires_exact_config_and_original_images() {
         command
             .get_envs()
             .any(|(key, value)| key == "XDG_CONFIG_HOME"
-                && value == Some(directory.path().join("config").as_os_str()))
+                && value == Some(base.join("config").as_os_str()))
     );
     std::fs::write(&config, "changed configuration").unwrap();
     assert!(load(&store).is_err());
-    let previous = directory.path().join("previous.toml");
+    let previous = base.join("previous.toml");
     std::fs::write(&previous, "synthetic configuration").unwrap();
     std::fs::set_permissions(&previous, std::fs::Permissions::from_mode(0o600)).unwrap();
     repin_terminal_configuration(&root, &previous, &config).unwrap();

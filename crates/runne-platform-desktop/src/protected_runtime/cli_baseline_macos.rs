@@ -33,8 +33,7 @@ pub fn require_terminal_baseline_root(
         return Err(unavailable);
     }
     let parent = runtime_root.parent().ok_or(unavailable)?;
-    if parent.file_name().is_none() || std::fs::canonicalize(parent).ok().as_deref() != Some(parent)
-    {
+    if parent.file_name().is_none() {
         return Err(unavailable);
     }
     let parent_metadata = std::fs::metadata(parent).map_err(|_| unavailable)?;
@@ -50,9 +49,6 @@ pub fn require_terminal_baseline_root(
         || metadata.uid() != rustix::process::geteuid().as_raw()
         || metadata.mode() & 0o022 != 0
     {
-        return Err(unavailable);
-    }
-    if runtime_root.canonicalize().ok().as_deref() != Some(runtime_root) {
         return Err(unavailable);
     }
     // The daemon state directory itself stays owner-only even though the

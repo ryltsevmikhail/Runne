@@ -99,6 +99,13 @@ impl TerminalSource {
     fn validate(&self) -> Result<(), ProtectedBundledRuntimeError> {
         let invalid = ProtectedBundledRuntimeError::ActivationStateUnavailable;
         let config_home = self.config.parent().and_then(Path::parent).ok_or(invalid)?;
+        // macOS writes provider credentials from the CLI image itself; Linux
+        // pins a separate measured credential-host binary.
+        let host_image_ok = if cfg!(target_os = "macos") {
+            self.host == self.cli
+        } else {
+            self.host.file_name() == Some(std::ffi::OsStr::new("runne-credential-host"))
+        };
         if self.version != 1
             || !config_home.is_absolute()
             || self.config != config_home.join("runne-daemon/config.toml")
@@ -106,7 +113,7 @@ impl TerminalSource {
             || self.host.parent() != self.daemon.parent()
             || self.cli.file_name() != Some(std::ffi::OsStr::new("runne"))
             || self.daemon.file_name() != Some(std::ffi::OsStr::new("runned"))
-            || self.host.file_name() != Some(std::ffi::OsStr::new("runne-credential-host"))
+            || !host_image_ok
             || config_hash(&self.config)? != self.config_sha256
             || measured(&self.cli)? != self.cli_image
             || measured(&self.daemon)? != self.daemon_image
