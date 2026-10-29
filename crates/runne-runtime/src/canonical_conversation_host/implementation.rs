@@ -1,4 +1,3 @@
-
 impl<R, I, E, P> ConversationCommandHostPort for RuntimeCanonicalConversationHost<R, I, E, P>
 where
     R: ConversationRepository + Send + Sync + 'static,
@@ -205,6 +204,16 @@ where
     I: Send + Sync,
     P: Send + Sync,
 {
+    async fn list_conversations(
+        &self,
+        principal: runne_api::ApiPrincipalId,
+        workspace: runne_domain::id::WorkspaceId,
+        limit: u16,
+        after: Option<runne_domain::id::ConversationId>,
+    ) -> Result<runne_api::ConversationListPage, ConversationHostError> {
+        list_conversations_page(self.event_store.clone(), principal, workspace, limit, after).await
+    }
+
     async fn list_messages(
         &self,
         conversation_id: runne_domain::id::ConversationId,

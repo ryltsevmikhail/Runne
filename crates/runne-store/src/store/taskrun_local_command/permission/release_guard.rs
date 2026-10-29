@@ -25,6 +25,10 @@ impl ReleaseObservation {
     }
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Distinct authenticated proof components remain explicit at the release boundary"
+)]
 pub(super) fn with_release_preconditions(
     tx: &Transaction<'_>,
     store: &StoreTransaction,

@@ -8,3 +8,6 @@ pub(super) use projects::{
 };
 pub(super) use queries::{get_project, get_workspace, list_projects, list_workspaces};
 pub(super) use workspaces::{bind_workspace_root, create_workspace, open_workspace};
+
+mod root_identity;
+pub(super) use root_identity::find_workspace_by_root;

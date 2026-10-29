@@ -88,7 +88,7 @@ pub(super) fn original_proof_digest(
     hash.update(b"runne:d21:x2-human-approval-proof:v1\0");
     hash.update(taskrun.as_bytes());
     hash.update(facts.approval.invocation.attempt_id.as_bytes());
-    hash.update(&facts.canonical_digest);
+    hash.update(facts.canonical_digest);
     hash.update(facts.approval.digest().as_bytes());
     hash.update(id.as_bytes());
     hash.update(accepted_at.to_be_bytes());

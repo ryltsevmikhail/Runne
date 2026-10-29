@@ -82,6 +82,29 @@ pub(super) fn provider_statuses(
     statuses
 }
 
+pub(super) fn with_coding_profile(
+    mut statuses: Vec<ProviderStatusSnapshotV1>,
+    service: &crate::canonical_provider::DaemonCanonicalProviderService,
+) -> Vec<ProviderStatusSnapshotV1> {
+    if let Some((profile_id, profile_digest)) = service.available_coding_profile() {
+        statuses.push(
+            ProviderStatusSnapshotV1::new(
+                "deepseek-tools",
+                "deepseek_responses_tools_v1",
+                profile_id,
+                profile_digest,
+                selected_readiness(
+                    ProviderActivationModeV1::DeepSeekResponsesTextV1,
+                    service.current_provider_readiness(),
+                ),
+                false,
+            )
+            .expect("exact released tool profile"),
+        );
+    }
+    statuses
+}
+
 fn selected_provider_id(activation: &ProviderActivation) -> String {
     match activation {
         ProviderActivation::ResponsesText(binding, _) => {

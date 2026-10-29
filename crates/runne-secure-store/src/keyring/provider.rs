@@ -9,6 +9,7 @@ use runne_provider::{
     CredentialVersionRef, NativeCredentialAuthority, NativeCredentialDeletionProof,
 };
 use sha2::{Digest, Sha256};
+use std::fmt::Write as _;
 use zeroize::Zeroizing;
 
 mod namespace;
@@ -22,6 +23,7 @@ impl ProviderCredentialStore for NativeKeyringStore {
         provider: ProviderCredentialId,
         access: &ProviderCredentialAccessPolicy,
     ) -> Result<ProviderCredentialStatus, SecureStoreError> {
+        self.require_legacy_namespace()?;
         validate_reader_or_writer(access)?;
         let Some(encoded) = Self::read_provider(provider)? else {
             return Ok(ProviderCredentialStatus::Missing);
@@ -36,6 +38,7 @@ impl ProviderCredentialStore for NativeKeyringStore {
         credential: &ProviderCredentialMaterial,
         access: &ProviderCredentialAccessPolicy,
     ) -> Result<(), SecureStoreError> {
+        self.require_legacy_namespace()?;
         access.validate_writer_current()?;
         access.remeasure()?;
         let revision = generate_provider_credential_source_revision()?;
@@ -52,6 +55,7 @@ impl ProviderCredentialStore for NativeKeyringStore {
         provider: ProviderCredentialId,
         access: &ProviderCredentialAccessPolicy,
     ) -> Result<ProviderCredentialMaterial, SecureStoreError> {
+        self.require_legacy_namespace()?;
         validate_reader_or_writer(access)?;
         let encoded =
             Self::read_provider(provider)?.ok_or(SecureStoreError::ProviderCredentialNotFound)?;
@@ -64,6 +68,7 @@ impl ProviderCredentialStore for NativeKeyringStore {
         provider: ProviderCredentialId,
         access: &ProviderCredentialAccessPolicy,
     ) -> Result<ProviderCredentialSource, SecureStoreError> {
+        self.require_legacy_namespace()?;
         validate_reader_or_writer(access)?;
         let encoded =
             Self::read_provider(provider)?.ok_or(SecureStoreError::ProviderCredentialNotFound)?;
@@ -75,6 +80,7 @@ impl ProviderCredentialStore for NativeKeyringStore {
         &self,
         provider: ProviderCredentialId,
     ) -> Result<(), SecureStoreError> {
+        self.require_legacy_namespace()?;
         Self::delete_provider(provider)
     }
 
@@ -84,6 +90,7 @@ impl ProviderCredentialStore for NativeKeyringStore {
         current: &ProviderCredentialAccessPolicy,
         replacement: &ProviderCredentialAccessPolicy,
     ) -> Result<(), SecureStoreError> {
+        self.require_legacy_namespace()?;
         validate_reader_or_writer(current)?;
         replacement.validate_writer_current()?;
         replacement.remeasure()?;
@@ -106,16 +113,12 @@ impl ProviderCredentialStore for NativeKeyringStore {
 }
 
 impl NativeKeyringStore {
-    #[expect(
-        clippy::unused_self,
-        reason = "method shape mirrors the cross-platform store API; the Linux/Windows keyring lookup itself is static"
-    )]
     pub(crate) fn load_provider_version_for_verification(
         &self,
         reference: &CredentialVersionRef,
         access: &ProviderCredentialAccessPolicy,
     ) -> Result<ProviderCredentialMaterial, SecureStoreError> {
-        Self::load_provider_version(reference, access)
+        self.load_provider_version(reference, access)
     }
 
     fn version_authority(&self) -> Result<&NativeCredentialAuthority, SecureStoreError> {
@@ -125,12 +128,14 @@ impl NativeKeyringStore {
     }
 
     fn load_provider_version(
+        &self,
         reference: &CredentialVersionRef,
         access: &ProviderCredentialAccessPolicy,
     ) -> Result<ProviderCredentialMaterial, SecureStoreError> {
         validate_reader_or_writer(access)?;
-        let encoded =
-            Self::read_version(reference)?.ok_or(SecureStoreError::ProviderCredentialNotFound)?;
+        let encoded = self
+            .read_version(reference)?
+            .ok_or(SecureStoreError::ProviderCredentialNotFound)?;
         let stored = StoredProviderCredential::decode(&encoded)?;
         validate_stored(&stored, access)?;
         Ok(stored.into_material())
@@ -156,23 +161,52 @@ impl NativeKeyringStore {
         Self::delete_secret(&service, &account)
     }
 
+    fn namespaced_version_key(
+        &self,
+        reference: &CredentialVersionRef,
+    ) -> Result<(String, String), SecureStoreError> {
+        let (service, account) = version_key(reference)?;
+        let Some(namespace) = self.provider_namespace else {
+            return Ok((service, account));
+        };
+        if namespace == [0; 16] {
+            return Err(SecureStoreError::CredentialAccessDenied);
+        }
+        let namespace = namespace
+            .iter()
+            .fold(String::with_capacity(32), |mut out, byte| {
+                let _ = write!(out, "{byte:02x}");
+                out
+            });
+        Ok((format!("{service}.cli-host.{namespace}"), account))
+    }
+
+    const fn require_legacy_namespace(&self) -> Result<(), SecureStoreError> {
+        if self.provider_namespace.is_some() {
+            return Err(SecureStoreError::CredentialAccessDenied);
+        }
+        Ok(())
+    }
+
     fn read_version(
+        &self,
         reference: &CredentialVersionRef,
     ) -> Result<Option<Zeroizing<Vec<u8>>>, SecureStoreError> {
-        let (service, account) = version_key(reference)?;
+        let (service, account) = self.namespaced_version_key(reference)?;
         Self::read_secret(&service, &account)
     }
 
     fn write_version(
+        &self,
         reference: &CredentialVersionRef,
         encoded: &[u8],
     ) -> Result<(), SecureStoreError> {
-        let (service, account) = version_key(reference)?;
+        let (service, account) = self.namespaced_version_key(reference)?;
         Self::write_secret(&service, &account, encoded)
     }
 
-    fn delete_version_ref(reference: &CredentialVersionRef) -> Result<(), SecureStoreError> {
-        let (service, account) = version_key(reference)?;
+    fn delete_version_ref(&self, reference: &CredentialVersionRef) -> Result<(), SecureStoreError> {
+        let (service, account) = self.namespaced_version_key(reference)?;
         Self::delete_secret(&service, &account)
     }
 }
@@ -240,3 +274,7 @@ fn access_digest(access: &ProviderCredentialAccessPolicy) -> [u8; 32] {
     }
     digest.finalize().into()
 }
+
+#[cfg(test)]
+#[path = "provider/cli_namespace_tests.rs"]
+mod cli_namespace_tests;

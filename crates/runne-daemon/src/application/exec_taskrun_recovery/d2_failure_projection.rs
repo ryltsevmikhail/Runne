@@ -18,6 +18,14 @@ mod lease_tests;
 #[path = "d2_failure_projection/restart.rs"]
 mod restart;
 
+// This only routes recovery; durable origin, budget and effect proofs still authorize it.
+fn recovery_tool_profile(profile: &str) -> bool {
+    matches!(
+        profile,
+        "runne-linux-agent-tools-v1" | "runne-deepseek-responses-tools/1"
+    )
+}
+
 fn runtime_authority_matches_node(authority: &str, node_id: &str) -> bool {
     match (
         uuid::Uuid::parse_str(authority),
@@ -107,7 +115,7 @@ impl DaemonAutomaticTaskRuns {
                 .snapshot_v1()
                 .input()
                 .and_then(|input| input.selected_profile())
-                .is_some_and(|profile| profile.profile_id() == "runne-linux-agent-tools-v1");
+                .is_some_and(|profile| recovery_tool_profile(profile.profile_id()));
             if !is_d2_profile {
                 return Ok(false);
             }

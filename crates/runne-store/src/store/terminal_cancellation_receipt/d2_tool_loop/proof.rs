@@ -27,11 +27,16 @@ pub(super) fn verify(
         )
         .map_err(|_| invalid())?;
     if budget_rows > 0 {
+        crate::store::taskrun_tool_invocation::budget_policy::verify_origin_policy(
+            connection,
+            receipt.taskrun_id,
+        )
+        .map_err(|_| invalid())?;
         let exact_budget: bool = connection
             .query_row(
                 "SELECT EXISTS(SELECT 1 FROM taskrun_tool_budgets WHERE taskrun_id=?1 AND attempt_id=?2
                  AND fence=?3 AND node_id=?4 AND node_epoch=?5
-                 AND policy_revision='d2-safe-tool-loop-budget-v1')",
+                 AND policy_revision IN ('d2-safe-tool-loop-budget-v1','coding-tool-loop-budget-v1'))",
                 params![receipt.taskrun_id.as_bytes(), receipt.attempt_id.as_bytes(), fence, uuid::Uuid::from_slice(&node).map_err(|_| invalid())?.to_string(), epoch],
                 |row| row.get(0),
             )

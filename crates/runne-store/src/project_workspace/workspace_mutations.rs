@@ -160,6 +160,14 @@ pub(super) fn change_workspace(
         }
         .map_err(|_| Error::Conflict)?;
         if let Some(admission) = binding {
+            super::root_identity::bind(
+                transaction,
+                store,
+                principal,
+                id,
+                workspace.version(),
+                admission.filesystem_identity_digest(),
+            )?;
             consume_nonce(
                 transaction,
                 store,

@@ -1,4 +1,5 @@
 use super::*;
+use crate::store::taskrun_tool_invocation::budget_policy::is_tool_profile;
 use runne_application::ports::D2ToolLoopCancellationEvidence;
 use runne_domain::{agent_loop::LoopDisposition, task_run::TaskRun};
 
@@ -33,7 +34,7 @@ pub(crate) fn validate_d2_failed_receipt(
         .snapshot_v1()
         .input()
         .and_then(|input| input.selected_profile())
-        .is_none_or(|profile| profile.profile_id() != "runne-linux-agent-tools-v1")
+        .is_none_or(|profile| !is_tool_profile(profile.profile_id()))
     {
         return Ok(false);
     }
@@ -58,7 +59,7 @@ pub(crate) fn validate_d2_failed_receipt(
         )
         .map_err(map_commit_read_error)?;
     let budget: bool = connection.query_row(
-        "SELECT EXISTS(SELECT 1 FROM taskrun_tool_budgets WHERE taskrun_id=?1 AND attempt_id=?2 AND policy_revision='d2-safe-tool-loop-budget-v1')",
+        "SELECT EXISTS(SELECT 1 FROM taskrun_tool_budgets WHERE taskrun_id=?1 AND attempt_id=?2 AND policy_revision IN ('d2-safe-tool-loop-budget-v1','coding-tool-loop-budget-v1'))",
         params![receipt.taskrun_id.as_bytes(), receipt.attempt_id.as_bytes()], |row| row.get(0),
     ).map_err(map_commit_read_error)?;
     let invocation_count: i64 = connection
@@ -158,10 +159,15 @@ pub(crate) fn validate_d2_failed_receipt(
         .try_into()
         .map_err(|_| storage_failure(StorageFailureKind::IntegrityViolation))?;
     if budget_rows > 0 {
+        crate::store::taskrun_tool_invocation::budget_policy::verify_origin_policy(
+            connection,
+            receipt.taskrun_id,
+        )
+        .map_err(|_| storage_failure(StorageFailureKind::IntegrityViolation))?;
         let exact_budget: bool = connection.query_row(
             "SELECT EXISTS(SELECT 1 FROM taskrun_tool_budgets WHERE taskrun_id=?1 AND attempt_id=?2
                AND fence=?3 AND node_id=?4 AND node_epoch=?5
-               AND policy_revision='d2-safe-tool-loop-budget-v1')",
+               AND policy_revision IN ('d2-safe-tool-loop-budget-v1','coding-tool-loop-budget-v1'))",
             params![receipt.taskrun_id.as_bytes(), receipt.attempt_id.as_bytes(), claim_fence,
                 uuid::Uuid::from_slice(&node_bytes).map_err(|_| storage_failure(StorageFailureKind::IntegrityViolation))?.to_string(), claim_epoch],
             |row| row.get(0),

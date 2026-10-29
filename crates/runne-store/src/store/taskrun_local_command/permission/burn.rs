@@ -71,6 +71,10 @@ impl StoreTransaction {
         Ok(())
     }
 
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "Distinct authenticated proof components remain explicit at the release boundary"
+    )]
     fn commit_permission_burn(
         &self,
         identity: &TaskRunAssignmentIdentity,

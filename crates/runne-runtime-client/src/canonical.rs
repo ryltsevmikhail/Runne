@@ -8,6 +8,7 @@ include!("canonical/types.rs");
 include!("canonical/task_run.rs");
 include!("canonical/task_run_list.rs");
 include!("canonical/task_run_effects.rs");
+include!("canonical/task_run_tool_activity.rs");
 include!("canonical/session_authority_baseline.rs");
 include!("canonical/session_binding.rs");
 include!("canonical/transport_kind.rs");
@@ -43,3 +44,5 @@ pub use project_workspace::*;
 include!("canonical/operational_telemetry_tests.rs");
 #[cfg(test)]
 include!("canonical/approval_tests.rs");
+
+include!("canonical/conversation_list.rs");

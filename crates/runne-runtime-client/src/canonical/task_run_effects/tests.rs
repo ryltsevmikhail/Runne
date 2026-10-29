@@ -59,6 +59,25 @@ mod effects_wire_tests {
     }
 
     #[test]
+    fn already_terminal_requires_completed_fact_and_task_cancellation() {
+        let id = CanonicalId::now_v7();
+        let mut value = wire(id);
+        value["remote"]["outcome"] = serde_json::json!("completed");
+        value["remote"]["cancellation"] = serde_json::json!("already_terminal");
+        let decoded = decode_effects(value.clone()).unwrap();
+        assert_eq!(decoded.remote().outcome(), RemoteEffectOutcome::Completed);
+        assert_eq!(
+            decoded.remote().cancellation(),
+            RemoteCancellationEvidence::AlreadyTerminal
+        );
+        value["remote"]["outcome"] = serde_json::json!("unknown");
+        assert!(decode_effects(value.clone()).is_err());
+        value["remote"]["outcome"] = serde_json::json!("completed");
+        value["cancellationRequested"] = serde_json::json!(false);
+        assert!(decode_effects(value).is_err());
+    }
+
+    #[test]
     fn malformed_or_unknown_effect_fields_are_rejected() {
         let id = CanonicalId::now_v7();
         let mut value = wire(id);

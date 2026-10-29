@@ -14,31 +14,6 @@ use crate::{
 const MAX_REMOTE_IDENTIFIER_BYTES: usize = 256;
 const MAX_REMOTE_DIAGNOSTIC_BYTES: usize = 4096;
 
-#[derive(Debug)]
-struct Lifecycle {
-    stage: LifecycleStage,
-    response_id: Option<String>,
-    item_id: Option<String>,
-    text: String,
-    normalized: Vec<ProviderStreamEvent>,
-    last_remote_sequence: Option<u64>,
-    trace: DecodeTrace,
-}
-
-impl Default for Lifecycle {
-    fn default() -> Self {
-        Self {
-            stage: LifecycleStage::Start,
-            response_id: None,
-            item_id: None,
-            text: String::new(),
-            normalized: Vec::new(),
-            last_remote_sequence: None,
-            trace: DecodeTrace::default(),
-        }
-    }
-}
-
 /// Incremental bounded SSE decoder for the exact Responses text lifecycle.
 #[derive(Debug, Default)]
 pub struct DeepSeekSseDecoder {

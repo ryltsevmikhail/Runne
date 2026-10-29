@@ -8,7 +8,7 @@ fn v47_adds_durable_text_only_lineage_and_reopens() {
     apply_migrations(&connection).unwrap();
     assert_eq!(schema_marker(&connection), CURRENT_SCHEMA_VERSION);
     assert!(
-        v69_matches(&connection, CURRENT_SCHEMA_VERSION).unwrap(),
+        v71_matches(&connection, CURRENT_SCHEMA_VERSION).unwrap(),
         "v46 inherited schema"
     );
     assert!(
@@ -16,7 +16,7 @@ fn v47_adds_durable_text_only_lineage_and_reopens() {
         "v47 trigger definitions"
     );
     assert!(v47_rows_match(&connection).unwrap(), "v47 lineage rows");
-    assert!(v69_matches(&connection, CURRENT_SCHEMA_VERSION).unwrap());
+    assert!(v71_matches(&connection, CURRENT_SCHEMA_VERSION).unwrap());
     assert!(classify_existing_connection(&connection).is_ok());
 
     let transaction = connection.unchecked_transaction().unwrap();
@@ -47,7 +47,7 @@ fn v47_adds_durable_text_only_lineage_and_reopens() {
     connection
         .execute_batch("DROP TRIGGER text_only_taskrun_lineage_no_delete")
         .unwrap();
-    assert!(!v69_matches(&connection, CURRENT_SCHEMA_VERSION).unwrap());
+    assert!(!v71_matches(&connection, CURRENT_SCHEMA_VERSION).unwrap());
     assert!(!v47_matches(&connection, 47).unwrap());
     assert!(classify_existing_connection(&connection).is_err());
 }

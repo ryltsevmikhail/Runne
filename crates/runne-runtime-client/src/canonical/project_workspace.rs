@@ -13,3 +13,5 @@ mod wire;
 
 pub use trust_control::*;
 pub use types::*;
+
+mod root_identity;

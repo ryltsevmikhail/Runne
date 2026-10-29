@@ -271,3 +271,6 @@ fn v2_submitted_history_with_an_inconsistent_submit_receipt_is_not_cancellable()
         3
     );
 }
+
+#[path = "queued_cancel_effects.rs"]
+mod effects_tests;

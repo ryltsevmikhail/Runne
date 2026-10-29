@@ -44,7 +44,8 @@ fn load_remote_effects_snapshot_at(
         if ids.is_empty() {
             return Ok(None);
         }
-        if ids.len() <= 3 {
+        // The chain verifier enforces the authenticated legacy/coding limit.
+        if ids.len() <= 33 {
             let latest = crate::store::test_support_diagnostics::on_error(
                 "remote.d2_round_chain",
                 d2_latest_remote_dispatch(transaction, taskrun_id, taskrun_attempt_id),
@@ -138,7 +139,7 @@ fn load_remote_effects_snapshot_for_dispatch(
     )?;
 
     let fact = match (&record.terminal, authenticator) {
-        (None, _) => None,
+        (None, _) => authenticate_stream_projection(transaction, &record, authenticator)?,
         (Some(_), Some(authenticator)) => {
             let expected = crate::store::test_support_diagnostics::on_error(
                 "remote.expected_identity",
@@ -153,7 +154,7 @@ fn load_remote_effects_snapshot_for_dispatch(
         }
         (Some(_), None) => None,
     };
-    let observation = if record.terminal.is_none() {
+    let observation = if record.terminal.is_none() && fact.is_none() {
         let observation =
             crate::provider::read_remote_observation_in_transaction(transaction, binding, now)?;
         if observation.status == runne_provider::ProviderRemoteResponseStatus::Pending
@@ -209,7 +210,7 @@ fn remote_effect_dispatch_ids(
         .prepare(
             "SELECT dispatch_attempt_id FROM provider_remote_request_intents
              WHERE taskrun_id=?1 AND taskrun_attempt_id=?2
-             ORDER BY dispatch_attempt_id LIMIT 4",
+             ORDER BY dispatch_attempt_id LIMIT 34",
         )
         .map_err(|_| ProviderExecutionError::StoreUnavailable)?;
     let rows = statement
@@ -258,3 +259,6 @@ fn remote_expected_identity(
 
 include!("remote_terminal_effects_snapshot_state.rs");
 include!("remote_terminal_effects_snapshot_finance.rs");
+
+#[cfg(test)]
+include!("remote_terminal_effects_snapshot_bounds_tests.rs");

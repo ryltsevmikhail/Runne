@@ -154,3 +154,7 @@ fn now_millis() -> i64 {
 #[cfg(all(feature = "desktop-protected", target_os = "linux"))]
 #[path = "tool_loop_plan/worker.rs"]
 pub(crate) mod worker;
+
+#[cfg(all(feature = "desktop-protected", target_os = "linux"))]
+#[path = "tool_loop_plan/coding.rs"]
+mod coding;

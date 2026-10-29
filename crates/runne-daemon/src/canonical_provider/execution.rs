@@ -27,6 +27,12 @@ pub(crate) struct D2ToolTerminalRef {
 #[cfg(all(feature = "desktop-protected", target_os = "linux"))]
 #[derive(Clone, PartialEq, Eq)]
 pub(crate) enum D2ProviderRoundOutcome {
+    Batch {
+        proposals: Vec<(
+            runne_runtime::provider_tool::RuntimeToolCall,
+            Vec<runne_store::store::taskrun_tool_invocation::ToolSourceRef>,
+        )>,
+    },
     Proposal {
         call: runne_runtime::provider_tool::RuntimeToolCall,
         sources: Vec<runne_store::store::taskrun_tool_invocation::ToolSourceRef>,

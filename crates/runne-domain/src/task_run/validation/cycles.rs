@@ -48,7 +48,47 @@ impl TaskRun {
         expected_indexes: &[u32],
     ) -> Result<(), DomainError> {
         self.require_state(TaskRunState::Running, TaskRunEventKind::PlanCommitted)?;
-        let cycle = self.active_cycle_for(cycle_id, LoopCycleState::Proposing)?;
+        let cycle = self
+            .active_cycle
+            .as_ref()
+            .ok_or_else(|| Self::loop_error(LoopInvariantViolation::MissingActiveCycle))?;
+        if cycle.cycle_id != cycle_id {
+            return Err(Self::loop_error(
+                LoopInvariantViolation::CycleBindingMismatch,
+            ));
+        }
+        if cycle.state != LoopCycleState::Proposing {
+            let previous = cycle
+                .plan_revision_ref
+                .as_ref()
+                .ok_or_else(|| Self::loop_error(LoopInvariantViolation::PlanBindingMismatch))?;
+            let parent = crate::plan::PlanParentRef {
+                plan_id: previous.plan_id,
+                revision: previous.revision,
+                integrity_digest: previous.integrity_digest,
+            };
+            if cycle.state != LoopCycleState::Evaluating
+                || plan_ref.parent_ref.as_ref() != Some(&parent)
+                || plan_ref.plan_id != previous.plan_id
+                || previous.revision.checked_add(1) != Some(plan_ref.revision)
+                || plan_ref.planning_policy_ref != previous.planning_policy_ref
+                || plan_ref.planning_budget_ref != previous.planning_budget_ref
+                || expected_indexes.len() != previous.expected_proposal_indexes.len() + 1
+                || !expected_indexes.starts_with(&previous.expected_proposal_indexes)
+                || expected_indexes.last().copied()
+                    != Some(
+                        previous
+                            .expected_proposal_indexes
+                            .last()
+                            .map_or(0, |n| n.saturating_add(1)),
+                    )
+                || cycle.recorded_outcomes.len() != previous.expected_proposal_indexes.len()
+            {
+                return Err(Self::loop_error(
+                    LoopInvariantViolation::PlanBindingMismatch,
+                ));
+            }
+        }
         let context_ref = cycle
             .context_manifest_ref
             .as_ref()

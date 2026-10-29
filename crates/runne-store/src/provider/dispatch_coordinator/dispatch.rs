@@ -227,11 +227,12 @@ where
                     ),
                 })
             }
-            Err(DispatchError::RejectedBeforeEffect(_)) => {
-                let _ = self
-                    .dispatch_store
-                    .mark_uncertain(attempt_id, fencing_token);
-                Ok(ProviderCoordinatorOutcome::Uncertain)
+            // The adapter contract proves it refused before any network start.
+            // An opened effect window alone is not evidence of a sent request, so
+            // the attempt stays a typed pre-effect rejection instead of turning a
+            // denied credential into an unknown effect.
+            Err(DispatchError::RejectedBeforeEffect(reason)) => {
+                self.reject_before_effect(attempt_id, fencing_token, reason)
             }
             Err(
                 DispatchError::MaybeDispatched

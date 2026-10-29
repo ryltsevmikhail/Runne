@@ -60,8 +60,8 @@ fn corrupt_v24_catalog_is_rejected_before_open() {
     let conn = Connection::open_in_memory().unwrap();
     initialize_released_v23(&conn);
     apply_migrations(&conn).unwrap();
-    assert_eq!(CURRENT_SCHEMA_VERSION, 69);
-    assert!(v69_matches(&conn, CURRENT_SCHEMA_VERSION).unwrap());
+    assert_eq!(CURRENT_SCHEMA_VERSION, 71);
+    assert!(v71_matches(&conn, CURRENT_SCHEMA_VERSION).unwrap());
     conn.execute_batch("DROP TABLE provider_credential_operations;")
         .unwrap();
     assert!(classify_existing_connection(&conn).is_err());
@@ -85,7 +85,7 @@ fn v23_to_v36_catalog_reopens_after_restart() {
     assert_eq!(current_schema_marker(&conn), CURRENT_SCHEMA_VERSION);
     drop(conn);
     let reopened = Connection::open(&path).unwrap();
-    assert!(v69_matches(&reopened, CURRENT_SCHEMA_VERSION).unwrap());
+    assert!(v71_matches(&reopened, CURRENT_SCHEMA_VERSION).unwrap());
 }
 
 #[test]
@@ -107,5 +107,5 @@ fn interrupted_v24_migration_recovers_from_v23() {
     );
     apply_migrations(&conn).unwrap();
     assert_eq!(current_schema_marker(&conn), CURRENT_SCHEMA_VERSION);
-    assert!(v69_matches(&conn, CURRENT_SCHEMA_VERSION).unwrap());
+    assert!(v71_matches(&conn, CURRENT_SCHEMA_VERSION).unwrap());
 }

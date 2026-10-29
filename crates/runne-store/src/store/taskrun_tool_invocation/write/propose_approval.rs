@@ -1,8 +1,24 @@
 type PriorEffectRow = (String, Vec<u8>, String, Option<Vec<u8>>, Vec<u8>, i64);
 type ApprovalBindingRow = (
-    Vec<u8>, String, String, String, String, Vec<u8>, i64, i64,
-    Option<String>, Option<String>, Option<String>, Option<String>, Option<Vec<u8>>,
-    Option<i64>, Option<i64>, Option<String>, Option<i64>, Option<i64>, Option<String>,
+    Vec<u8>,
+    String,
+    String,
+    String,
+    String,
+    Vec<u8>,
+    i64,
+    i64,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<Vec<u8>>,
+    Option<i64>,
+    Option<i64>,
+    Option<String>,
+    Option<i64>,
+    Option<i64>,
+    Option<String>,
 );
 
 pub(super) fn propose(
@@ -108,6 +124,9 @@ fn propose_inner(
     }
     let source_bytes = encode_sources(&b.sources);
     let budget_matches:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM taskrun_tool_budgets WHERE taskrun_id=?1 AND attempt_id=?2 AND fence=?3 AND node_id=?4 AND node_epoch=?5 AND reservation_id IS NOT NULL AND reservation_digest IS NOT NULL)",params![b.key.taskrun_id.as_bytes(),b.key.attempt_id.as_bytes(),a.fence.0 as i64,a.node_id.0,a.node_epoch as i64],|r|r.get(0)).map_err(|_|ToolInvocationStoreError::CorruptData)?;
+    if b.round_index > budget_policy::limits(&tx, b.key.taskrun_id)?.1 {
+        return Err(ToolInvocationStoreError::BudgetExhausted);
+    }
     if !budget_matches {
         return Err(ToolInvocationStoreError::InvalidState);
     }

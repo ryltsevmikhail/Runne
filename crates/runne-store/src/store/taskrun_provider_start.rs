@@ -179,7 +179,7 @@ pub(crate) fn verify_admitted_running_attempt(
     let attempt_id = AttemptId::from_bytes(attempt.as_slice().try_into().map_err(|_| ())?);
     let d2_profile = connection
         .query_row(
-            "SELECT EXISTS(SELECT 1 FROM provider_secondary_profile_attempts a JOIN provider_secondary_profile_grants g USING(grant_id) WHERE a.dispatch_attempt_id=?1 AND g.profile_id='runne-linux-agent-tools-v1' AND a.profile_digest=?2)",
+            "SELECT EXISTS(SELECT 1 FROM provider_secondary_profile_attempts a JOIN provider_secondary_profile_grants g USING(grant_id) WHERE a.dispatch_attempt_id=?1 AND g.profile_id IN ('runne-linux-agent-tools-v1','runne-deepseek-responses-tools/1') AND a.profile_digest=?2)",
             rusqlite::params![dispatch_attempt_id.as_slice(), profile_digest.as_slice()],
             |row| row.get::<_, bool>(0),
         )

@@ -24,7 +24,7 @@ pub(crate) fn parse_output(bytes: &[u8]) -> Result<ReceiptV1, OutputError> {
     match serde_json::from_slice(bytes).map_err(|_| OutputError::Invalid)? {
         OutputV1::Receipt(receipt)
             if receipt.status == "success"
-                && receipt.version == 1
+                && matches!(receipt.version, 1 | 2)
                 && !receipt.truncated
                 && receipt.byte_length <= 8 * 1024 =>
         {

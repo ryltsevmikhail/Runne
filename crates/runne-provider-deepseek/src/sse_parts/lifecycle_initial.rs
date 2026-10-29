@@ -56,7 +56,16 @@ impl Lifecycle {
             "response.output_text.delta" => self.accept_text_delta(object),
             "response.output_text.done" => self.accept_text_done(object),
             "response.content_part.done" => self.accept_part_done(object),
+            "response.output_item.done" if self.tool.is_some() => {
+                self.accept_tool_item_done(object)
+            }
             "response.output_item.done" => self.accept_item_done(object),
+            "response.function_call_arguments.delta" if self.tools_enabled => {
+                self.accept_tool_delta(object)
+            }
+            "response.function_call_arguments.done" if self.tools_enabled => {
+                self.accept_tool_arguments_done(object)
+            }
             "response.completed" => self.accept_completed(object),
             "response.failed" => self.accept_failed(object),
             "response.incomplete" => self.accept_incomplete(object),

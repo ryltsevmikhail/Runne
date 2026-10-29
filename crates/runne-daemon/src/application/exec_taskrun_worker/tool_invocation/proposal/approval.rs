@@ -20,10 +20,7 @@ impl crate::application::exec_taskrun_worker::DaemonAutomaticTaskRuns {
         let approval_digest = binding.approval_digest;
         let expires_at = binding.approval_expires_at;
         let resource = binding.approval_resource.clone();
-        let risk_summary = format!(
-            "Approve {} for workspace file {}",
-            binding.tool_name, binding.target_name
-        );
+        let risk_summary = super::preview::summary(self, workspace_id, &binding)?;
         let approval_store = ProjectWorkspaceStore::from_store(self.store.clone());
         let principal_text = principal.as_str().to_owned();
         let mut disposition = ApprovalDisposition::Pending;

@@ -21,16 +21,18 @@ pub(super) fn validate_binding(
         || b.approval_action.len() > 256
         || b.approval_resource.is_empty()
         || b.approval_resource.len() > 4096
-        || b.target_name.contains('/')
-        || b.target_name.contains('\\')
-        || b.target_name == "."
-        || b.target_name == ".."
+        || !valid_target(
+            &b.target_name,
+            &b.tool_name,
+            &b.environment_id,
+            &b.environment_revision,
+        )
         || b.approval_id == [0; 16]
         || b.principal_id.is_empty()
         || b.approval_principal_id.is_empty()
         || b.policy_revision == 0
         || b.approval_expires_at <= 0
-        || b.round_index > MAX_CONTINUATIONS
+        || b.round_index > budget_policy::CODING_LIMIT
     {
         return Err(ToolInvocationStoreError::CorruptData);
     }
@@ -43,6 +45,17 @@ pub(super) fn validate_binding(
         != b.canonical_arguments
     {
         return Err(ToolInvocationStoreError::CorruptData);
+    }
+    if b.environment_id == "linux-coding-agent-v1"
+        && value[if b.tool_name == "workspace.command.run" {
+            "cwd"
+        } else {
+            "path"
+        }]
+        .as_str()
+            != Some(b.target_name.as_str())
+    {
+        return Err(ToolInvocationStoreError::Conflict);
     }
     let mut sources = b.sources.clone();
     sources.sort_by_key(|s| (s.dispatch_attempt_id, s.sequence));
@@ -125,4 +138,98 @@ pub(super) fn encode_sources(sources: &[ToolSourceRef]) -> Vec<u8> {
         bytes.extend_from_slice(&s.runtime_generation.to_be_bytes());
     }
     bytes
+}
+
+fn valid_target(path: &str, tool: &str, environment: &str, revision: &str) -> bool {
+    if path.is_empty()
+        || path.len() > 255
+        || path.starts_with('/')
+        || path.contains('\\')
+        || path.contains('\0')
+    {
+        return false;
+    }
+    if environment != "linux-coding-agent-v1" {
+        return !path.contains('/') && path != "." && path != "..";
+    }
+    if revision != "1"
+        || !matches!(
+            tool,
+            "workspace.file.read"
+                | "workspace.file.create_new"
+                | "workspace.file.replace"
+                | "workspace.files.list"
+                | "workspace.files.search"
+                | "workspace.command.run"
+        )
+    {
+        return false;
+    }
+    if path == "." {
+        return matches!(
+            tool,
+            "workspace.files.list" | "workspace.files.search" | "workspace.command.run"
+        );
+    }
+    path.split('/')
+        .all(|part| !part.is_empty() && part != "." && part != "..")
+}
+#[cfg(test)]
+mod coding_target_tests {
+    use super::valid_target;
+    #[test]
+    fn coding_paths_are_relative_and_legacy_targets_stay_flat() {
+        assert!(valid_target(
+            "src/main.rs",
+            "workspace.file.read",
+            "linux-coding-agent-v1",
+            "1"
+        ));
+        assert!(!valid_target(
+            "src/main.rs",
+            "workspace.file.read",
+            "linux-safe-tool-helper-v1",
+            "1"
+        ));
+        assert!(valid_target(
+            ".",
+            "workspace.files.list",
+            "linux-coding-agent-v1",
+            "1"
+        ));
+        assert!(!valid_target(
+            ".",
+            "workspace.file.replace",
+            "linux-coding-agent-v1",
+            "1"
+        ));
+        for path in [
+            "/etc/passwd",
+            "../escape",
+            "a/../b",
+            "a//b",
+            "a/./b",
+            "a\\b",
+            "a\0b",
+        ] {
+            assert!(!valid_target(
+                path,
+                "workspace.files.list",
+                "linux-coding-agent-v1",
+                "1"
+            ));
+        }
+        assert!(!valid_target(
+            "src/main.rs",
+            "unknown",
+            "linux-coding-agent-v1",
+            "1"
+        ));
+        assert!(!valid_target(
+            "src/main.rs",
+            "workspace.file.read",
+            "linux-coding-agent-v1",
+            "2"
+        ));
+    }
 }

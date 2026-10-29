@@ -14,6 +14,10 @@ use runne_application::{
 use rusqlite::{Transaction, params};
 use uuid::Uuid;
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "Distinct authenticated proof components remain explicit at the release boundary"
+)]
 pub(super) fn commit_in_tx(
     tx: &Transaction<'_>,
     store: &StoreTransaction,

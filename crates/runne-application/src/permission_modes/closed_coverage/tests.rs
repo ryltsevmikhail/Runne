@@ -139,3 +139,6 @@ fn closed_scope_requires_process_policy_and_network_rule_only_when_network_is_pr
             .supports_closed_scope(&network_broad)
     );
 }
+
+#[path = "tests_workspace_process.rs"]
+mod workspace_process;

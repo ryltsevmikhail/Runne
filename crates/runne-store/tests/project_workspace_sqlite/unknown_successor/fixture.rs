@@ -34,22 +34,44 @@ pub(super) struct Fixture {
 }
 
 pub(super) fn running(name: &str, tail: u8) -> Fixture {
-    running_inner(name, tail, None, true)
+    running_inner(name, tail, None, true, None)
 }
 
 pub(super) fn running_without_provider_admission(name: &str, tail: u8) -> Fixture {
-    running_inner(name, tail, None, false)
+    running_inner(name, tail, None, false, None)
 }
 
 pub(super) fn running_with_remote_id(name: &str, tail: u8, response_id: &str) -> Fixture {
-    running_inner(name, tail, Some(response_id), true)
+    running_inner(name, tail, Some(response_id), true, None)
 }
 
 pub(super) fn runtime_authority() -> runne_application::ports::RuntimeAuthorityId {
     runne_application::ports::RuntimeAuthorityId("01010101010101010101010101010101".into())
 }
 
-fn running_inner(name: &str, tail: u8, response_id: Option<&str>, admit: bool) -> Fixture {
+pub(super) fn runtime_text(name: &str, tail: u8, response: &str) -> Fixture {
+    running_inner(name, tail, Some(response), true, Some("runne-runtime"))
+}
+pub(super) fn runtime_text_with_actor(
+    name: &str,
+    tail: u8,
+    response: &str,
+    actor: &str,
+) -> Fixture {
+    running_inner(name, tail, Some(response), true, Some(actor))
+}
+fn running_inner(
+    name: &str,
+    tail: u8,
+    response_id: Option<&str>,
+    admit: bool,
+    runtime_claim: Option<&str>,
+) -> Fixture {
+    let profile_id = if runtime_claim.is_some() {
+        "gocode-deepseek-responses-text/1"
+    } else {
+        "fixture-profile-v1"
+    };
     let authority = runtime_authority();
     let database = Database::new_with_database_authority(name, authority.clone(), [1; 16]);
     let repository = database.repository();
@@ -90,9 +112,7 @@ fn running_inner(name: &str, tail: u8, response_id: Option<&str>, admit: bool) -
         .unwrap()
         .with_requested_model("fixture-model".into())
         .unwrap()
-        .with_selected_profile(
-            SelectedProviderProfile::new("fixture-profile-v1".into(), [2; 32]).unwrap(),
-        )
+        .with_selected_profile(SelectedProviderProfile::new(profile_id.into(), [2; 32]).unwrap())
         .unwrap();
     let outcome = TaskRunService::new(
         database.store.clone(),
@@ -113,7 +133,11 @@ fn running_inner(name: &str, tail: u8, response_id: Option<&str>, admit: bool) -
         panic!("submitted TaskRun expected")
     };
     let (node_id, node_epoch) = node_registration(&database);
-    let claim_context = context(tail + 1, "unknown-successor-claim");
+    let mut claim_context = context(tail + 1, "unknown-successor-claim");
+    if let Some(actor) = runtime_claim {
+        claim_context.principal_id = runne_application::ports::PrincipalId("runne-runtime".into());
+        claim_context.actor = runne_domain::event::Actor::new(actor).unwrap();
+    }
     let runne_application::ports::TaskRunClaimResult::Committed(claim) = TaskRunService::new(
         database.store.clone(),
         database.store.clone(),
@@ -171,7 +195,7 @@ fn running_inner(name: &str, tail: u8, response_id: Option<&str>, admit: bool) -
     let (execution, launch) = dispatch::runtime_launch(&database);
     if admit {
         if let Some(response_id) = response_id {
-            dispatch::dispatch_unknown_with_remote_id(
+            dispatch::dispatch_unknown_with_remote_id_profile(
                 &database,
                 &credentials,
                 &execution,
@@ -179,6 +203,7 @@ fn running_inner(name: &str, tail: u8, response_id: Option<&str>, admit: bool) -
                 &identity,
                 conversation_id,
                 response_id,
+                profile_id,
             );
         } else {
             dispatch::dispatch_unknown(

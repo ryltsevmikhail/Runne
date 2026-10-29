@@ -23,3 +23,19 @@ fn rejects_malformed_or_different_runtime_authority() {
     assert!(!runtime_authority_matches_node(&authority, "not-a-uuid"));
     assert!(!runtime_authority_matches_node(&authority, &other_node));
 }
+
+#[test]
+fn recovery_routes_legacy_and_coding_profiles_but_not_text_or_unknown_profiles() {
+    assert!(super::recovery_tool_profile("runne-linux-agent-tools-v1"));
+    assert!(super::recovery_tool_profile(
+        "runne-deepseek-responses-tools/1"
+    ));
+    for profile in [
+        "gocode-deepseek-responses-text/1",
+        "gocode-openai-responses-background-text/1",
+        "",
+        "runne-deepseek-responses-tools/2",
+    ] {
+        assert!(!super::recovery_tool_profile(profile));
+    }
+}

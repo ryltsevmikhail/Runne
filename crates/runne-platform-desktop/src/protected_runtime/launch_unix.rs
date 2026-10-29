@@ -114,6 +114,8 @@ impl DevelopmentBundledRuntimeLauncher {
         let mut command = Command::new(&launch_executable_path);
         command.env_clear().stdin(child_stdin);
         #[cfg(target_os = "linux")]
+        terminal_installation::apply(&mut command, &state_store)?;
+        #[cfg(target_os = "linux")]
         linux_provider_bus::apply_to_command(
             &mut command,
             spec.provider_activation().is_some(),

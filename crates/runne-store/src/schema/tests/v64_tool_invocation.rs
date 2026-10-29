@@ -1,7 +1,7 @@
 #[test]
 fn approved_tool_invocation_can_be_cancelled_before_claim() {
     let connection = Connection::open_in_memory().unwrap();
-    apply_migrations(&connection).unwrap();
+    apply_migrations_internal(&connection, 64).unwrap();
     connection
         .pragma_update(None, "foreign_keys", "OFF")
         .unwrap();

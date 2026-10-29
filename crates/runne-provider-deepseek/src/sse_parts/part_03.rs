@@ -1,6 +1,6 @@
 impl Lifecycle {
     fn validate_item_indexes(&self, event: &Map<String, Value>) -> Result<(), DeepSeekStreamError> {
-        if required_u64(event, "output_index")? != 0
+        if required_u64(event, "output_index")? != self.completed_items.len() as u64
             || required_u64(event, "content_index")? != 0
             || required_string(event, "item_id")? != self.item_id()?
         {
@@ -127,7 +127,10 @@ pub fn validate_remote_rejection(body: &[u8]) -> Result<(), DeepSeekStreamError>
     }
     Ok(())
 }
-fn validate_response_guards(response: &Map<String, Value>) -> Result<(), DeepSeekStreamError> {
+fn validate_response_guards(
+    response: &Map<String, Value>,
+    tools_enabled: bool,
+) -> Result<(), DeepSeekStreamError> {
     if response.get("object").and_then(Value::as_str) != Some("response")
         || response.get("model").and_then(Value::as_str) != Some(DEEPSEEK_REQUEST_MODEL)
     {
@@ -137,9 +140,10 @@ fn validate_response_guards(response: &Map<String, Value>) -> Result<(), DeepSee
         .get("background")
         .is_some_and(|value| value != false)
         || response.get("store").is_some_and(|value| value != false)
-        || response
-            .get("tools")
-            .is_some_and(|value| value.as_array().is_none_or(|tools| !tools.is_empty()))
+        || !tools_enabled
+            && response
+                .get("tools")
+                .is_some_and(|value| value.as_array().is_none_or(|tools| !tools.is_empty()))
     {
         return Err(DeepSeekStreamError::UnknownEvent);
     }

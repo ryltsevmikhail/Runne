@@ -267,3 +267,14 @@ mod test_root_admission_fixture;
 pub mod test_support;
 
 include!("protected_activation/bootstrap_validation.rs");
+
+#[cfg(all(target_os = "linux", feature = "desktop-protected"))]
+pub mod terminal_adoption;
+
+#[cfg(all(
+    target_os = "linux",
+    feature = "desktop-protected",
+    feature = "test-support",
+    not(test)
+))]
+mod terminal_fixture;

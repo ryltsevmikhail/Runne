@@ -21,6 +21,7 @@ pub(crate) struct ProtectedRootControl {
 
 #[cfg(feature = "desktop-protected")]
 impl ProtectedRootControl {
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn new(authority: Arc<RootHandleAdmissionAuthority>) -> Arc<Self> {
         Arc::new(Self {
             authority,

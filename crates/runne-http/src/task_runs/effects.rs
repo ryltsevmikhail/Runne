@@ -112,6 +112,7 @@ fn effects_to_wire(value: TaskRunEffectsV1) -> TaskRunEffectsWire {
             runne_api::RemoteCancellationV1::Confirmed => "confirmed",
             runne_api::RemoteCancellationV1::Unconfirmed => "unconfirmed",
             runne_api::RemoteCancellationV1::Unknown => "unknown",
+            runne_api::RemoteCancellationV1::AlreadyTerminal => "already_terminal",
         },
         availability: match value.remote.availability {
             runne_api::RemoteEffectAvailabilityV1::Available => "available",
@@ -141,5 +142,45 @@ fn effects_to_wire(value: TaskRunEffectsV1) -> TaskRunEffectsWire {
             }
             runne_api::SuccessorEligibilityV1::Eligible => "eligible",
         },
+    }
+}
+
+#[cfg(test)]
+mod cancellation_wire_tests {
+    use super::effects_to_wire;
+    use runne_api::{
+        RemoteAccountingV1, RemoteCancellationV1, RemoteEffectAvailabilityV1,
+        RemoteEffectCapabilitiesV1, RemoteEffectOutcomeV1, RemoteEffectV1, RemotePublicationV1,
+        SuccessorEligibilityV1, TaskRunEffectsV1,
+    };
+
+    #[test]
+    fn already_terminal_wire_preserves_completed_outcome() {
+        let effects = TaskRunEffectsV1 {
+            taskrun_id: "018f1234-5678-7000-8000-000000000001".parse().unwrap(),
+            stream_version: 9,
+            attempt_id: None,
+            cancellation_requested: true,
+            local_command: None,
+            remote: RemoteEffectV1 {
+                outcome: RemoteEffectOutcomeV1::Completed,
+                publication: RemotePublicationV1::Withheld,
+                accounting: RemoteAccountingV1::Known,
+                cancellation: RemoteCancellationV1::AlreadyTerminal,
+                availability: RemoteEffectAvailabilityV1::Available,
+                capabilities: RemoteEffectCapabilitiesV1 {
+                    status_check: false,
+                    stream_resume: false,
+                    remote_cancel: false,
+                },
+                usage_known: Some(true),
+            },
+            successor: SuccessorEligibilityV1::NotApplicable,
+        };
+        let wire = serde_json::to_value(effects_to_wire(effects)).unwrap();
+        assert_eq!(wire["remote"]["cancellation"], "already_terminal");
+        assert_eq!(wire["remote"]["outcome"], "completed");
+        assert_eq!(wire["remote"]["publication"], "withheld");
+        assert_eq!(wire["cancellationRequested"], true);
     }
 }

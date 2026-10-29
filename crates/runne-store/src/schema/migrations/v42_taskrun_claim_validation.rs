@@ -63,6 +63,10 @@ pub(super) fn v42_structure_matches(
                 | (68, 1, 68, 2346)
                 | (69, 1, 68, 2396)
                 | (69, 1, 69, 2415)
+                | (70, 1, 69, 2466)
+                | (70, 1, 70, 2485)
+                | (71, 1, 70, 2537)
+                | (71, 1, 71, 2556)
         )
     } else {
         matches!(marker, (42, 1, 41, 884) | (42, 1, 42, 903))
@@ -199,6 +203,12 @@ pub(super) fn v42_structure_matches(
         v66_add_schema_extensions(&mut tables, &mut indexes, &mut triggers);
     } else if marker.0 >= 65 {
         v65_add_schema_extensions(&mut tables, &mut indexes, &mut triggers);
+    }
+    if marker.0 >= 70 {
+        v70_add_schema_extensions(&mut tables, &mut triggers);
+    }
+    if marker.0 >= 71 {
+        triggers.extend_from_slice(V71_TRIGGERS);
     }
     if marker.0 >= 47 {
         tables.push("text_only_taskrun_lineage");

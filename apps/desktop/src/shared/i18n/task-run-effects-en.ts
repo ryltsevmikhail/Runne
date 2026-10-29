@@ -44,6 +44,7 @@ const taskRunEffectsEnglish = {
   'taskRun.effects.cancelNotRequested': 'not requested',
   'taskRun.effects.cancelRequestedValue': 'requested',
   'taskRun.effects.cancelConfirmed': 'confirmed',
+  'taskRun.effects.cancelAlreadyTerminal': 'provider request finished',
   'taskRun.effects.cancelUnconfirmed': 'unconfirmed',
   'taskRun.effects.available': 'available',
   'taskRun.effects.unavailableValue': 'unavailable',

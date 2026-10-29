@@ -7,10 +7,13 @@ use std::os::unix::ffi::OsStrExt;
 
 #[path = "policy/composite_fs.rs"]
 mod composite_fs;
+#[path = "policy/helper_fs.rs"]
+mod helper_fs;
 pub(in crate::local_command_linux) use composite_fs::preflight_composite_ruleset;
 pub(in crate::local_command_linux) use composite_fs::{
     NativeFsProfile, build_composite_ruleset, native_fs_profile,
 };
+pub(in crate::local_command_linux) use helper_fs::build_helper_ruleset;
 use std::path::PathBuf;
 
 const CGROUP2_MAGIC: i64 = 0x6367_7270;

@@ -79,3 +79,11 @@ describe('TaskRun effects API', () => {
     }, taskRunId)).toBe(false)
   })
 })
+
+it('accepts already-terminal cancellation only with completed remote outcome', () => {
+  const remote = { ...base.remote, outcome: 'completed', cancellation: 'already_terminal' }
+  expect(isTaskRunEffects({ ...base, remote }, taskRunId)).toBe(true)
+  expect(isTaskRunEffects({ ...base, remote, cancellationRequested: false }, taskRunId)).toBe(false)
+  expect(isTaskRunEffects({ ...base, remote: { ...remote, outcome: 'unknown' } }, taskRunId)).toBe(false)
+  expect(isTaskRunEffects({ ...base, remote: { ...remote, outcome: 'running' } }, taskRunId)).toBe(false)
+})

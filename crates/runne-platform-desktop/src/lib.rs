@@ -222,3 +222,14 @@ mod tests {
 pub mod local_model_source;
 #[cfg(unix)]
 pub use provider_credential_broker::UnixRetainedWriterProcess;
+
+#[cfg(target_os = "linux")]
+pub use protected_runtime::terminal_adoption::{
+    publish_terminal_adoption_anchor, terminal_adoption_anchor_matches,
+};
+
+#[cfg(target_os = "linux")]
+pub use protected_runtime::terminal_installation::{
+    publish_terminal_installation_source, repin_terminal_configuration, upgrade_terminal_installation_source,
+    verify_terminal_installation_source,
+};

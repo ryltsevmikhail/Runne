@@ -19,9 +19,12 @@ pub(super) fn runtime_profile(
             let activation = provider_activation.clone();
             let status_service = service.clone();
             runtime_profile_state.with_dynamic_provider_statuses(Arc::new(move || {
-                super::super::provider_status::provider_statuses(
-                    &activation,
-                    status_service.current_provider_readiness(),
+                super::super::provider_status::with_coding_profile(
+                    super::super::provider_status::provider_statuses(
+                        &activation,
+                        status_service.current_provider_readiness(),
+                    ),
+                    &status_service,
                 )
             }))
         }

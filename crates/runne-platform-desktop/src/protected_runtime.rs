@@ -209,3 +209,9 @@ fn start_protected_runtime_with(
 include!("protected_runtime/test_support_capture.rs");
 #[cfg(all(target_os = "linux", feature = "protected-channel-integration"))]
 include!("protected_runtime/permission_control.rs");
+
+#[cfg(target_os = "linux")]
+pub mod terminal_adoption;
+
+#[cfg(target_os = "linux")]
+pub mod terminal_installation;

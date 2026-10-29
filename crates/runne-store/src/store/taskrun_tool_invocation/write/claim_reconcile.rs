@@ -126,7 +126,7 @@ pub(super) fn claim(
     verify_sources(&tx, key, &binding.sources)?;
     ensure_no_unresolved(&tx, key.taskrun_id)?;
     let budget = load_budget(&tx, key.taskrun_id)?;
-    if budget.effects_used >= MAX_TOOL_EFFECTS {
+    if budget.effects_used >= budget_policy::limits(&tx, key.taskrun_id)?.0 {
         return Err(ToolInvocationStoreError::BudgetExhausted);
     }
     tx.execute("UPDATE taskrun_tool_budgets SET effects_used=effects_used+1,updated_at=?1 WHERE taskrun_id=?2",params![now,key.taskrun_id.as_bytes()]).map_err(|_|ToolInvocationStoreError::CorruptData)?;

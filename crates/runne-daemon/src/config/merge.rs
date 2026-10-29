@@ -142,6 +142,8 @@ pub struct SystemConfig {
     pub secondary_profile_catalog: Option<SecondaryProfileCatalogConfig>,
     /// Finite owner-controlled D2 provider budget; absent by default.
     pub d2_safe_tool_loop_budget: Option<D2SafeToolLoopBudgetConfig>,
+    /// Explicit standalone Linux credential host, pinned to both installed images.
+    pub linux_cli_credential_host: Option<LinuxCliCredentialHostConfig>,
 }
 
 /// Explicit owner-controlled, non-secret external provider selection.
@@ -274,6 +276,7 @@ pub struct ConfigurationSnapshot {
     /// before turning it into opaque runtime evidence.
     pub(crate) secondary_profile_catalog: Option<SecondaryProfileCatalogConfig>,
     pub(crate) d2_safe_tool_loop_budget: Option<D2SafeToolLoopBudgetConfig>,
+    pub linux_cli_credential_host: Option<LinuxCliCredentialHostConfig>,
 
     /// Per-field provenance map (field name → source).
     pub provenance: BTreeMap<String, FieldSource>,

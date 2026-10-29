@@ -17,21 +17,28 @@ use runne_secure_store::{
     ProviderCredentialStatus, ProviderCredentialStore, SecureStoreError,
 };
 
-const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
-
 /// Global CLI state parsed from arguments.
 struct CliState {
     format: OutputFormat,
     arguments: Vec<OsString>,
 }
 
-fn main() {
-    let arguments = std::env::args_os().skip(1).collect();
-    let outcome = run_entrypoint(arguments);
-    write_process_outcome(&outcome);
-}
+include!("cli/process_entry.rs");
+
+#[cfg(target_os = "linux")]
+mod linux_cli_credential_host;
+
+mod tui;
+mod tui_backend;
 
 fn run_entrypoint(arguments: Vec<OsString>) -> ProcessOutcome {
+    if tui_backend::selected(&arguments) {
+        return tui_backend::entry(arguments);
+    }
+    #[cfg(target_os = "linux")]
+    if linux_cli_credential_host::selected(&arguments) {
+        return linux_cli_credential_host::run();
+    }
     #[cfg(all(target_os = "macos", feature = "persistent-reference-probe"))]
     if persistent_reference_probe::selected(&arguments) {
         return persistent_reference_probe::outcome();
@@ -67,21 +74,7 @@ fn broker_process_outcome(result: Result<(), CliError>) -> ProcessOutcome {
     }
 }
 
-#[expect(
-    clippy::future_not_send,
-    reason = "the CLI runs its command tree inline with the current-thread runtime"
-)]
-async fn run_after_broker_bootstrap(
-    arguments: Vec<OsString>,
-) -> (Result<CommandOutput, CliError>, OutputFormat) {
-    match parse_global_options(arguments) {
-        Ok(state) => {
-            let format = state.format;
-            (run(state.arguments, format).await, format)
-        }
-        Err(error) => (Err(error), OutputFormat::Text),
-    }
-}
+include!("cli/command_lifecycle.rs");
 
 fn parse_global_options(arguments: Vec<OsString>) -> Result<CliState, CliError> {
     let mut arguments = VecDeque::from(arguments);

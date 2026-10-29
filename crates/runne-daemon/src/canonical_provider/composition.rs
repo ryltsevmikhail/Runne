@@ -9,6 +9,7 @@ use runne_secure_store::ProviderCredentialId;
 mod compose;
 mod credential_reader;
 mod credential_reconciliation;
+mod delivery_status;
 mod dependencies;
 mod enrollment_control;
 #[cfg(any(test, feature = "test-support"))]
@@ -20,6 +21,7 @@ mod policy;
 mod remote_context;
 mod secondary_background;
 mod service;
+mod settle_startup;
 #[cfg(all(feature = "desktop-protected", target_os = "linux"))]
 mod tool_payload;
 pub(crate) use input::DaemonCanonicalProviderComposition;

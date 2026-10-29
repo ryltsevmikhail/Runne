@@ -4,7 +4,11 @@ fn validate_d2_round(
     already_bound: bool,
 ) -> Result<(), Error> {
     validate_prepared_request(&request.prepared)?;
-    if request.round_index > 2 {
+    if request.round_index
+        > super::taskrun_tool_invocation::budget_policy::limits(tx, request.identity.taskrun_id)
+            .map_err(|_| Error::CorruptData)?
+            .1
+    {
         return Err(Error::NotPrepared);
     }
     if (request.round_index == 0) != request.previous_tool_result.is_none() {

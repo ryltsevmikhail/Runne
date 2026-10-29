@@ -29,14 +29,25 @@ pub(super) fn validate_helper_byte_budget(
     max_bytes: Option<u64>,
     observation: &PermissionHelperObservationV1,
 ) -> Result<(), LinuxCommandError> {
+    if observation.operation() == PermissionHelperOperationV1::Command {
+        return if max_bytes.is_none() {
+            Ok(())
+        } else {
+            Err(LinuxCommandError::CompositePolicyUnenforceable)
+        };
+    }
     let max_bytes = max_bytes.ok_or(LinuxCommandError::CompositePolicyUnenforceable)?;
     let actual_bytes = match observation.operation() {
         PermissionHelperOperationV1::Read => observation
             .target_version()
             .map(|target| target.size)
             .ok_or(LinuxCommandError::Unverified)?,
-        PermissionHelperOperationV1::CreateNew => u64::try_from(observation.content_length())
-            .map_err(|_| LinuxCommandError::Unverified)?,
+        PermissionHelperOperationV1::CreateNew | PermissionHelperOperationV1::Replace => {
+            u64::try_from(observation.content_length())
+                .map_err(|_| LinuxCommandError::Unverified)?
+        }
+        PermissionHelperOperationV1::List | PermissionHelperOperationV1::Search => 8192,
+        PermissionHelperOperationV1::Command => unreachable!("handled above"),
     };
     if actual_bytes > max_bytes {
         return Err(LinuxCommandError::CompositePolicyUnenforceable);
@@ -59,6 +70,13 @@ pub struct PreparedToolHelperV1 {
 }
 
 impl LinuxPermissionPreparationV1 {
+    /// Measures the exact sealed helper for an approval replay check.
+    /// # Errors
+    /// Rejects unavailable or changed helper identity before releasing effects.
+    pub fn tool_helper_executable_digest(&self) -> Result<IntegrityDigest, LinuxCommandError> {
+        self.admission.tool_helper_executable_digest()
+    }
+
     /// Returns the protected policy identity for an existing V2 scope profile.
     pub fn protected_control_plane_policy_digest_v2(
         &self,
@@ -154,14 +172,25 @@ impl PreparedToolHelperV1 {
             || limits.stdout_bytes() > 16 * 1024
             || limits.stderr_bytes() > 4 * 1024
         {
+            child::helper_stage("helper.request");
             return Err(LinuxCommandError::Unverified);
         }
-        helper_protocol::check_helper_target(&self.parsed, &self.workspace)?;
-        let image = self.admission.helper_image()?;
+        helper_protocol::check_helper_target(&self.parsed, &self.workspace)
+            .inspect_err(|_| child::helper_stage("helper.target"))?;
+        let image = self
+            .admission
+            .helper_image()
+            .inspect_err(|_| child::helper_stage("helper.image"))?;
         let executable = LinuxCommandExecutable::SealedSnapshot(image);
-        policy::validate_descriptors(executable.file(), &self.workspace, &self.cwd)?;
-        let ruleset = policy::build_ruleset(&self.workspace, &executable)?;
-        let stdio = CommandStdio::bounded(&self.request, limits)?;
+        policy::validate_descriptors(executable.file(), &self.workspace, &self.cwd)
+            .inspect_err(|_| child::helper_stage("helper.descriptors"))?;
+        let mut filesystem = policy::native_fs_profile(&self.scope.filesystem.permissions)
+            .inspect_err(|_| child::helper_stage("helper.filesystem"))?;
+        filesystem.metadata_allowed = false;
+        let ruleset = policy::build_helper_ruleset(&self.workspace, &executable, filesystem)
+            .inspect_err(|_| child::helper_stage("helper.ruleset"))?;
+        let stdio = CommandStdio::bounded(&self.request, limits)
+            .inspect_err(|_| child::helper_stage("helper.stdio"))?;
         if area.is_populated().map_err(|_| LinuxCommandError::Area)? {
             return Err(LinuxCommandError::Area);
         }
@@ -173,14 +202,17 @@ impl PreparedToolHelperV1 {
         let env = helper_test_fixture::approved_target_race_environment();
         #[cfg(not(all(feature = "test-support", target_os = "linux")))]
         let env: Vec<CString> = Vec::new();
-        let (prepared, admitted_at) = self.admission.consume_helper_request(
-            &self.scope,
-            self.receipt,
-            self.parsed.observation.operation,
-            self.parsed.observation.request_digest,
-            &self.workspace,
-            &self.cwd,
-        )?;
+        let (prepared, admitted_at) = self
+            .admission
+            .consume_helper_request(
+                &self.scope,
+                self.receipt,
+                self.parsed.observation.operation,
+                self.parsed.observation.request_digest,
+                &self.workspace,
+                &self.cwd,
+            )
+            .inspect_err(|_| child::helper_stage("helper.consume"))?;
         self.consumed = true;
         let child = child::spawn(child::SpawnSpec {
             exe: executable.file(),
@@ -191,10 +223,16 @@ impl PreparedToolHelperV1 {
             env: &env,
             area,
             stdio,
-            composite: None,
+            composite: if self.parsed.observation.operation == PermissionHelperOperationV1::Command
+            {
+                Some(&prepared)
+            } else {
+                None
+            },
             network_none: true,
-            filesystem_profile: None,
-        })?;
+            filesystem_profile: Some(filesystem),
+        })
+        .inspect_err(|_| child::helper_stage("helper.spawn"))?;
         Ok(PermissionHelperChildV1 {
             child,
             area,
@@ -224,5 +262,18 @@ impl Drop for PreparedToolHelperV1 {
         if !self.consumed {
             let _ = self.admission.revoke(self.receipt);
         }
+    }
+}
+
+impl LinuxCompositeScopeAdmission {
+    /// Measures the sealed helper executable actually passed to the process gate.
+    /// This identifies the helper, not binaries named by its approved argv payload.
+    ///
+    /// # Errors
+    /// Rejects absent, unsealed, or unreadable helper images before approval.
+    pub fn tool_helper_executable_digest(&self) -> Result<IntegrityDigest, LinuxCommandError> {
+        let image = self.helper_image()?;
+        image.validate_seals()?;
+        codec::file_digest(image.file()).map(IntegrityDigest::from_bytes)
     }
 }

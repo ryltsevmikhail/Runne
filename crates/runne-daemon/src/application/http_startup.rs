@@ -12,6 +12,7 @@ mod replay_setup;
 mod session;
 mod start;
 mod task_run_effects;
+mod tool_activity;
 pub(super) use start::start_http_and_runtime;
 
 #[cfg(test)]

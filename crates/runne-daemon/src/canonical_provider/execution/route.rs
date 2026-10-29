@@ -91,7 +91,7 @@ impl DaemonCanonicalProviderService {
             let grant = self.tool_profile_grant.as_ref()?;
             return Some(ExecutionRoute {
                 profile,
-                adapter: self.adapter.as_ref(),
+                adapter: self.tool_adapter.as_ref()?.as_ref(),
                 credential_store: &self.credential_store,
                 provider_id: self.provider_id.as_ref(),
                 model_id: self.model_id.as_ref(),

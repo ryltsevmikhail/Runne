@@ -15,8 +15,8 @@ pub(super) fn apply_v69_migration(connection: &Connection) -> SqliteResult<()> {
 }
 
 pub(super) fn v69_matches(connection: &Connection, version: i64) -> SqliteResult<bool> {
-    if version != 69
-        || !v69_marker_matches(connection)?
+    if !matches!(version, 69..=71)
+        || !v69_marker_matches(connection, version)?
         || !v64_matches(connection, version)?
         || !v67_structure_matches(connection)?
         || !table_sql_matches_migration(
@@ -60,7 +60,7 @@ fn v69_add_schema_extensions(
     triggers.push(V69_PAIR_TRIGGER);
 }
 
-fn v69_marker_matches(connection: &Connection) -> SqliteResult<bool> {
+fn v69_marker_matches(connection: &Connection, version: i64) -> SqliteResult<bool> {
     if !table_sql_matches_migration(
         connection,
         "schema_version",
@@ -73,7 +73,7 @@ fn v69_marker_matches(connection: &Connection) -> SqliteResult<bool> {
     let actual = statement
         .query_map([], |row| row.get::<_, i64>(0))?
         .collect::<SqliteResult<Vec<_>>>()?;
-    let full: Vec<i64> = (1..=69).collect();
-    let missing19: Vec<i64> = (1..=69).filter(|version| *version != 19).collect();
+    let full: Vec<i64> = (1..=version).collect();
+    let missing19: Vec<i64> = (1..=version).filter(|version| *version != 19).collect();
     Ok(actual == full || actual == missing19)
 }

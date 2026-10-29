@@ -37,3 +37,17 @@ fn create_context_decodes_exact_content_without_parsing_file_bytes_as_json() {
         .is_err()
     );
 }
+
+#[test]
+fn command_output_is_decoded_before_content_inspection() {
+    let marker = b"synthetic sensitive output";
+    let value = serde_json::json!({"stdout_base64":base64::engine::general_purpose::STANDARD.encode(marker),"stderr_base64":""});
+    let outputs =
+        super::validation::command_output_bytes(&serde_json::to_vec(&value).unwrap()).unwrap();
+    assert_eq!(outputs[0], marker);
+    assert!(outputs[1].is_empty());
+    assert!(
+        super::validation::command_output_bytes(br#"{"stdout_base64":"***","stderr_base64":""}"#)
+            .is_err()
+    );
+}

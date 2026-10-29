@@ -17,6 +17,7 @@ use crate::error::{RequestId, canonical_error_response};
 
 #[path = "local_session/bootstrap_v3_http.rs"]
 mod bootstrap_v3_http;
+mod close;
 use bootstrap_v3_http::{authenticate, challenge};
 
 const MAX_LOCAL_SESSION_BODY_BYTES: usize = 8 * 1024;
@@ -84,11 +85,12 @@ impl LocalSessionHttpState {
     }
 }
 
-/// Builds the two bounded bootstrap endpoints. The caller must mount this router only on TLS.
+/// Builds bounded bootstrap and authenticated session-release endpoints. The caller must mount this router only on TLS.
 pub(crate) fn local_session_router(state: LocalSessionHttpState) -> Router {
     Router::new()
         .route("/v1/local-session/challenges", post(challenge))
         .route("/v1/local-session/authenticate", post(authenticate))
+        .route("/v1/local-session/close", post(close::close))
         .layer(DefaultBodyLimit::max(MAX_LOCAL_SESSION_BODY_BYTES))
         .with_state(state)
 }
@@ -110,4 +112,7 @@ fn rejected() -> Response {
 #[cfg(test)]
 pub(crate) mod tests {
     include!("local_session/tests.rs");
+    mod close_tests {
+        include!("local_session/close_tests.rs");
+    }
 }

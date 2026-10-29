@@ -120,7 +120,7 @@ pub(super) fn descriptor_identity(file: &File) -> Result<[u8; 32], LinuxCommandE
     Ok(hash.finalize().into())
 }
 
-fn file_digest(file: &File) -> Result<[u8; 32], LinuxCommandError> {
+pub(super) fn file_digest(file: &File) -> Result<[u8; 32], LinuxCommandError> {
     let mut hash = Sha256::new();
     let mut bytes = [0u8; 64 * 1024];
     let mut offset = 0u64;

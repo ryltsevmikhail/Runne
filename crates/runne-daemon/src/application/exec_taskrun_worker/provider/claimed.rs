@@ -115,46 +115,26 @@ impl DaemonAutomaticTaskRuns {
             }
             Err(_) => return Err(AutomaticTaskRunError::Uncertain),
         };
-        #[cfg(all(feature = "desktop-protected", target_os = "linux"))]
-        let d2_round = if tool_profile {
-            let current_head = self
-                .store
-                .load_task_run(claimed.taskrun_id)
-                .map_err(|_| AutomaticTaskRunError::Unavailable)?
-                .current_version;
-            let current_conversation = self
-                .store
-                .load_conversation(claimed.conversation_id)
-                .map_err(|_| AutomaticTaskRunError::Unavailable)?
-                .current_version;
-            let (_cycle_id, _plan, head) = self.commit_d2_plan(
-                &identity,
-                current_head,
-                claimed.conversation_id,
-                current_conversation,
-                claimed.workspace_id,
-                claimed.principal_id.clone(),
-                claimed.submit_actor.clone(),
-                *claimed
-                    .selected_profile
-                    .as_ref()
-                    .ok_or(AutomaticTaskRunError::Uncertain)?
-                    .profile_digest(),
-                claimed.input.prompt(),
-            )?;
-            Some(crate::canonical_provider::D2ProviderRound {
-                current_taskrun_head: head,
-                round_index: 0,
-                previous_tool_result: None,
-                continuation_target_fence: None,
-            })
-        } else {
-            None
-        };
         let job = CanonicalProviderExecutionJob {
             context: generation_context.clone(),
             original: original.clone(),
             started: started.clone(),
+        };
+        #[cfg(all(feature = "desktop-protected", target_os = "linux"))]
+        let d2_round = if tool_profile {
+            match self.commit_d2_plan_for_claim(&identity, &claimed) {
+                Ok(round) => Some(round),
+                Err(error) => {
+                    // The claim and its conversation text are already admitted,
+                    // but no provider delivery or tool effect exists and the
+                    // automatic worker never rescans a claimed run: settle the
+                    // closed failure instead of leaving the run `running`.
+                    self.fail_claimed_d2_before_dispatch(&job, &identity);
+                    return Err(error);
+                }
+            }
+        } else {
+            None
         };
         #[cfg(all(feature = "desktop-protected", target_os = "linux"))]
         let d2_stop_job = job.clone();
@@ -227,6 +207,7 @@ impl DaemonAutomaticTaskRuns {
             #[cfg(all(feature = "desktop-protected", target_os = "linux"))]
             Err(error) if tool_profile => {
                 d2_stage(provider_error_stage(error));
+                let reason = super::support::provider_failure_reason(error);
                 #[cfg(all(feature = "desktop-protected", target_os = "linux"))]
                 if self
                     .settle_d2_tool_loop_cancellation(
@@ -242,12 +223,7 @@ impl DaemonAutomaticTaskRuns {
                 #[cfg(all(feature = "desktop-protected", target_os = "linux"))]
                 if let Ok(cycle_id) = self.current_cycle_id(identity.taskrun_id)
                     && self
-                        .fail_d2_cycle(
-                            &d2_stop_job,
-                            &identity,
-                            cycle_id,
-                            runne_domain::conversation::GenerationFailureReason::ProviderExecutionRejected,
-                        )
+                        .fail_d2_cycle(&d2_stop_job, &identity, cycle_id, reason)
                         .is_ok()
                 {
                     return Err(AutomaticTaskRunError::Failed);

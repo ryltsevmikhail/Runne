@@ -7,6 +7,8 @@ use runne_domain::{
     task_run::{TaskRun, TaskRunState},
     verification::{PlanEvaluationRef, PlanEvaluationResult},
 };
+#[path = "verification/assemble.rs"]
+mod assemble;
 #[path = "verification/historical.rs"]
 mod historical;
 #[path = "verification/identity.rs"]
@@ -98,8 +100,15 @@ impl D2ToolLoopAuthority {
             .store
             .load_taskrun_tool_invocations_for_taskrun(taskrun_id)
             .map_err(|_| VerificationQueryError::Unavailable)?;
-        if records.len() != 2
-            || cycle.recorded_outcomes.len() != 2
+        let coding = self
+            .provider
+            .as_ref()
+            .is_some_and(|p| p.coding_agent_tools_enabled());
+        if (if coding {
+            records.len() > 32
+        } else {
+            records.len() != 2
+        }) || cycle.recorded_outcomes.len() != records.len()
             || cycle
                 .recorded_outcomes
                 .iter()
@@ -112,18 +121,25 @@ impl D2ToolLoopAuthority {
         if current
             .iter()
             .any(|record| record.binding.key.cycle_id != cycle.cycle_id)
-            || current.len() != 2
-            || cycle.expected_proposal_indexes != [0, 1]
+            || cycle.expected_proposal_indexes != (0..current.len() as u32).collect::<Vec<_>>()
         {
             return Err(VerificationQueryError::InvalidBinding);
         }
         let mut saw_read = false;
         let mut saw_create = false;
         let mut evidence = Vec::with_capacity(current.len() * 96);
-        let mut evaluated_at_unix_us = 0_i64;
+        let mut evaluated_at_unix_us = if coding {
+            stream
+                .events
+                .last()
+                .map_or(0, |e| e.timestamp().as_unix_micros())
+        } else {
+            0_i64
+        };
         let plan_commit_position = stream.events.iter().position(|event| {
             matches!(event.payload(), runne_domain::task_run::TaskRunEvent::PlanCommitted { cycle_id, .. } if *cycle_id == cycle.cycle_id)
         }).ok_or(VerificationQueryError::InvalidBinding)? as u64 + 1;
+        let (latest, last_command) = assemble::latest_targets(&current);
         for record in current {
             let binding = &record.binding;
             let result = record
@@ -193,9 +209,13 @@ impl D2ToolLoopAuthority {
             )
             .map_err(|_| VerificationQueryError::DigestMismatch)?;
             #[cfg(all(feature = "desktop-protected", target_os = "linux"))]
-            if !historical {
+            if !historical
+                && (!coding
+                    || (latest.get(&binding.target_name) == Some(&binding.key.proposal_index)
+                        && last_command.is_none_or(|index| index <= binding.key.proposal_index)))
+            {
                 crate::application::exec_taskrun_worker::tool_invocation::target_snapshot::validate_d2_target_snapshot(
-                &self.root_admission,
+                &self.store,                &self.root_admission,
                 workspace_id,
                 binding,
                 &arguments,
@@ -224,22 +244,29 @@ impl D2ToolLoopAuthority {
             {
                 return Err(VerificationQueryError::DigestMismatch);
             }
-            match binding.tool_name.as_str() {
-                "workspace.file.read"
-                    if !saw_read
-                        && binding.target_precondition.is_some()
-                        && receipt.operation == "read" =>
+            if coding {
+                if binding.environment_id != crate::safe_tool_helper::coding_arguments::ENVIRONMENT
                 {
-                    saw_read = true
+                    return Err(VerificationQueryError::InvalidBinding);
                 }
-                "workspace.file.create_new"
-                    if !saw_create
-                        && binding.target_precondition.is_none()
-                        && receipt.operation == "create_new" =>
-                {
-                    saw_create = true
+            } else {
+                match binding.tool_name.as_str() {
+                    "workspace.file.read"
+                        if !saw_read
+                            && binding.target_precondition.is_some()
+                            && receipt.operation == "read" =>
+                    {
+                        saw_read = true
+                    }
+                    "workspace.file.create_new"
+                        if !saw_create
+                            && binding.target_precondition.is_none()
+                            && receipt.operation == "create_new" =>
+                    {
+                        saw_create = true
+                    }
+                    _ => return Err(VerificationQueryError::InvalidBinding),
                 }
-                _ => return Err(VerificationQueryError::InvalidBinding),
             }
             if record.updated_at <= 0 {
                 return Err(VerificationQueryError::InvalidBinding);
@@ -254,46 +281,17 @@ impl D2ToolLoopAuthority {
             evidence.extend_from_slice(result.digest.as_bytes());
             evidence.extend_from_slice(hash(&receipt_bytes).as_bytes());
         }
-        if !saw_read || !saw_create || evaluated_at_unix_us == 0 {
+        if (!coding && (!saw_read || !saw_create)) || evaluated_at_unix_us == 0 {
             return Err(VerificationQueryError::InvalidBinding);
         }
-        let gate_definitions_digest = hash(b"D2_SAFE_TOOL_GATES_V1\0workspace-read+create-new");
-        let evidence_set_digest = hash(&evidence);
-        let mut evaluation_input = Vec::new();
-        evaluation_input.extend_from_slice(taskrun_id.as_bytes());
-        evaluation_input.extend_from_slice(plan.plan_id.as_bytes());
-        evaluation_input.extend_from_slice(&plan.revision.to_be_bytes());
-        evaluation_input.extend_from_slice(&stream.current_version.to_be_bytes());
-        evaluation_input.extend_from_slice(gate_definitions_digest.as_bytes());
-        evaluation_input.extend_from_slice(evidence_set_digest.as_bytes());
-        let evaluation_digest = hash(&evaluation_input);
-        let expected = PlanEvaluationRef {
-            evaluation_id: deterministic_evaluation_id(evaluated_at_unix_us, evaluation_digest),
+        assemble::assemble(
             taskrun_id,
-            plan_id: plan.plan_id,
-            plan_revision: plan.revision,
-            evaluated_stream_head: stream.current_version,
-            result: PlanEvaluationResult::Passed,
-            gate_definitions_digest,
-            evidence_set_digest,
-            evaluation_digest,
-        };
-        if requested.is_some_and(|requested| requested != &expected) {
-            return Err(VerificationQueryError::DigestMismatch);
-        }
-        let gate_evaluation_refs = ["workspace-read", "workspace-create-new"]
-            .into_iter()
-            .map(|gate_id| GateEvaluationRef {
-                gate_id: gate_id.into(),
-                evidence_digest: evidence_set_digest,
-                result_digest: evaluation_digest,
-            })
-            .collect();
-        Ok(PlanEvaluation {
-            reference: expected,
-            gate_evaluation_refs,
+            plan,
+            stream.current_version,
+            requested,
+            evidence,
             evaluated_at_unix_us,
-            superseded_by: None,
-        })
+            coding,
+        )
     }
 }

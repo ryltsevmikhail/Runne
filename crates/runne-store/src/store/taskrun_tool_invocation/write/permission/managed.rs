@@ -110,7 +110,16 @@ fn validate_current_managed_effect_policy(
         || snapshot.record.revision == 0
         || snapshot.record.status == ProjectTrustStatus::Untrusted
         || snapshot.record.managed_deny_mask
-            & (SourceChannel::Helpers.mask_bit() | SourceChannel::FilesRead.mask_bit())
+            & (SourceChannel::Helpers.mask_bit()
+                | SourceChannel::FilesRead.mask_bit()
+                | if matches!(
+                    binding.tool_name.as_str(),
+                    "workspace.files.list" | "workspace.files.search"
+                ) {
+                    SourceChannel::FilesList.mask_bit()
+                } else {
+                    0
+                })
             != 0
     {
         return Err(ToolInvocationStoreError::ApprovalDenied);
@@ -139,7 +148,17 @@ fn validate_current_managed_effect_policy(
     let source = ToolPermissionDecisionSource::from_tag(source)
         .ok_or(ToolInvocationStoreError::CorruptData)?;
     let classes: &[ManagedEffectClass] = match binding.tool_name.as_str() {
-        "workspace.file.read" => &[ManagedEffectClass::FsRead],
+        "workspace.file.read" | "workspace.files.list" | "workspace.files.search" => {
+            &[ManagedEffectClass::FsRead]
+        }
+        "workspace.file.replace" => &[ManagedEffectClass::FsRead, ManagedEffectClass::FsWrite],
+        "workspace.command.run" => &[
+            ManagedEffectClass::FsRead,
+            ManagedEffectClass::FsCreate,
+            ManagedEffectClass::FsWrite,
+            ManagedEffectClass::ProcessStart,
+            ManagedEffectClass::FsDelete,
+        ],
         "workspace.file.create_new" => &[
             ManagedEffectClass::FsRead,
             ManagedEffectClass::FsCreate,
@@ -176,6 +195,10 @@ fn validate_helper_child(
     let operation_matches = match binding.tool_name.as_str() {
         "workspace.file.read" => observation.operation() == Operation::Read,
         "workspace.file.create_new" => observation.operation() == Operation::CreateNew,
+        "workspace.files.list" => observation.operation() == Operation::List,
+        "workspace.files.search" => observation.operation() == Operation::Search,
+        "workspace.file.replace" => observation.operation() == Operation::Replace,
+        "workspace.command.run" => observation.operation() == Operation::Command,
         _ => false,
     };
     let target_digest = observation.target_version().map(|target| {

@@ -112,3 +112,12 @@ describe('TaskRunEffectsPanel', () => {
     expect(wrapper.text()).not.toContain('Remote outcome:')
   })
 })
+
+it('labels an already completed effect without claiming confirmed cancellation', () => {
+  const wrapper = mount(TaskRunEffectsPanel, { props: { effects: {
+    ...base, remote: { ...base.remote, outcome: 'completed', cancellation: 'already_terminal' },
+  }, pending: false, unavailable: false, stale: false } })
+  expect(wrapper.text()).toContain('Remote cancellation: provider request finished')
+  expect(wrapper.text()).toContain('Remote outcome: completed')
+  expect(wrapper.text()).not.toContain('Remote cancellation: confirmed')
+})

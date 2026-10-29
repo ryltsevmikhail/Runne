@@ -68,15 +68,21 @@ impl super::super::DaemonAutomaticTaskRuns {
         if Sha256::digest(&args).as_slice() != binding.arguments_digest.as_bytes() {
             return Err(());
         }
-        let (path, content) =
-            parse_fixed_arguments(&runne_runtime::provider_tool::RuntimeToolCall {
+        let helper_digest = super::permission_identity::command_helper_digest(
+            self.permission_admission.as_ref().ok_or(())?,
+            &binding.tool_name,
+        )?;
+        let (path, content) = parse_arguments(
+            &runne_runtime::provider_tool::RuntimeToolCall {
                 call_id: binding.call_id.clone(),
                 tool_name: binding.tool_name.clone(),
                 arguments_json: String::from_utf8(args.to_vec()).map_err(|_| ())?,
-            })?;
+            },
+            binding.environment_id == crate::safe_tool_helper::coding_arguments::ENVIRONMENT,
+        )?;
         super::super::provider::d2_stage("effect_target_admission");
         self.root_admission
-            .admit_d2_tool_target(workspace_id, &path)
+            .admit_coding_tool_target(workspace_id, &binding.tool_name, &path)
             .map_err(|_| ())?;
         super::super::provider::d2_stage("effect_target_snapshot");
         let (files, root_file_identity, target) = self
@@ -87,9 +93,19 @@ impl super::super::DaemonAutomaticTaskRuns {
                     .map_err(|_| runne_platform_desktop::RootHandleBrokerError::Unavailable)?;
                 let (device, inode) = executor::descriptor_identity(files.workspace())
                     .map_err(|_| runne_platform_desktop::RootHandleBrokerError::Unavailable)?;
-                let target =
+                let target = if binding.environment_id
+                    == crate::safe_tool_helper::coding_arguments::ENVIRONMENT
+                {
+                    crate::safe_tool_helper::coding_fs::capture(
+                        files.workspace(),
+                        &binding.tool_name,
+                        &path,
+                    )
+                    .map_err(|_| ())
+                } else {
                     executor::capture_target_precondition(&files, &binding.tool_name, &path)
-                        .map_err(|_| runne_platform_desktop::RootHandleBrokerError::Rejected)?;
+                }
+                .map_err(|_| runne_platform_desktop::RootHandleBrokerError::Rejected)?;
                 let target_digest = target.as_ref().map(|v| {
                     IntegrityDigest::from_bytes(
                         Sha256::digest(serde_json::to_vec(v).expect("version serializes")).into(),
@@ -121,6 +137,7 @@ impl super::super::DaemonAutomaticTaskRuns {
                     admission.token.instance_epoch,
                     admission.token.revision,
                     binding.approval_expires_at,
+                    helper_digest.as_ref().map(IntegrityDigest::as_bytes),
                 );
                 if approved != *binding.approval_digest.as_bytes() {
                     return Err(runne_platform_desktop::RootHandleBrokerError::Rejected);
@@ -251,6 +268,10 @@ fn helper_terminal_matches(
         (binding.tool_name.as_str(), observed.operation()),
         ("workspace.file.read", Operation::Read)
             | ("workspace.file.create_new", Operation::CreateNew)
+            | ("workspace.files.list", Operation::List)
+            | ("workspace.files.search", Operation::Search)
+            | ("workspace.file.replace", Operation::Replace)
+            | ("workspace.command.run", Operation::Command)
     );
     let actual = observed.binding();
     operation_matches

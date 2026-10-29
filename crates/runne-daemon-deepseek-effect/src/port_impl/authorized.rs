@@ -76,7 +76,7 @@ impl<C: DeepSeekCredentialMaterializer> Sender<C> {
     ) -> Result<ProviderStreamId, DispatchError> {
         if !receipt.matches_claim(ready.request.claim())
             || !receipt.matches_credential(&ready.credential)
-            || ready.request.claim().profile_digest != self.profile.profile_digest()
+            || ready.request.claim().profile_digest != self.profile_digest()
         {
             self.observe(Diagnostic::ReceiptRejected);
             return Err(DispatchError::MaybeDispatched);

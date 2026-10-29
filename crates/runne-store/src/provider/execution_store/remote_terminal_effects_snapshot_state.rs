@@ -1,5 +1,15 @@
 type RemoteGrantBindingRow = (
-    Vec<u8>, i64, String, String, String, Vec<u8>, Vec<u8>, i64, Option<i64>, i64, Option<i64>,
+    Vec<u8>,
+    i64,
+    String,
+    String,
+    String,
+    Vec<u8>,
+    Vec<u8>,
+    i64,
+    Option<i64>,
+    i64,
+    Option<i64>,
 );
 
 fn remote_local_disposition(
@@ -9,7 +19,7 @@ fn remote_local_disposition(
 ) -> Result<runne_application::provider::ProviderRemoteLocalDisposition, ProviderExecutionError> {
     use runne_application::provider::ProviderRemoteLocalDisposition as Local;
     let Some(terminal) = record.terminal.as_ref() else {
-        return Ok(Local::Pending);
+        return stream_local_disposition(transaction, record, fact);
     };
     let binding = &record.request.binding;
     let source = (

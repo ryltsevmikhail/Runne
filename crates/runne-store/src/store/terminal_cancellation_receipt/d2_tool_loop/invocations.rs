@@ -50,7 +50,14 @@ pub(super) fn verify(
         .map_err(|_| invalid())?
         .collect::<Result<_, _>>()
         .map_err(|_| invalid())?;
-    if rows.len() > 2 {
+    let limit = if rows.is_empty() {
+        2
+    } else {
+        crate::store::taskrun_tool_invocation::budget_policy::limits(connection, receipt.taskrun_id)
+            .map_err(|_| invalid())?
+            .0 as usize
+    };
+    if rows.len() > limit {
         return Err(invalid());
     }
     for (

@@ -1,3 +1,4 @@
+pub(crate) mod budget_policy;
 mod model;
 mod read;
 mod recovery;
@@ -30,7 +31,32 @@ impl StoreTransaction {
         assignment: &TaskRunAssignmentIdentity,
         now_unix_ms: i64,
     ) -> Result<BudgetReservationRef, ToolInvocationStoreError> {
-        write::ensure_budget(self, taskrun_id, expected_version, assignment, now_unix_ms)
+        write::ensure_budget(
+            self,
+            taskrun_id,
+            expected_version,
+            assignment,
+            now_unix_ms,
+            false,
+        )
+    }
+
+    /// Reserves the separately bound 32-effect coding policy for an authenticated coding submit.
+    pub fn ensure_taskrun_coding_tool_loop_budget(
+        &self,
+        taskrun_id: TaskRunId,
+        expected_version: u64,
+        assignment: &TaskRunAssignmentIdentity,
+        now_unix_ms: i64,
+    ) -> Result<BudgetReservationRef, ToolInvocationStoreError> {
+        write::ensure_budget(
+            self,
+            taskrun_id,
+            expected_version,
+            assignment,
+            now_unix_ms,
+            true,
+        )
     }
 
     pub fn load_taskrun_tool_loop_budget_ref(
@@ -230,3 +256,5 @@ impl ToolInvocationBindingV1 {
         self.semantic_digest = validate::semantic_digest(self);
     }
 }
+
+pub(in crate::store) use validate::decode_sources;

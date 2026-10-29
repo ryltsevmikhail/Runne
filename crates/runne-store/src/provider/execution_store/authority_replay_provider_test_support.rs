@@ -1,3 +1,4 @@
+include!("authority_replay_root_fixture.rs");
 fn upgraded_v25(
     discriminator: u8,
 ) -> (
@@ -36,6 +37,7 @@ pub(super) fn upgraded_v25_for_provider(
     } = fixture;
     drop(store);
     let connection = Connection::open(&path).unwrap();
+    drop_empty_root_binding_fixture(&connection);
     connection
         .execute_batch(
             "DROP TABLE x2_permission_terminal;

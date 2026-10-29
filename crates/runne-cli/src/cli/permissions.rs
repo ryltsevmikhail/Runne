@@ -13,7 +13,7 @@ mod protected_runtime_owner;
 mod protected_runtime_project_root_tests;
 #[cfg(all(test, target_os = "linux"))]
 #[path = "protected_runtime_tests.rs"]
-mod protected_runtime_tests;
+pub(crate) mod protected_runtime_tests;
 #[cfg(target_os = "linux")]
 #[path = "protected_runtime_ui.rs"]
 mod protected_runtime_ui;

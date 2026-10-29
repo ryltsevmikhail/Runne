@@ -1,6 +1,7 @@
 include!("local_session/profile.rs");
 include!("local_session/profile_v3.rs");
 mod bootstrap_v3;
+pub mod cleanup;
 use bootstrap_v3::{
     AuthenticateRequest, AuthenticateResponse, BootstrapWindow, ChallengeRequest,
     ChallengeResponse, final_transcript, key_version, preallocation_transcript, wire_version,

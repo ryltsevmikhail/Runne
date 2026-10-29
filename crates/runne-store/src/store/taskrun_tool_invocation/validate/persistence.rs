@@ -2,6 +2,7 @@ pub(super) fn load_budget(
     tx: &Transaction<'_>,
     task: TaskRunId,
 ) -> Result<ToolInvocationBudget, ToolInvocationStoreError> {
+    budget_policy::limits(tx, task)?;
     let row: Option<(i64, i64)> = tx
         .query_row(
             "SELECT effects_used,continuations_used FROM taskrun_tool_budgets WHERE taskrun_id=?1",
@@ -104,7 +105,9 @@ fn parse_digest(bytes: Vec<u8>) -> Result<IntegrityDigest, ToolInvocationStoreEr
             .map_err(|_| ToolInvocationStoreError::CorruptData)?,
     ))
 }
-fn decode_sources(bytes: &[u8]) -> Result<Vec<ToolSourceRef>, ToolInvocationStoreError> {
+pub(in crate::store) fn decode_sources(
+    bytes: &[u8],
+) -> Result<Vec<ToolSourceRef>, ToolInvocationStoreError> {
     if bytes.is_empty() || !bytes.len().is_multiple_of(98) {
         return Err(ToolInvocationStoreError::CorruptData);
     }

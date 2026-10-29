@@ -3,7 +3,6 @@ use runne_provider::{
     ProviderInputRole, ProviderToolNameV1, ProviderToolResultV1, TextProviderProfile,
     ToolProviderProfile,
 };
-use serde::Serialize;
 use serde_json::Value;
 use thiserror::Error;
 
@@ -229,6 +228,12 @@ const fn description(name: ProviderToolNameV1) -> &'static str {
         ProviderToolNameV1::WorkspaceFileRead => {
             "Read a bounded regular file within the approved workspace."
         }
+        ProviderToolNameV1::WorkspaceFilesList
+        | ProviderToolNameV1::WorkspaceFilesSearch
+        | ProviderToolNameV1::WorkspaceFileReplace
+        | ProviderToolNameV1::WorkspaceCommandRun => {
+            "Runtime-approved bounded workspace operation."
+        }
         ProviderToolNameV1::WorkspaceFileCreateNew => {
             "Create a new file within the approved workspace; fails if it already exists."
         }
@@ -242,56 +247,6 @@ const fn map_prepare_error(error: &PrepareError) -> OpenAiToolRenderError {
     }
 }
 
-#[derive(Serialize)]
-struct ToolResponsesRequest<'a> {
-    model: &'a str,
-    service_tier: &'a str,
-    input: Vec<ToolInput<'a>>,
-    max_output_tokens: u32,
-    reasoning: Reasoning<'a>,
-    tools: Vec<ToolDefinition<'a>>,
-    tool_choice: &'a str,
-    background: bool,
-    store: bool,
-    stream: bool,
-}
-
-#[derive(Serialize)]
-#[serde(tag = "type")]
-enum ToolInput<'a> {
-    #[serde(rename = "message")]
-    Message {
-        role: &'a str,
-        content: [ToolContent<'a>; 1],
-    },
-    #[serde(rename = "function_call")]
-    FunctionCall {
-        call_id: &'a str,
-        name: &'a str,
-        arguments: &'a str,
-    },
-    #[serde(rename = "function_call_output")]
-    FunctionCallOutput { call_id: &'a str, output: &'a str },
-}
-
-#[derive(Serialize)]
-struct ToolContent<'a> {
-    #[serde(rename = "type")]
-    content_type: &'a str,
-    text: &'a str,
-}
-
-#[derive(Serialize)]
-struct ToolDefinition<'a> {
-    #[serde(rename = "type")]
-    kind: &'a str,
-    name: &'a str,
-    description: &'a str,
-    parameters: &'a Value,
-    strict: bool,
-}
-
-#[derive(Serialize)]
-struct Reasoning<'a> {
-    effort: &'a str,
-}
+#[path = "tool_render_wire.rs"]
+mod wire;
+use wire::{Reasoning, ToolContent, ToolDefinition, ToolInput, ToolResponsesRequest};

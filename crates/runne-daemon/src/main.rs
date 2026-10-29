@@ -75,8 +75,25 @@ fn parse_invocation(arguments: &[OsString]) -> Invocation {
     }
 }
 
+#[cfg(all(target_os = "linux", feature = "desktop-protected"))]
+mod provider_dispatch_command;
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let arguments: Vec<OsString> = std::env::args_os().skip(1).collect();
+    #[cfg(all(target_os = "linux", feature = "desktop-protected"))]
+    if arguments.len() == 2
+        && arguments[0].to_str() == Some("provider-dispatch")
+        && arguments[1].to_str() == Some("settle-no-delivery")
+    {
+        return provider_dispatch_command::run();
+    }
+    #[cfg(all(target_os = "linux", feature = "desktop-protected"))]
+    if arguments
+        .first()
+        .is_some_and(|argument| argument == "terminal-adoption")
+    {
+        return terminal_adoption_command::run(&arguments[1..]);
+    }
     #[cfg(target_os = "linux")]
     if arguments.len() == 1 && arguments[0].to_str() == Some("--safe-tool-helper-v1") {
         return runne_daemon::safe_tool_helper::run().map_err(|_| "safe tool helper failed".into());
@@ -170,3 +187,6 @@ fn run_protected(
 
 #[cfg(all(target_os = "macos", feature = "persistent-reference-probe"))]
 pub mod persistent_reference_probe;
+
+#[cfg(all(target_os = "linux", feature = "desktop-protected"))]
+mod terminal_adoption_command;

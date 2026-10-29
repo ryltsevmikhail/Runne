@@ -5,15 +5,17 @@ use crate::local_command_linux::{
     permission::PermissionHelperOperationV1, snapshot::SealedExecutableSnapshot,
 };
 use runne_application::permission_modes::{
-    ChildDelegationScope, CompositeEffectScope, ContainmentStrategy, FilesystemPermission,
-    FilesystemPosture, IntegrityDigest, NativeAdmissionError, NativeScopeAdmissionPort,
-    NativeScopeAdmissionReceipt, NetworkScope, PermissionMode,
+    CompositeEffectScope, ContainmentStrategy, FilesystemPosture, IntegrityDigest,
+    NativeAdmissionError, NativeScopeAdmissionPort, NativeScopeAdmissionReceipt, PermissionMode,
 };
 use sha2::{Digest, Sha256};
 use std::{fs::File, time::Instant};
 
 #[path = "helper_readiness.rs"]
 mod helper_readiness;
+#[path = "helper_scope.rs"]
+mod helper_scope;
+use helper_scope::helper_operation_from_scope;
 
 impl LinuxCompositeScopeAdmission {
     pub(in crate::local_command_linux) fn helper_admission_port(
@@ -54,7 +56,7 @@ impl LinuxCompositeScopeAdmission {
         if token.scope_digest != digest
             || token.managed_policy_digest != receipt.managed_policy_digest()
             || token.containment != ContainmentStrategy::WorkspaceBoundV1
-            || token.kind != PendingAdmissionKind::HelperScope(operation)
+            || token.kind != PendingAdmissionKind::HelperScope(operation.scope_operation())
             || token.admitted_at.elapsed() > std::time::Duration::from_millis(scope.lifetime_ms)
         {
             return Err(LinuxCommandError::Unverified);
@@ -112,39 +114,6 @@ impl LinuxCompositeScopeAdmission {
         }
         let consumed = pending.remove(&key).ok_or(LinuxCommandError::Unverified)?;
         Ok((consumed.prepared, consumed.admitted_at))
-    }
-
-    pub(in crate::local_command_linux) fn validate_helper_scope(
-        &self,
-        scope: &CompositeEffectScope,
-        operation: PermissionHelperOperationV1,
-    ) -> Result<(), LinuxCommandError> {
-        let roots = match &scope.filesystem.posture {
-            FilesystemPosture::BoundedRoots(roots) => roots,
-            _ => return Err(LinuxCommandError::CompositePolicyUnenforceable),
-        };
-        let expected_permissions = operation.permissions().iter().copied().collect();
-        if scope.validate().is_err()
-            || scope.protected_control_plane_policy_digest != self.protected_policy_digest
-            || scope.managed_policy.is_unrestricted()
-            || !scope.managed_policy.is_closed()
-            || scope.containment != ContainmentStrategy::WorkspaceBoundV1
-            || scope.network != NetworkScope::None
-            || scope.children != ChildDelegationScope::None
-            || roots.len() != 1
-            || roots
-                .iter()
-                .next()
-                .is_none_or(|root| !root.components.is_empty())
-            || scope.filesystem.permissions != expected_permissions
-            || scope.budget.max_operations != Some(1)
-            || scope.budget.max_bytes.is_none_or(|bytes| bytes > 8192)
-            || scope.lifetime_ms == 0
-            || scope.lifetime_ms > 120_000
-        {
-            return Err(LinuxCommandError::CompositePolicyUnenforceable);
-        }
-        Ok(())
     }
 
     fn admit_helper_scope(
@@ -254,34 +223,21 @@ impl ToolHelperAdmissionPort<'_> {
         helper_image
             .validate_seals()
             .map_err(|_| NativeAdmissionError::EnforcementUnavailable)?;
-        let filesystem = super::super::policy::native_fs_profile(&scope.filesystem.permissions)
+        let mut filesystem = super::super::policy::native_fs_profile(&scope.filesystem.permissions)
             .map_err(|_| NativeAdmissionError::CompositePolicyUnenforceable)?;
+        filesystem.metadata_allowed = false;
         super::super::policy::preflight_composite_ruleset(filesystem)
             .map_err(|_| NativeAdmissionError::EnforcementUnavailable)?;
-        if super::super::gate::prepare_seccomp(false, true, None).is_none() {
+        if super::super::gate::prepare_seccomp(
+            scope.children == runne_application::permission_modes::ChildDelegationScope::Unbounded,
+            true,
+            Some(filesystem),
+        )
+        .is_none()
+        {
             return Err(NativeAdmissionError::EnforcementUnavailable);
         }
         Ok(())
-    }
-}
-
-fn helper_operation_from_scope(
-    scope: &CompositeEffectScope,
-) -> Option<PermissionHelperOperationV1> {
-    if scope.filesystem.permissions == [FilesystemPermission::Read].into_iter().collect() {
-        Some(PermissionHelperOperationV1::Read)
-    } else if scope.filesystem.permissions
-        == [
-            FilesystemPermission::Read,
-            FilesystemPermission::Create,
-            FilesystemPermission::Write,
-        ]
-        .into_iter()
-        .collect()
-    {
-        Some(PermissionHelperOperationV1::CreateNew)
-    } else {
-        None
     }
 }
 

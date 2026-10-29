@@ -2,6 +2,7 @@ use crate::application::root_handle_admission::RootAdmissionGateway;
 use runne_store::store::taskrun_tool_invocation::ToolInvocationBindingV1;
 
 pub(crate) fn validate_d2_target_snapshot(
+    store: &runne_store::store::StoreTransaction,
     root_admission: &RootAdmissionGateway,
     workspace_id: runne_domain::id::WorkspaceId,
     binding: &ToolInvocationBindingV1,
@@ -11,7 +12,12 @@ pub(crate) fn validate_d2_target_snapshot(
     use crate::application::exec_taskrun_worker::local::run::tool_executor as executor;
 
     if receipt.status != "success"
-        || receipt.version != 1
+        || receipt.version
+            != if binding.environment_id == crate::safe_tool_helper::coding_arguments::ENVIRONMENT {
+                2
+            } else {
+                1
+            }
         || receipt.path != binding.target_name
         || receipt.root.device == 0
         || receipt.root.inode == 0
@@ -19,8 +25,19 @@ pub(crate) fn validate_d2_target_snapshot(
     {
         return Err(());
     }
+    let helper_digest = if binding.tool_name == "workspace.command.run" {
+        Some(
+            store
+                .local_permission_preparation()
+                .map_err(|_| ())?
+                .tool_helper_executable_digest()
+                .map_err(|_| ())?,
+        )
+    } else {
+        None
+    };
     root_admission
-        .admit_d2_tool_target(workspace_id, &binding.target_name)
+        .admit_coding_tool_target(workspace_id, &binding.tool_name, &binding.target_name)
         .map_err(|_| ())?;
     root_admission
         .with_local_command_root(
@@ -37,10 +54,28 @@ pub(crate) fn validate_d2_target_snapshot(
                 if receipt.root.device != device || receipt.root.inode != inode {
                     return Err(runne_platform_desktop::RootHandleBrokerError::Rejected);
                 }
-                let current =
+                let coding = binding.environment_id
+                    == crate::safe_tool_helper::coding_arguments::ENVIRONMENT;
+                let directory = matches!(
+                    binding.tool_name.as_str(),
+                    "workspace.files.list" | "workspace.files.search" | "workspace.command.run"
+                );
+                let current = if coding {
+                    crate::safe_tool_helper::coding_fs::snapshot(
+                        files.workspace(),
+                        &binding.target_name,
+                        directory,
+                    )
+                    .map_err(|_| ())
+                } else {
                     executor::capture_existing_target_snapshot(&files, &binding.target_name)
-                        .map_err(|_| runne_platform_desktop::RootHandleBrokerError::Rejected)?;
-                if current != receipt.target {
+                }
+                .map_err(|_| runne_platform_desktop::RootHandleBrokerError::Rejected)?;
+                if (!directory && current != receipt.target)
+                    || (directory
+                        && (current.device, current.inode)
+                            != (receipt.target.device, receipt.target.inode))
+                {
                     return Err(runne_platform_desktop::RootHandleBrokerError::Rejected);
                 }
                 if binding.tool_name == "workspace.file.read" {
@@ -56,8 +91,9 @@ pub(crate) fn validate_d2_target_snapshot(
                     if Some(digest) != binding.target_precondition {
                         return Err(runne_platform_desktop::RootHandleBrokerError::Rejected);
                     }
-                } else if binding.tool_name != "workspace.file.create_new"
-                    || binding.target_precondition.is_some()
+                } else if !coding
+                    && (binding.tool_name != "workspace.file.create_new"
+                        || binding.target_precondition.is_some())
                 {
                     return Err(runne_platform_desktop::RootHandleBrokerError::Rejected);
                 }
@@ -81,6 +117,7 @@ pub(crate) fn validate_d2_target_snapshot(
                     admission.token.instance_epoch,
                     admission.token.revision,
                     binding.approval_expires_at,
+                    helper_digest.as_ref().map(|digest| digest.as_bytes()),
                 );
                 if approved != *binding.approval_digest.as_bytes() {
                     return Err(runne_platform_desktop::RootHandleBrokerError::Rejected);
@@ -93,6 +130,7 @@ pub(crate) fn validate_d2_target_snapshot(
 
 #[derive(Clone)]
 pub(crate) struct D2TargetFence {
+    store: runne_store::store::StoreTransaction,
     workspace_id: runne_domain::id::WorkspaceId,
     root_admission: RootAdmissionGateway,
     snapshots: Vec<(
@@ -108,6 +146,7 @@ impl D2TargetFence {
             .iter()
             .try_for_each(|(binding, arguments, receipt)| {
                 validate_d2_target_snapshot(
+                    &self.store,
                     &self.root_admission,
                     self.workspace_id,
                     binding,
@@ -124,7 +163,20 @@ impl super::super::DaemonAutomaticTaskRuns {
         workspace_id: runne_domain::id::WorkspaceId,
         taskrun_id: runne_domain::id::TaskRunId,
     ) -> Result<(), ()> {
-        self.validate_d2_current_target_prefix(workspace_id, taskrun_id, 2)
+        let count = self
+            .store
+            .load_taskrun_tool_invocations_for_taskrun(taskrun_id)
+            .map_err(|_| ())?
+            .len();
+        if count == 0
+            && self
+                .provider
+                .as_ref()
+                .is_some_and(|p| p.coding_agent_tools_enabled())
+        {
+            return Ok(());
+        }
+        self.validate_d2_current_target_prefix(workspace_id, taskrun_id, count)
     }
 
     pub(crate) fn validate_d2_current_target_prefix(
@@ -143,7 +195,7 @@ impl super::super::DaemonAutomaticTaskRuns {
         taskrun_id: runne_domain::id::TaskRunId,
         expected_count: usize,
     ) -> Result<D2TargetFence, ()> {
-        if !(1..=2).contains(&expected_count) {
+        if !(1..=32).contains(&expected_count) {
             return Err(());
         }
         let provider = self.provider.as_ref().ok_or(())?;
@@ -155,7 +207,32 @@ impl super::super::DaemonAutomaticTaskRuns {
             return Err(());
         }
         let mut snapshots = Vec::with_capacity(records.len());
+        let mut latest = std::collections::BTreeMap::new();
+        let mut last_command = None;
+        for record in &records {
+            if record.binding.environment_id
+                == crate::safe_tool_helper::coding_arguments::ENVIRONMENT
+            {
+                latest.insert(
+                    record.binding.target_name.clone(),
+                    record.binding.key.proposal_index,
+                );
+                if record.binding.tool_name == "workspace.command.run" {
+                    last_command = Some(record.binding.key.proposal_index);
+                }
+            }
+        }
         for record in records {
+            if record.binding.environment_id
+                == crate::safe_tool_helper::coding_arguments::ENVIRONMENT
+                && (latest
+                    .get(&record.binding.target_name)
+                    .is_some_and(|index| *index > record.binding.key.proposal_index)
+                    || last_command.is_some_and(|index| index > record.binding.key.proposal_index))
+            {
+                continue;
+            }
+
             let binding = &record.binding;
             let result = record.receipt.result.as_ref().ok_or(())?;
             let receipt = provider
@@ -185,6 +262,7 @@ impl super::super::DaemonAutomaticTaskRuns {
             snapshots.push((binding.clone(), arguments, receipt));
         }
         Ok(D2TargetFence {
+            store: self.store.clone(),
             workspace_id,
             root_admission: self.root_admission.clone(),
             snapshots,

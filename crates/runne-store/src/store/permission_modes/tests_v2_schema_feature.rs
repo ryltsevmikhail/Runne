@@ -45,5 +45,8 @@ fn new_file_reaches_original_context_schema_version() {
             row.get(0)
         })
         .unwrap();
-    assert_eq!(version, 69, "original-context migration must be applied");
+    assert_eq!(
+        version, 71,
+        "current schema includes original-context migration"
+    );
 }

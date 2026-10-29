@@ -104,8 +104,12 @@ impl SqliteProviderExecutionStore {
                 Err(ProviderAdmissionError::AuthorityConflict)
             };
         }
-        let is_d2_tool_profile = grant
-            .is_some_and(|grant| grant.spec().profile_id() == "runne-linux-agent-tools-v1");
+        let is_d2_tool_profile = grant.is_some_and(|grant| {
+            matches!(
+                grant.spec().profile_id(),
+                "runne-linux-agent-tools-v1" | "runne-deepseek-responses-tools/1"
+            )
+        });
         if is_d2_tool_profile {
             crate::store::taskrun_provider_start::verify_fresh_d2_running_attempt(
                 &transaction,

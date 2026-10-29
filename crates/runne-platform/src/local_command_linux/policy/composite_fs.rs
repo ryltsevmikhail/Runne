@@ -29,6 +29,7 @@ const FS_CREATE: u64 =
 pub(in crate::local_command_linux) struct NativeFsProfile {
     pub(in crate::local_command_linux) allowed_access: u64,
     pub(in crate::local_command_linux) write_allowed: bool,
+    pub(in crate::local_command_linux) metadata_allowed: bool,
     pub(in crate::local_command_linux) rename_allowed: bool,
 }
 
@@ -59,6 +60,7 @@ pub(in crate::local_command_linux) fn native_fs_profile(
     Ok(NativeFsProfile {
         allowed_access,
         write_allowed: write,
+        metadata_allowed: write,
         rename_allowed: create && delete && write,
     })
 }

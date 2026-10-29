@@ -64,7 +64,7 @@ fn preserve_populated(full: bool) {
                 .unwrap();
             assert_eq!(markers_before.len(), if full { 68 } else { 67 });
             assert_eq!(markers_before.iter().any(|(v, _)| *v == 19), full);
-            apply_migrations(&historical).unwrap(); // Actual migration-control ->69.
+            apply_migrations_internal(&historical, 69).unwrap(); // Actual migration-control ->69.
             assert!(v69_matches(&historical, 69).unwrap());
             let old_markers: Vec<(i64, String)> = historical.prepare("SELECT version,applied_at FROM schema_version WHERE version<69 ORDER BY version").unwrap().query_map([], |r| Ok((r.get(0)?,r.get(1)?))).unwrap().collect::<SqliteResult<_>>().unwrap();
             assert_eq!(old_markers, markers_before, "old marker bytes preserved");

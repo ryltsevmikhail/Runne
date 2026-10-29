@@ -11,7 +11,11 @@ where
         &self,
         context: &ProviderEventJournalContext,
     ) -> Result<ProviderTerminalCommitOutcome, RuntimeProviderExecutionError> {
-        self.finalize_terminal_output_kind(context, ProviderTerminalApplicationKind::TextGeneration)
+        self.finalize_terminal_output_kind(
+            context,
+            ProviderTerminalApplicationKind::TextGeneration,
+            false,
+        )
     }
 
     /// Settles usage for a scanner-approved provider tool proposal without
@@ -20,13 +24,30 @@ where
         &self,
         context: &ProviderEventJournalContext,
     ) -> Result<ProviderTerminalCommitOutcome, RuntimeProviderExecutionError> {
-        self.finalize_terminal_output_kind(context, ProviderTerminalApplicationKind::ToolProposal)
+        self.finalize_terminal_output_kind(
+            context,
+            ProviderTerminalApplicationKind::ToolProposal,
+            false,
+        )
+    }
+
+    /// Settles a bounded batch from the explicit coding profile without enabling text dispatch tools.
+    pub fn finalize_coding_tool_terminal_output(
+        &self,
+        context: &ProviderEventJournalContext,
+    ) -> Result<ProviderTerminalCommitOutcome, RuntimeProviderExecutionError> {
+        self.finalize_terminal_output_kind(
+            context,
+            ProviderTerminalApplicationKind::ToolProposal,
+            true,
+        )
     }
 
     fn finalize_terminal_output_kind(
         &self,
         context: &ProviderEventJournalContext,
         application_kind: ProviderTerminalApplicationKind,
+        coding_batch: bool,
     ) -> Result<ProviderTerminalCommitOutcome, RuntimeProviderExecutionError> {
         if self
             .redaction
@@ -42,7 +63,11 @@ where
             .map_err(map_execution_error)?;
         let (events, journal_keys) = self.decrypt_terminal_journal(&encrypted_journal)?;
         let assembled = if application_kind == ProviderTerminalApplicationKind::ToolProposal {
-            assemble_tool_terminal_stream(&events)?
+            if coding_batch {
+                assemble_terminal_stream_mode(&events, true, 16)?
+            } else {
+                assemble_tool_terminal_stream(&events)?
+            }
         } else {
             assemble_terminal_stream(&events)?
         };

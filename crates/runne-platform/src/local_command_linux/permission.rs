@@ -29,3 +29,9 @@ pub use lineage::{
 pub use terminal::{
     PermissionChildTerminalEvidenceV1, PermissionHelperChildV1, PermissionHelperTerminalEvidenceV1,
 };
+
+#[cfg(test)]
+mod coding_tests;
+
+mod helper_coding;
+mod helper_target;

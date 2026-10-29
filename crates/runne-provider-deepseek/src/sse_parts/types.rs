@@ -40,5 +40,8 @@ enum LifecycleStage {
     TextDone,
     PartDone,
     ItemDone,
+    ToolItemAdded,
+    ToolArgumentsDone,
+    ToolItemDone,
     Terminal,
 }

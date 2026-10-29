@@ -75,6 +75,15 @@ pub(super) fn prepare(
     output: Option<&str>,
 ) -> Prepared {
     let fixture = running_with_remote_id(name, tail, response);
+    prepare_fixture(fixture, response, status, output)
+}
+
+pub(super) fn prepare_fixture(
+    fixture: Fixture,
+    response: &str,
+    status: ProviderRemoteResponseStatus,
+    output: Option<&str>,
+) -> Prepared {
     let attempt = attempt(&fixture);
     let remote = fixture
         .execution

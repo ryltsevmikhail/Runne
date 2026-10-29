@@ -52,8 +52,10 @@ impl DaemonCanonicalProviderService {
         // This exact, separately selected identity is an opt-in profile;
         // text-only submissions keep the existing profile and digest.
         #[cfg(all(feature = "desktop-protected", target_os = "linux"))]
-        let tool_profile = d2_tool_loop_budget
-            .and_then(|_| super::openai_profile::opt_in_tool_profile(profile.as_ref()));
+        let tool_profile = d2_tool_loop_budget.and_then(|_| {
+            super::openai_profile::opt_in_tool_profile(profile.as_ref())
+                .or_else(|| super::deepseek_profile::opt_in_tool_profile(profile.as_ref()))
+        });
         #[cfg(not(all(feature = "desktop-protected", target_os = "linux")))]
         let tool_profile = None;
         let dispatch_store = Arc::new(
@@ -62,6 +64,7 @@ impl DaemonCanonicalProviderService {
                     DaemonError::Bootstrap("provider dispatch store unavailable".into())
                 })?,
         );
+        super::settle_startup::settle_uncertain_without_delivery(dispatch_store.as_ref());
         let execution_store = Arc::new(
             SqliteProviderExecutionStore::open_with_connection(&db_path, execution_connection)
                 .map_err(|_| {
@@ -84,32 +87,13 @@ impl DaemonCanonicalProviderService {
             &scope,
         )?;
         #[cfg(all(feature = "desktop-protected", target_os = "linux"))]
-        let tool_profile_grant = match (tool_profile.as_deref(), d2_tool_loop_budget) {
-            (Some(tool_profile), Some(budget)) => {
-                let (tokens, micros) = budget
-                    .limits()
-                    .ok_or_else(|| DaemonError::Bootstrap("D2 tool budget invalid".into()))?;
-                let provider_name = provider_id.to_string();
-                let provider_id = runne_provider::ProviderId::new(&provider_name)
-                    .map_err(|_| DaemonError::Bootstrap("D2 provider identity invalid".into()))?;
-                let spec = runne_application::provider::ProviderSecondaryProfileGrantSpec::new(
-                    &provider_id,
-                    tool_profile.profile_id(),
-                    provider_name.as_str(),
-                    tool_profile.profile_digest(),
-                    tool_profile.pricing_revision_digest(),
-                    tokens,
-                    micros,
-                )
-                .map_err(|_| DaemonError::Bootstrap("D2 tool grant invalid".into()))?;
-                Some(
-                    execution_store
-                        .install_secondary_profile_grant(&launch_capability, spec)
-                        .map_err(|_| DaemonError::Bootstrap("D2 tool grant unavailable".into()))?,
-                )
-            }
-            _ => None,
-        };
+        let tool_profile_grant = super::tool_grant::install(
+            tool_profile.as_deref(),
+            d2_tool_loop_budget,
+            provider_id.as_ref(),
+            execution_store.as_ref(),
+            &launch_capability,
+        )?;
         #[cfg(not(all(feature = "desktop-protected", target_os = "linux")))]
         let _tool_profile_grant: Option<
             runne_store::provider::ProviderSecondaryProfileGrant,
@@ -171,6 +155,11 @@ impl DaemonCanonicalProviderService {
                     credential_id,
                     adapter_factory.as_ref(),
                     activation_provenance.is_protected(),
+                    tool_profile.as_ref().is_some_and(|p| {
+                        p.profile_id()
+                            == runne_provider_deepseek::DEEPSEEK_RESPONSES_TOOL_PROFILE_ID
+                    }),
+                    None,
                 )?,
             }
         };
@@ -192,6 +181,11 @@ impl DaemonCanonicalProviderService {
                     credential_id,
                     selected,
                     activation_provenance.is_protected(),
+                    tool_profile.as_ref().is_some_and(|p| {
+                        p.profile_id()
+                            == runne_provider_deepseek::DEEPSEEK_RESPONSES_TOOL_PROFILE_ID
+                    }),
+                    None,
                 )?
             }
         };
@@ -201,7 +195,16 @@ impl DaemonCanonicalProviderService {
             credential_id,
             adapter_factory.as_ref(),
             activation_provenance.is_protected(),
+            tool_profile.as_ref().is_some_and(|p| {
+                p.profile_id() == runne_provider_deepseek::DEEPSEEK_RESPONSES_TOOL_PROFILE_ID
+            }),
+            super::delivery_status::observer(&db_path),
         )?;
+        let tool_adapter = credentials.tool_adapter.take().or_else(|| {
+            tool_profile
+                .as_ref()
+                .map(|_| Arc::clone(&credentials.adapter))
+        });
         let defer_initial_credential_reconciliation = credentials.defer_initial_reconciliation;
         let enrollment_store_authority = credentials
             .enrollment_authorities
@@ -261,6 +264,7 @@ impl DaemonCanonicalProviderService {
             adapter: credentials.adapter,
             profile,
             tool_profile,
+            tool_adapter,
             #[cfg(all(feature = "desktop-protected", target_os = "linux"))]
             tool_profile_grant,
             provider_id,

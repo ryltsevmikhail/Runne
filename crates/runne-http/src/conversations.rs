@@ -110,7 +110,10 @@ where
     H: ConversationCommandHostPort + ConversationQueryHostPort + 'static,
 {
     Router::new()
-        .route("/v1/conversations", post(create_conversation::<H>))
+        .route(
+            "/v1/conversations",
+            post(create_conversation::<H>).get(list_conversations::<H>),
+        )
         .route(
             "/v1/conversations/{conversation_id}/messages",
             post(generate_text::<H>).get(list_messages::<H>),
@@ -240,3 +243,5 @@ where
 }
 
 include!("conversations/helpers.rs");
+
+include!("conversations/list.rs");

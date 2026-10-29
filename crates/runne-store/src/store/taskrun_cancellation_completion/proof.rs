@@ -10,6 +10,24 @@ pub(super) fn prove_unclaimed_cancelling(
     expected: u64,
     authority: &RuntimeAuthorityId,
 ) -> Result<(), Error> {
+    prove_unclaimed(tx, taskrun_id, expected, authority, false)
+}
+
+pub(crate) fn prove_unclaimed_cancelled(
+    tx: &rusqlite::Transaction<'_>,
+    taskrun_id: TaskRunId,
+    authority: &RuntimeAuthorityId,
+) -> Result<(), Error> {
+    prove_unclaimed(tx, taskrun_id, 4, authority, true)
+}
+
+fn prove_unclaimed(
+    tx: &rusqlite::Transaction<'_>,
+    taskrun_id: TaskRunId,
+    expected: u64,
+    authority: &RuntimeAuthorityId,
+    completed: bool,
+) -> Result<(), Error> {
     let actual: Option<i64> = tx
         .query_row(
             "SELECT current_version FROM aggregate_streams WHERE aggregate_type=1 AND aggregate_id=?1",
@@ -41,13 +59,19 @@ pub(super) fn prove_unclaimed_cancelling(
     if occupied != 0 {
         return Err(Error::AlreadyClaimed);
     }
-    if actual != 3 {
+    if actual != if completed { 4 } else { 3 } {
         return Err(Error::NotCancelling);
     }
     let verified =
         super::super::taskrun_claim::stream_validate::verify_stream(tx, taskrun_id, Some(expected))
             .map_err(|_| Error::CorruptData)?;
-    if verified.state != runne_domain::task_run::TaskRunState::Cancelling {
+    if verified.state
+        != if completed {
+            runne_domain::task_run::TaskRunState::Cancelled
+        } else {
+            runne_domain::task_run::TaskRunState::Cancelling
+        }
+    {
         return Err(Error::NotCancelling);
     }
     let mut statement = tx
@@ -70,7 +94,7 @@ pub(super) fn prove_unclaimed_cancelling(
         .map_err(|_| Error::CorruptData)?
         .collect::<std::result::Result<_, _>>()
         .map_err(|_| Error::CorruptData)?;
-    if rows.len() != 3
+    if rows.len() != if completed { 4 } else { 3 }
         || rows
             .iter()
             .enumerate()
@@ -109,8 +133,17 @@ pub(super) fn prove_unclaimed_cancelling(
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .map_err(|_| Error::CorruptData)?;
-    if head_version != 3 || head_event != rows[2].1 {
+    if head_version != actual || head_event != rows.last().ok_or(Error::CorruptData)?.1 {
         return Err(Error::CorruptData);
+    }
+    if completed {
+        super::read_proof::verify_completion(
+            tx,
+            taskrun_id,
+            authority,
+            &rows,
+            verified.events.last().ok_or(Error::CorruptData)?.actor(),
+        )?;
     }
     Ok(())
 }

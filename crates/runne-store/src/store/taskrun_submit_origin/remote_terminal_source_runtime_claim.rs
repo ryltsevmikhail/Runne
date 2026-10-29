@@ -80,18 +80,31 @@ pub(super) fn verify_runtime_claim_actor(
     };
     if u64::try_from(version).map_err(|_| invalid())? != started_version
         || crate::store::taskrun_claim::verify_assignment_history(connection, &identity).is_err()
-        || profile_id != "runne-linux-agent-tools-v1"
     {
         return Ok(false);
     }
-    verify_d2_round_budget(connection, &identity)
+    match profile_id {
+        "runne-linux-agent-tools-v1" | "runne-deepseek-responses-tools/1" => {
+            verify_d2_round_budget(connection, &identity, profile_id)
+        }
+        "gocode-deepseek-responses-text/1" => verify_text_without_tools(connection, &identity),
+        _ => Ok(false),
+    }
 }
 
 fn verify_d2_round_budget(
     connection: &Connection,
     identity: &TaskRunAssignmentIdentity,
+    profile_id: &str,
 ) -> Result<bool, CommitError> {
     let invalid = || storage_failure(StorageFailureKind::IntegrityViolation);
+    let coding = profile_id == "runne-deepseek-responses-tools/1";
+    let policy = if coding {
+        "coding-tool-loop-budget-v1"
+    } else {
+        "d2-safe-tool-loop-budget-v1"
+    };
+    let limit = if coding { 32 } else { 2 };
     let node = uuid::Uuid::parse_str(&identity.node_id.0).map_err(|_| invalid())?;
     let binding: Option<(i64, i64, i64, i64, i64)> = connection
         .query_row(
@@ -101,7 +114,7 @@ fn verify_d2_round_budget(
                        AND r.fence=b.fence AND r.node_id=?4 AND r.node_epoch=?5)
              FROM taskrun_tool_budgets b
              WHERE b.taskrun_id=?1 AND b.attempt_id=?2 AND b.fence=?3
-               AND b.node_id=?6 AND b.node_epoch=?5 AND b.policy_revision='d2-safe-tool-loop-budget-v1'",
+               AND b.node_id=?6 AND b.node_epoch=?5 AND b.policy_revision=?7",
             rusqlite::params![
                 identity.taskrun_id.as_bytes(),
                 identity.attempt_id.as_bytes(),
@@ -109,8 +122,17 @@ fn verify_d2_round_budget(
                 node.as_bytes(),
                 i64::try_from(identity.node_epoch).map_err(|_| invalid())?,
                 identity.node_id.0,
+                policy,
             ],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
+            |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                ))
+            },
         )
         .optional()
         .map_err(|_| invalid())?;
@@ -119,9 +141,32 @@ fn verify_d2_round_budget(
     else {
         return Ok(false);
     };
-    Ok(effects_limit == 2
-        && continuations_limit == 2
-        && (0..=2).contains(&effects_used)
-        && (0..=2).contains(&continuations_used)
-        && (1..=3).contains(&rounds))
+    Ok(effects_limit == limit
+        && continuations_limit == limit
+        && (0..=limit).contains(&effects_used)
+        && (0..=limit).contains(&continuations_used)
+        && (1..=limit + 1).contains(&rounds))
+}
+
+// Historical primary text uses the same runtime-owned claim receipt and exact
+// assignment lineage as tools, but must never acquire a tool budget or round.
+fn verify_text_without_tools(
+    connection: &Connection,
+    identity: &TaskRunAssignmentIdentity,
+) -> Result<bool, CommitError> {
+    connection
+        .query_row(
+            "SELECT NOT EXISTS(SELECT 1 FROM taskrun_tool_budgets
+             WHERE taskrun_id=?1 AND attempt_id=?2)
+         AND NOT EXISTS(SELECT 1 FROM taskrun_provider_round_bindings
+             WHERE taskrun_id=?1 AND attempt_id=?2)
+         AND NOT EXISTS(SELECT 1 FROM taskrun_tool_invocations
+             WHERE taskrun_id=?1 AND attempt_id=?2)",
+            rusqlite::params![
+                identity.taskrun_id.as_bytes(),
+                identity.attempt_id.as_bytes()
+            ],
+            |row| row.get(0),
+        )
+        .map_err(|_| storage_failure(StorageFailureKind::IntegrityViolation))
 }

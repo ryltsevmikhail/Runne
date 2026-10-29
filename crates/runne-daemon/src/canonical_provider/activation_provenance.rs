@@ -40,6 +40,36 @@ impl DaemonActivationProvenance {
             ),
         }
     }
+    #[cfg(all(target_os = "linux", feature = "desktop-protected"))]
+    pub(super) fn for_terminal_adoption(
+        binding: &ProviderActivationBindingV1,
+        authority: [u8; 16],
+    ) -> Self {
+        Self {
+            kind: ProviderLeaseBindingKind::ProtectedV2,
+            digest: digest(
+                ProviderLeaseBindingKind::ProtectedV2,
+                binding,
+                authority,
+                None,
+            ),
+        }
+    }
+
+    pub(super) fn for_cli_upgrade(
+        config: &crate::config::ConfigurationSnapshot,
+        authority: [u8; 16],
+    ) -> Self {
+        Self {
+            kind: ProviderLeaseBindingKind::ExternalOwnerPrivate,
+            digest: digest(
+                ProviderLeaseBindingKind::ExternalOwnerPrivate,
+                config.provider_activation.binding(),
+                authority,
+                Some(&config.digest),
+            ),
+        }
+    }
     pub(super) const fn kind(&self) -> ProviderLeaseBindingKind {
         self.kind
     }

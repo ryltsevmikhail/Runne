@@ -9,7 +9,7 @@ fn v69_migrates_both_authorized_marker_histories_and_reopens() {
         }
         apply_migrations_internal(&connection, 68).unwrap();
         assert!(v68_matches(&connection, 68).unwrap());
-        apply_migrations(&connection).unwrap();
+        apply_migrations_internal(&connection, 69).unwrap();
         assert!(v69_matches(&connection, 69).unwrap());
         assert!(!v68_matches(&connection, 68).unwrap());
         let marker: (i64, i64, i64, i64) = connection
@@ -60,7 +60,7 @@ fn v69_rejects_extra_altered_or_missing_binding_triggers_and_marker_drift() {
         "ALTER TABLE schema_version ADD COLUMN unknown INTEGER",
     ] {
         let c = Connection::open_in_memory().unwrap();
-        apply_migrations(&c).unwrap();
+        apply_migrations_internal(&c, 69).unwrap();
         assert!(v69_matches(&c, 69).unwrap());
         c.execute_batch(mutation).unwrap();
         assert!(!v69_matches(&c, 69).unwrap(), "{mutation}");

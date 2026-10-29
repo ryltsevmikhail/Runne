@@ -27,6 +27,8 @@ linux-native-enrollment-qualification = [
 ]
 
 [dependencies]
+crossterm = "=0.29.0"
+unicode-width = "=0.2.2"
 base64.workspace = true
 chrono.workspace = true
 dirs = "6"

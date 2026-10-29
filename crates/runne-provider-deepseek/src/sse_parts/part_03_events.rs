@@ -38,7 +38,9 @@ impl Lifecycle {
             &["item", "output_index", "sequence_number", "type"],
             DeepSeekDecodeSchemaNode::CompletedItem,
         )?;
-        if self.stage != LifecycleStage::PartDone || required_u64(event, "output_index")? != 0 {
+        if self.stage != LifecycleStage::PartDone
+            || required_u64(event, "output_index")? != self.completed_items.len() as u64
+        {
             return Err(DeepSeekStreamError::IllegalTransition);
         }
         let item = traced_required_object(
@@ -54,6 +56,9 @@ impl Lifecycle {
         )?;
         let item_id = self.item_id()?.to_owned();
         validate_completed_item(item, &item_id, &self.text, "completed", &mut self.trace)?;
+        if self.tools_enabled {
+            self.completed_items.push(Value::Object(item.clone()));
+        }
         self.stage = LifecycleStage::ItemDone;
         Ok(())
     }
@@ -66,7 +71,10 @@ impl Lifecycle {
             &["response", "sequence_number", "type"],
             DeepSeekDecodeSchemaNode::Response,
         )?;
-        if self.stage != LifecycleStage::ItemDone {
+        if !matches!(
+            self.stage,
+            LifecycleStage::ItemDone | LifecycleStage::ToolItemDone
+        ) {
             return Err(DeepSeekStreamError::IllegalTransition);
         }
         let response = traced_required_object(
@@ -77,15 +85,19 @@ impl Lifecycle {
         )?;
         self.bind_response(response, "completed")?;
         validate_terminal_response_guards(response, false, false)?;
-        let item_id = self.item_id()?.to_owned();
-        validate_output(
-            response,
-            &item_id,
-            &self.text,
-            "completed",
-            false,
-            &mut self.trace,
-        )?;
+        if self.tools_enabled {
+            self.accept_tool_completed(response)?;
+        } else {
+            let item_id = self.item_id()?.to_owned();
+            validate_output(
+                response,
+                &item_id,
+                &self.text,
+                "completed",
+                false,
+                &mut self.trace,
+            )?;
+        }
         let usage_value = response
             .get("usage")
             .filter(|value| !value.is_null())
@@ -94,7 +106,15 @@ impl Lifecycle {
         self.push_normalized(ProviderStreamEventKind::Usage { usage })?;
         self.push_normalized(ProviderStreamEventKind::Finished {
             disposition: ProviderTerminalDisposition::Completed,
-            reason: ProviderFinishReason::Stop,
+            reason: if self
+                .completed_items
+                .iter()
+                .any(|v| v["type"] == "function_call")
+            {
+                ProviderFinishReason::ToolCalls
+            } else {
+                ProviderFinishReason::Stop
+            },
         })?;
         self.stage = LifecycleStage::Terminal;
         Ok(())
@@ -196,7 +216,7 @@ impl Lifecycle {
         response: &Map<String, Value>,
         expected_status: &str,
     ) -> Result<(), DeepSeekStreamError> {
-        validate_response_guards(response)?;
+        validate_response_guards(response, self.tools_enabled)?;
         let response_id = traced_required_string(
             &mut self.trace,
             response,

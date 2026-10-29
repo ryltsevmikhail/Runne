@@ -17,7 +17,7 @@ impl DaemonAutomaticTaskRuns {
         let is_d2 = snapshot
             .input()
             .and_then(|input| input.selected_profile())
-            .is_some_and(|profile| profile.profile_id() == "runne-linux-agent-tools-v1");
+            .is_some_and(|profile| recovery_tool_profile(profile.profile_id()));
         if !is_d2 {
             return Ok(false);
         }

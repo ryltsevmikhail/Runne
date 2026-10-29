@@ -57,6 +57,7 @@ mod effects_projection;
 mod execution;
 #[cfg(all(feature = "desktop-protected", target_os = "linux"))]
 pub(crate) use execution::{D2ProviderRound, D2ProviderRoundOutcome, D2ToolTerminalRef};
+mod deepseek_profile;
 mod execution_authority;
 mod execution_cancellation;
 mod execution_diagnostics;
@@ -78,6 +79,8 @@ mod saved_remote_observe;
 mod saved_remote_recovery;
 mod selected_provider;
 mod shared_profile;
+#[cfg(all(feature = "desktop-protected", target_os = "linux"))]
+mod tool_grant;
 
 pub(crate) use execution_cancellation::foreground_cancellation_result;
 
@@ -107,3 +110,13 @@ pub(crate) type RuntimeStoreDecorator = dyn Fn(
         Arc<dyn ProviderTerminalPersistence>,
     ) + Send
     + Sync;
+
+mod installation_upgrade;
+pub(crate) use installation_upgrade::upgrade_cli_installation;
+
+#[cfg(all(target_os = "linux", feature = "desktop-protected"))]
+mod terminal_adoption;
+#[cfg(all(target_os = "linux", feature = "desktop-protected"))]
+pub(crate) use terminal_adoption::adopt_terminal_provider;
+
+mod coding_status;

@@ -87,6 +87,7 @@ fn task_run_effects_to_wire(value: &runne_app_core::TaskRunEffectsV1) -> TaskRun
         cancellation: match remote_effect.cancellation() {
             runne_app_core::RemoteCancellationEvidence::NotRequested => "not_requested",
             runne_app_core::RemoteCancellationEvidence::Requested => "requested",
+            runne_app_core::RemoteCancellationEvidence::AlreadyTerminal => "already_terminal",
             runne_app_core::RemoteCancellationEvidence::Confirmed => "confirmed",
             runne_app_core::RemoteCancellationEvidence::Unconfirmed => "unconfirmed",
             runne_app_core::RemoteCancellationEvidence::Unknown => "unknown",

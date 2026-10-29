@@ -88,6 +88,9 @@ pub(super) fn effect_is_in_scope(
             !scope.network.is_none()
         }
         PermissionAction::ProcessStart => {
+            if scope.containment == super::composite::ContainmentStrategy::WorkspaceBoundV1 {
+                return workspace_process_is_contained(scope, facts);
+            }
             matches!(
                 scope.containment,
                 super::composite::ContainmentStrategy::SameUserCompositeV1
@@ -146,4 +149,31 @@ fn full_access_contains(action: PermissionAction, scope: &CompositeEffectScope) 
             )
         }
     }
+}
+
+// One explicitly approved helper invocation may launch descendants, all under
+// the same native workspace, network and managed-area containment.
+fn workspace_process_is_contained(scope: &CompositeEffectScope, facts: &ResourceFacts) -> bool {
+    workspace_process_scope(scope)
+        && facts.workspace == WorkspaceRelation::Inside
+        && fs_target_is_in_scope(scope, facts, FilesystemPermission::Read)
+}
+
+pub(super) fn workspace_process_scope(scope: &CompositeEffectScope) -> bool {
+    use super::composite::{ChildDelegationScope, NetworkScope};
+    scope.containment == super::composite::ContainmentStrategy::WorkspaceBoundV1
+        && scope.network == NetworkScope::None
+        && scope.children == ChildDelegationScope::Unbounded
+        && scope.budget.max_operations == Some(1)
+        && scope.budget.max_bytes.is_none()
+        && matches!(&scope.filesystem.posture, FilesystemPosture::BoundedRoots(roots) if roots.len() == 1)
+        && scope.filesystem.permissions
+            == [
+                FilesystemPermission::Read,
+                FilesystemPermission::Create,
+                FilesystemPermission::Write,
+                FilesystemPermission::Delete,
+            ]
+            .into_iter()
+            .collect()
 }

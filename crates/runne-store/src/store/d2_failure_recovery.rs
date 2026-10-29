@@ -76,8 +76,14 @@ impl StoreTransaction {
                 |row| row.get(0),
             )
             .map_err(|_| storage_failure(StorageFailureKind::CorruptData))?;
+        if budget_rows > 0 {
+            crate::store::taskrun_tool_invocation::budget_policy::verify_origin_policy(
+                &tx, taskrun_id,
+            )
+            .map_err(|_| storage_failure(StorageFailureKind::IntegrityViolation))?;
+        }
         let exact_budget: bool = tx.query_row(
-            "SELECT EXISTS(SELECT 1 FROM taskrun_tool_budgets WHERE taskrun_id=?1 AND attempt_id=?2 AND policy_revision='d2-safe-tool-loop-budget-v1' AND fence=?3 AND node_id=?4 AND node_epoch=?5)",
+            "SELECT EXISTS(SELECT 1 FROM taskrun_tool_budgets WHERE taskrun_id=?1 AND attempt_id=?2 AND policy_revision IN ('d2-safe-tool-loop-budget-v1','coding-tool-loop-budget-v1') AND fence=?3 AND node_id=?4 AND node_epoch=?5)",
             rusqlite::params![taskrun_id.as_bytes(), assignment.attempt_id.as_bytes(), assignment.fence.0 as i64, node.to_string(), assignment.node_epoch as i64],
             |row| row.get(0),
         ).map_err(|_| storage_failure(StorageFailureKind::CorruptData))?;

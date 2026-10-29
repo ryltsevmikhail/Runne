@@ -7,7 +7,9 @@ pub struct CommittedToolProposalCollector {
     text: String,
     usage: Option<ProviderUsage>,
     usage_unavailable: bool,
-    call: Option<RuntimeToolCall>,
+    calls: Vec<RuntimeToolCall>,
+    max_calls: usize,
+    terminal_verified: bool,
     max_text_bytes: usize,
     deadline: tokio::time::Instant,
 }
@@ -36,10 +38,30 @@ impl CommittedToolProposalCollector {
             text,
             usage,
             usage_unavailable,
-            call: None,
+            calls: Vec::new(),
+            max_calls: 1,
+            terminal_verified: false,
             max_text_bytes,
             deadline: tokio::time::Instant::now() + TOOL_RESPONSE_DEADLINE,
         })
+    }
+
+    /// Opts a fresh collector into a bounded batch of independent proposals.
+    pub fn with_max_calls(mut self, maximum: usize) -> Result<Self, ProviderToolLoopError> {
+        if self.cursor != 0 || !(1..=16).contains(&maximum) {
+            return Err(ProviderToolLoopError::MalformedStream);
+        }
+        self.max_calls = maximum;
+        Ok(self)
+    }
+
+    /// Returns proposals only after the complete scanner-authenticated terminal.
+    pub fn committed_calls(&self) -> &[RuntimeToolCall] {
+        if self.terminal_verified {
+            &self.calls
+        } else {
+            &[]
+        }
     }
 
     /// Accepts one canonical committed event and yields only after its valid
@@ -89,10 +111,12 @@ impl CommittedToolProposalCollector {
                 if arguments_json.len() > MAX_TOOL_PROPOSAL_ARGUMENT_BYTES {
                     return Err("tool_arguments_bound");
                 }
-                if self.call.is_some() {
+                if self.calls.len() >= self.max_calls
+                    || self.calls.iter().any(|call| call.call_id == *call_id)
+                {
                     return Err("multiple_tool_calls");
                 }
-                self.call = Some(RuntimeToolCall {
+                self.calls.push(RuntimeToolCall {
                     call_id: call_id.clone(),
                     tool_name: tool_name.clone(),
                     arguments_json: arguments_json.clone(),
@@ -124,7 +148,7 @@ impl CommittedToolProposalCollector {
     }
 
     fn proposal(&self) -> Result<Option<ProviderToolLoopOutcome>, &'static str> {
-        let Some(call) = self.call.clone() else {
+        let Some(call) = self.calls.first().cloned() else {
             return Err("tool_terminal_without_call");
         };
         Ok(Some(ProviderToolLoopOutcome::ToolProposalReady {
@@ -136,12 +160,12 @@ impl CommittedToolProposalCollector {
     }
 
     fn terminal(
-        &self,
+        &mut self,
         disposition: ProviderTerminalDisposition,
         reason: &ProviderFinishReason,
         scanner_completed: bool,
     ) -> Result<Option<ProviderToolLoopOutcome>, &'static str> {
-        if self.call.is_some() && *reason != ProviderFinishReason::ToolCalls {
+        if !self.calls.is_empty() && *reason != ProviderFinishReason::ToolCalls {
             return Err("tool_terminal_mismatch");
         }
         if disposition == ProviderTerminalDisposition::Completed
@@ -149,11 +173,12 @@ impl CommittedToolProposalCollector {
             && scanner_completed
             && (self.usage.is_some() || self.usage_unavailable)
         {
+            self.terminal_verified = true;
             return self.proposal();
         }
         if disposition == ProviderTerminalDisposition::Completed
             && *reason == ProviderFinishReason::Stop
-            && self.call.is_none()
+            && self.calls.is_empty()
             && !self.usage_unavailable
             && scanner_completed
         {
@@ -163,7 +188,7 @@ impl CommittedToolProposalCollector {
             }));
         }
         if valid_remote_terminal(&disposition, reason)
-            && self.call.is_none()
+            && self.calls.is_empty()
             && (self.usage.is_some() || self.usage_unavailable)
             && scanner_completed
         {

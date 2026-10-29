@@ -47,6 +47,7 @@ function remoteOutcome(value: TaskRunEffects['remote']['outcome']) {
 function remoteCancellation(value: RemoteCancellation) {
   switch (value) {
     case 'requested': return translate('taskRun.effects.cancelRequestedValue')
+    case 'already_terminal': return translate('taskRun.effects.cancelAlreadyTerminal')
     case 'confirmed': return translate('taskRun.effects.cancelConfirmed')
     case 'unconfirmed': return translate('taskRun.effects.cancelUnconfirmed')
     case 'not_requested': return translate('taskRun.effects.cancelNotRequested')

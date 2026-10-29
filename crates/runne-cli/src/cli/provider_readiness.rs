@@ -41,6 +41,17 @@ struct ExternalConfigWire {
     max_in_flight: Option<u32>,
     shutdown_timeout_ms: Option<u64>,
     provider_activation: Option<ExternalProviderActivationWire>,
+    linux_cli_credential_host: Option<ExternalCliCredentialHostWire>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+#[allow(dead_code)]
+#[allow(clippy::struct_field_names)] // Names mirror the published JSON wire keys.
+struct ExternalCliCredentialHostWire {
+    cli_sha256: String,
+    daemon_sha256: String,
+    host_sha256: String,
 }
 
 #[derive(serde::Deserialize)]
@@ -93,9 +104,9 @@ pub(crate) fn read_active_provider(config_path: &Path) -> ActiveProviderProbe {
     if bytes.len() as u64 > MAX_EXTERNAL_CONFIG_BYTES {
         return unavailable("external config exceeds size limit");
     }
-    let Ok(wire) = toml::from_str::<ExternalConfigWire>(
-        std::str::from_utf8(&bytes).unwrap_or_default(),
-    ) else {
+    let Ok(wire) =
+        toml::from_str::<ExternalConfigWire>(std::str::from_utf8(&bytes).unwrap_or_default())
+    else {
         return unavailable("external config is not valid TOML");
     };
     if wire.schema_version != 2 {

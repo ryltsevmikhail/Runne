@@ -4,6 +4,7 @@ use super::*;
 use sha2::{Digest, Sha256};
 
 mod d2;
+pub(crate) mod stream_projection;
 use d2::validate_d2_completed_receipt;
 pub(crate) mod d2_failure;
 pub(crate) use d2_failure::validate_d2_failed_receipt;

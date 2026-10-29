@@ -7,9 +7,26 @@ pub enum PermissionHelperOperationV1 {
     Read,
     /// Creates one absent file using the bounded content carried by the request.
     CreateNew,
+    /// Lists a pinned directory beneath the admitted root.
+    List,
+    /// Searches bounded regular files beneath a pinned directory.
+    Search,
+    /// Replaces a pinned regular file after its digest precondition.
+    Replace,
+    /// Runs an approved argv in a pinned directory with inherited containment.
+    Command,
 }
 
 impl PermissionHelperOperationV1 {
+    pub(super) const fn is_directory(self) -> bool {
+        matches!(self, Self::List | Self::Search | Self::Command)
+    }
+    pub(in crate::local_command_linux) const fn scope_operation(self) -> Self {
+        match self {
+            Self::List | Self::Search => Self::Read,
+            other => other,
+        }
+    }
     /// Returns the exact filesystem permissions required by this operation.
     pub const fn permissions(self) -> &'static [FilesystemPermission] {
         const READ: &[FilesystemPermission] = &[FilesystemPermission::Read];
@@ -19,8 +36,15 @@ impl PermissionHelperOperationV1 {
             FilesystemPermission::Write,
         ];
         match self {
-            Self::Read => READ,
+            Self::Read | Self::List | Self::Search => READ,
             Self::CreateNew => CREATE,
+            Self::Command => &[
+                FilesystemPermission::Read,
+                FilesystemPermission::Create,
+                FilesystemPermission::Write,
+                FilesystemPermission::Delete,
+            ],
+            Self::Replace => &[FilesystemPermission::Read, FilesystemPermission::Write],
         }
     }
 }

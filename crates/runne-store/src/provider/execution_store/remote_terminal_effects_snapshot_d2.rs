@@ -1,41 +1,4 @@
-type D2RemoteRoundRow = (
-    i64,
-    Vec<u8>,
-    Vec<u8>,
-    i64,
-    i64,
-    i64,
-    Vec<u8>,
-    Vec<u8>,
-    Vec<u8>,
-    Vec<u8>,
-    String,
-    Option<Vec<u8>>,
-    Option<Vec<u8>>,
-    Option<i64>,
-    Option<Vec<u8>>,
-    Option<Vec<u8>>,
-    Option<Vec<u8>>,
-    Option<Vec<u8>>,
-    Option<Vec<u8>>,
-    Option<Vec<u8>>,
-    Option<Vec<u8>>,
-    Option<String>,
-    Option<Vec<u8>>,
-    Option<Vec<u8>>,
-    Option<i64>,
-    Option<i64>,
-    Option<i64>,
-);
-
-type PriorD2ToolResultRef<'a> = (
-    Option<&'a [u8]>,
-    Option<&'a [u8]>,
-    Option<i64>,
-    Option<&'a [u8]>,
-    Option<&'a [u8]>,
-);
-
+include!("remote_terminal_effects_snapshot_d2_types.rs");
 fn d2_latest_remote_dispatch(
     tx: &Transaction<'_>,
     taskrun_id: TaskRunId,
@@ -113,7 +76,20 @@ fn d2_latest_remote_dispatch(
         .collect::<Result<Vec<D2RemoteRoundRow>, _>>()
         .map_err(|_| ProviderExecutionError::JournalCorrupt)?;
     drop(statement);
-    if rows.len() < 2 || rows.len() > 3 {
+    let coding =
+        crate::store::taskrun_tool_invocation::budget_policy::coding_origin(tx, taskrun_id)
+            .map_err(|_| ProviderExecutionError::JournalCorrupt)?;
+    crate::store::taskrun_tool_invocation::budget_policy::verify_origin_policy(tx, taskrun_id)
+        .map_err(|_| ProviderExecutionError::JournalCorrupt)?;
+    if coding && rows.is_empty() {
+        let admitted:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM provider_execution_admissions WHERE taskrun_id=?1 AND execution_attempt_id=?2)",params![taskrun_id.as_bytes(),attempt_id.as_bytes()],|r|r.get(0)).map_err(|_|ProviderExecutionError::StoreUnavailable)?;
+        return if admitted {
+            Err(ProviderExecutionError::JournalCorrupt)
+        } else {
+            Ok(None)
+        };
+    }
+    if rows.len() < if coding { 1 } else { 2 } || rows.len() > if coding { 33 } else { 3 } {
         return Err(ProviderExecutionError::JournalCorrupt);
     }
     let first = &rows[0];
@@ -127,7 +103,7 @@ fn d2_latest_remote_dispatch(
         .query_row(
             "SELECT EXISTS(SELECT 1 FROM taskrun_tool_budgets
              WHERE taskrun_id=?1 AND attempt_id=?2 AND fence=?3 AND node_id=?4
-               AND node_epoch=?5 AND policy_revision='d2-safe-tool-loop-budget-v1')",
+               AND node_epoch=?5 AND policy_revision IN ('d2-safe-tool-loop-budget-v1','coding-tool-loop-budget-v1'))",
             params![
                 taskrun_id.as_bytes(),
                 attempt_id.as_bytes(),
@@ -248,14 +224,14 @@ fn d2_latest_remote_dispatch(
             else {
                 return Err(ProviderExecutionError::JournalCorrupt);
             };
-            if prior_attempt != attempt_id.as_bytes() || prior_index != index - 1 {
+            if prior_attempt != attempt_id.as_bytes() || (!coding && prior_index != index - 1) {
                 return Err(ProviderExecutionError::JournalCorrupt);
             }
             let prior_result_exists: bool = tx
                 .query_row(
                     "SELECT EXISTS(SELECT 1 FROM taskrun_tool_invocations
                      WHERE taskrun_id=?1 AND attempt_id=?2 AND cycle_id=?3
-                       AND proposal_index=?4 AND semantic_digest=?5 AND result_digest=?6
+                       AND proposal_index=?4 AND semantic_digest=?5 AND result_digest=?6 AND round_index=?7
                        AND state='result' AND result_truncated=0 AND continuation_started=1
                        AND local_stop_state=2 AND managed_area_identity=empty_proof_identity)",
                     params![
@@ -264,7 +240,7 @@ fn d2_latest_remote_dispatch(
                         prior_cycle,
                         prior_index,
                         prior_semantic,
-                        prior_result
+                        prior_result, index-1
                     ],
                     |result| result.get(0),
                 )

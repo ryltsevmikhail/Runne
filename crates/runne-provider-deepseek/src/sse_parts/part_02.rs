@@ -6,19 +6,31 @@ impl Lifecycle {
             &["item", "output_index", "sequence_number", "type"],
             DeepSeekDecodeSchemaNode::EventEnvelope,
         )?;
-        if !matches!(
+        let next = self.tools_enabled
+            && matches!(
+                self.stage,
+                LifecycleStage::ToolItemDone | LifecycleStage::ItemDone
+            );
+        if (!matches!(
             self.stage,
             LifecycleStage::Created | LifecycleStage::InProgress
-        ) || required_u64(event, "output_index")? != 0
+        ) && !next)
+            || required_u64(event, "output_index")? != self.completed_items.len() as u64
+            || self.completed_items.len() >= 16
         {
             return Err(DeepSeekStreamError::IllegalTransition);
         }
+        self.tool = None;
+        self.text.clear();
         let item = traced_required_object(
             &mut self.trace,
             event,
             "item",
             DeepSeekDecodeSchemaNode::AddedItem,
         )?;
+        if self.tools_enabled && item.get("type").and_then(Value::as_str) == Some("function_call") {
+            return self.accept_tool_added(item);
+        }
         traced_message_item_keys(&mut self.trace, item, DeepSeekDecodeSchemaNode::AddedItem)?;
         validate_added_item(item, &mut self.trace)?;
         let item_id = traced_required_string(

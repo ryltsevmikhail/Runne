@@ -67,6 +67,11 @@ impl<R: ProjectWorkspaceRepository, C: CurrentRootAdmissionContext, V: RootAdmis
 }
 
 pub(super) enum WorkItem {
+    FindWorkspaceByRoot(
+        ProjectQueryContext,
+        [u8; 32],
+        Reply<Option<runne_api::WorkspaceSnapshot>>,
+    ),
     Shutdown(oneshot::Sender<()>),
     CreateProject(
         ProjectCommandContext,
@@ -177,6 +182,9 @@ fn run_worker<
             }
             WorkItem::ListWorkspaces(context, id, request, reply) => {
                 reply_result(reply, service.list_workspaces(context, id, request))
+            }
+            WorkItem::FindWorkspaceByRoot(context, digest, reply) => {
+                reply_result(reply, service.find_workspace_by_root(context, digest))
             }
             WorkItem::GetWorkspace(context, id, reply) => {
                 reply_result(reply, service.get_workspace(context, id))

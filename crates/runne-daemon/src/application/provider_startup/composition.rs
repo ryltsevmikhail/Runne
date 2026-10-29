@@ -142,6 +142,7 @@ impl DaemonApplication {
         let provider_profile_digest = *provider_activation.binding().profile_digest();
         let readiness_credential_id = provider_credential_id(&provider_activation);
         let quota_store = Arc::new(QuotaStateStore::new());
+        composition_diagnostics::pending(&config.db_path, protected_activation);
         let compose_result = match activation_provenance {
             Some(activation_provenance) => {
                 let selected_provider =
@@ -233,6 +234,8 @@ impl DaemonApplication {
             None => Ok(None),
         };
         composition_diagnostics::record_result(
+            &config.db_path,
+            protected_activation,
             matches!(&compose_result, Ok(Some(_))),
             compose_result.as_ref().err(),
         );

@@ -27,6 +27,8 @@ pub(super) fn verify_budget_assignment(
     assignment: &TaskRunAssignmentIdentity,
 ) -> Result<(), CommitError> {
     use crate::store::parse_helpers::storage_failure;
+    crate::store::taskrun_tool_invocation::budget_policy::verify_origin_policy(tx, taskrun_id)
+        .map_err(|_| storage_failure(StorageFailureKind::IntegrityViolation))?;
     let node = uuid::Uuid::parse_str(&assignment.node_id.0)
         .map_err(|_| storage_failure(StorageFailureKind::IntegrityViolation))?;
     let exact: bool = tx
@@ -36,7 +38,7 @@ pub(super) fn verify_budget_assignment(
                AND a.fence=b.fence AND a.attempt_id=b.attempt_id
              WHERE b.taskrun_id=?1 AND b.attempt_id=?2 AND b.fence=?3
                AND b.node_id=?4 AND b.node_epoch=?5
-               AND b.policy_revision='d2-safe-tool-loop-budget-v1'
+               AND b.policy_revision IN ('d2-safe-tool-loop-budget-v1','coding-tool-loop-budget-v1')
                AND a.node_id=?6 AND a.node_epoch=?5)",
             params![
                 taskrun_id.as_bytes(),

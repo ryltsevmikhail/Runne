@@ -95,6 +95,8 @@ pub enum RemoteCancellationV1 {
     Confirmed,
     Unconfirmed,
     Unknown,
+    /// Provider completed and canonical cancellation closure proves no pending rounds.
+    AlreadyTerminal,
 }
 
 /// Whether the remote adapter can currently be reached for effect reconciliation.

@@ -16,6 +16,11 @@ use authorized::AuthorizedReady;
 
 impl<C: DeepSeekCredentialMaterializer> ProviderPort for Sender<C> {
     fn prepare(&self, call: &ProviderCall) -> Result<PreparedRequest, PrepareError> {
+        if let Some(profile) = &self.tool_profile {
+            return runne_provider_deepseek::DeepSeekResponsesToolRenderer::new(profile.clone())
+                .prepare(call)
+                .map_err(|error| PrepareError::Render(error.to_string()));
+        }
         self.renderer
             .prepare(call)
             .map_err(|error| PrepareError::Render(error.to_string()))

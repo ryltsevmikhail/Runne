@@ -37,6 +37,13 @@ pub(crate) struct BindingV1 {
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(tag = "operation", deny_unknown_fields)]
 pub(crate) enum RequestV1 {
+    Coding {
+        binding: BindingV1,
+        tool_name: String,
+        arguments: serde_json::Value,
+        root: IdentityV1,
+        expected: Option<VersionV1>,
+    },
     Read {
         binding: BindingV1,
         path: String,

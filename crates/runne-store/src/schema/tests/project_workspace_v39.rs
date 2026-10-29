@@ -21,7 +21,7 @@ fn v39_lineage_rebuild_preserves_rows_and_admits_the_submit_origin() {
 
     assert_eq!(schema_marker(&connection), CURRENT_SCHEMA_VERSION);
     assert!(
-        v69_matches(&connection, CURRENT_SCHEMA_VERSION).unwrap(),
+        v71_matches(&connection, CURRENT_SCHEMA_VERSION).unwrap(),
         "upgraded structure: marker={:?} inherited={:?} receipts={:?} triggers={:?} lineage={:?}",
         connection
             .query_row(
@@ -113,7 +113,7 @@ fn lineage_ddl_drift_is_rejected_per_schema_version() {
     // must equally stay rejected.
     let rolled_back = Connection::open_in_memory().unwrap();
     apply_migrations(&rolled_back).unwrap();
-    assert!(v69_matches(&rolled_back, CURRENT_SCHEMA_VERSION).unwrap());
+    assert!(v71_matches(&rolled_back, CURRENT_SCHEMA_VERSION).unwrap());
     let v18_lineage = project_workspace_schema::MIGRATION_V18
         .split(';')
         .map(str::trim)
@@ -140,7 +140,7 @@ fn lineage_ddl_drift_is_rejected_per_schema_version() {
         .unwrap();
     rolled_back.execute_batch("CREATE TRIGGER text_only_taskrun_lineage_no_workspace_collision BEFORE INSERT ON text_only_taskrun_lineage WHEN EXISTS(SELECT 1 FROM task_run_workspace_lineage WHERE taskrun_id=NEW.taskrun_id) BEGIN SELECT RAISE(ABORT,'TaskRun lineage owner collision'); END;").unwrap();
     assert!(
-        !v69_matches(&rolled_back, CURRENT_SCHEMA_VERSION).unwrap(),
+        !v71_matches(&rolled_back, CURRENT_SCHEMA_VERSION).unwrap(),
         "v18 lineage DDL under a v40 marker is DDL drift"
     );
     assert!(classify_schema_version(&rolled_back).is_err());
@@ -163,7 +163,7 @@ fn v39_reopens_full_and_no_v19_lineages() {
         }
         apply_migrations(&connection).unwrap();
         assert!(
-            v69_matches(&connection, CURRENT_SCHEMA_VERSION).unwrap(),
+            v71_matches(&connection, CURRENT_SCHEMA_VERSION).unwrap(),
             "lineage {no_v19_lineage}"
         );
         assert_eq!(
@@ -174,7 +174,7 @@ fn v39_reopens_full_and_no_v19_lineages() {
                     |row| row.get::<_, i64>(0),
                 )
                 .unwrap(),
-            if no_v19_lineage { 2396 } else { 2415 }
+            if no_v19_lineage { 2537 } else { 2556 }
         );
         drop(connection);
         drop(open_managed_connection(&path, ConnectionMode::Writer).unwrap());

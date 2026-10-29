@@ -90,5 +90,11 @@ fn apply_execution_migrations(
     if source_version < 69 && target_version >= 69 {
         apply_v69_migration(conn)?;
     }
+    if source_version < 70 && target_version >= 70 {
+        apply_v70_migration(conn)?;
+    }
+    if source_version < 71 && target_version >= 71 {
+        apply_v71_migration(conn)?;
+    }
     Ok(())
 }
