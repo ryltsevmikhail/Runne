@@ -52,6 +52,16 @@ impl<'a> AnchorDir<'a> {
 pub(super) fn checked_file(file: &File) -> Result<FileIdentity, DaemonError> {
     checked_stat(&fs::fstat(file).map_err(|_| error())?)
 }
+#[cfg(target_os = "linux")]
+fn device_id(stat: &rustix::fs::Stat) -> u64 {
+    stat.st_dev
+}
+
+#[cfg(not(target_os = "linux"))]
+fn device_id(stat: &rustix::fs::Stat) -> u64 {
+    stat.st_dev as u64
+}
+
 fn checked_stat(stat: &rustix::fs::Stat) -> Result<FileIdentity, DaemonError> {
     if FileType::from_raw_mode(stat.st_mode) != FileType::RegularFile
         || stat.st_uid != unsafe { libc::geteuid() }
@@ -62,7 +72,7 @@ fn checked_stat(stat: &rustix::fs::Stat) -> Result<FileIdentity, DaemonError> {
         return Err(error());
     }
     Ok(FileIdentity {
-        dev: stat.st_dev,
+        dev: device_id(stat),
         ino: stat.st_ino,
     })
 }

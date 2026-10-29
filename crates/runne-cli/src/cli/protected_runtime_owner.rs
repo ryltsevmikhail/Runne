@@ -162,7 +162,7 @@ async fn run_owned(
                 {
                     let state = dirs::state_dir()
                         .ok_or(CliError::PermissionRecoveryIo(intent.command_id))?;
-                    let index = LinuxPermissionRecoveryIndex::new(state);
+                    let index = DurablePermissionRecoveryIndex::new(state);
                     execute_mode_set_with_index(&runtime, intent, &index).await
                 }
                 #[cfg(not(target_os = "linux"))]

@@ -197,7 +197,7 @@ fn linux_recovery_index_serializes_concurrent_creators() {
     let id = input.command_id;
     let results = std::thread::scope(|threads| {
         let create = |path| {
-            let index = LinuxPermissionRecoveryIndex::new(path);
+            let index = DurablePermissionRecoveryIndex::new(path);
             let scope = &scope;
             let record = &record;
             threads.spawn(move || index.create_exclusive(scope, id, record))

@@ -68,7 +68,7 @@ impl Journal {
             match component {
                 Component::RootDir => {}
                 Component::Normal(name) => {
-                    fd = crate::open_directory(
+                    fd = crate::directory_scope::open_directory(
                         &fd,
                         name.to_str().ok_or("Invalid state path")?,
                         true,
@@ -76,14 +76,14 @@ impl Journal {
                     )
                     .map_err(|_| "Registration state unavailable")?
                     .ok_or("Registration state unavailable")?;
-                    crate::validate_ancestor_directory(&fd)
+                    crate::directory_scope::validate_ancestor_directory(&fd)
                         .map_err(|_| "Insecure registration state")?;
                 }
                 _ => return Err("Invalid state path".into()),
             }
         }
         for name in ["runne", "cli", "registration-intents", &scope] {
-            fd = crate::open_directory(&fd, name, true, true)
+            fd = crate::directory_scope::open_directory(&fd, name, true, true)
                 .map_err(|_| "Registration journal unavailable")?
                 .ok_or("Registration journal unavailable")?;
         }

@@ -168,6 +168,7 @@ impl StoreTransaction {
             .map_err(|_| ToolInvocationStoreError::Unavailable)
     }
 
+    #[cfg(target_os = "linux")]
     pub fn record_taskrun_tool_area_recovered(
         &self,
         candidate: &ToolInvocationAreaRecoveryCandidate,

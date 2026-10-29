@@ -45,7 +45,15 @@ impl TaskRunEffectsEnricher for ProviderTaskRunEffectsEnricher {
         principal: &runne_api::ApiPrincipalId,
         taskrun_id: runne_domain::id::TaskRunId,
     ) -> Result<runne_api::TaskRunToolActivityV1, TaskRunHostError> {
-        super::tool_activity::read(&self.store, &self.service, principal, taskrun_id)
+        #[cfg(target_os = "linux")]
+        {
+            super::tool_activity::read(&self.store, &self.service, principal, taskrun_id)
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            let _ = (principal, taskrun_id);
+            Err(TaskRunHostError::Unavailable)
+        }
     }
 
     fn remote_fact_authenticator(&self) -> Option<Arc<dyn ProviderRemoteFactAuthenticator>> {

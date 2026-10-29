@@ -212,8 +212,7 @@ include!("permissions/render.rs");
 include!("permissions/help.rs");
 include!("permissions/recovery_index.rs");
 include!("permissions/approval_recovery.rs");
-#[cfg(target_os = "linux")]
-include!("permissions/recovery_io_linux.rs");
+include!("permissions/recovery_io.rs");
 include!("permissions/mode.rs");
 include!("permissions/approval_runtime.rs");
 include!("permissions/approval_confirmation.rs");

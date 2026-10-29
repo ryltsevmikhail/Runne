@@ -1,6 +1,9 @@
+#[cfg(target_os = "linux")]
 type AreaLaunchRow = (Option<Vec<u8>>, i64, i64, Option<String>, Option<i64>);
+#[cfg(target_os = "linux")]
 type AreaStopRow = (Vec<u8>, i64, i64, Option<String>, Option<i64>);
 
+#[cfg(target_os = "linux")]
 pub(super) fn record_area_launch(
     store: &StoreTransaction,
     key: ToolInvocationKey,
@@ -76,6 +79,7 @@ pub(super) fn record_area_launch(
     Ok(result)
 }
 
+#[cfg(target_os = "linux")]
 pub(super) fn record_area_stopped(
     store: &StoreTransaction,
     key: ToolInvocationKey,

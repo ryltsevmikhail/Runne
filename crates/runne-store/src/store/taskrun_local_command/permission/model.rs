@@ -6,6 +6,7 @@ use runne_application::{
     ports::{EventStoreError, TaskRunAssignmentIdentity},
 };
 use runne_domain::task_run::TaskRunState;
+#[cfg(target_os = "linux")]
 use runne_platform::local_command_linux::PermissionTargetObservationV1;
 use rusqlite::{OptionalExtension, params};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -98,6 +99,7 @@ pub(super) fn verify_workspace(
     Ok(())
 }
 
+#[cfg(target_os = "linux")]
 pub(super) fn observation_matches(
     binding: &LocalCommandPermissionBindingV1,
     observed: PermissionTargetObservationV1,

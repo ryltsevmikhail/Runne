@@ -19,7 +19,7 @@ use super::super::macos_identity;
 use crate::ProtectedBundledRuntimeError;
 
 #[cfg(target_os = "macos")]
-pub(super) fn verify_macos_daemon(
+pub(crate) fn verify_macos_daemon(
     pid: NonZeroU32,
     expected_digest: [u8; 32],
     identity: &macos_identity::MacOsCodeIdentityV1,

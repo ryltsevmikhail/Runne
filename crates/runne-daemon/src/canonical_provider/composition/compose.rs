@@ -57,7 +57,7 @@ impl DaemonCanonicalProviderService {
                 .or_else(|| super::deepseek_profile::opt_in_tool_profile(profile.as_ref()))
         });
         #[cfg(not(all(feature = "desktop-protected", target_os = "linux")))]
-        let tool_profile = None;
+        let tool_profile: Option<Arc<SharedTextProviderProfile>> = None;
         let dispatch_store = Arc::new(
             SqliteProviderDispatchStore::open_with_connection(&db_path, dispatch_connection)
                 .map_err(|_| {

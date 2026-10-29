@@ -1,12 +1,17 @@
 mod admission_checks;
+#[cfg(target_os = "linux")]
 mod approval;
+#[cfg(target_os = "linux")]
 mod burn;
+#[cfg(target_os = "linux")]
 mod burn_guard;
 #[cfg(target_os = "linux")]
 mod cancel_before_release;
 #[cfg(target_os = "linux")]
 mod cancel_event;
+#[cfg(target_os = "linux")]
 mod capture;
+#[cfg(target_os = "linux")]
 mod capture_checks;
 pub(crate) mod codec;
 #[cfg(target_os = "linux")]
@@ -25,7 +30,9 @@ mod retained_fanout;
 mod retained_policy;
 mod retained_policy_rows;
 pub(in crate::store) use retained_fanout::can_retain_in_tx;
+#[cfg(target_os = "linux")]
 mod release;
+#[cfg(target_os = "linux")]
 mod release_guard;
 pub(crate) mod retained_context;
 pub(crate) mod retained_context_codec;

@@ -10,7 +10,7 @@ async fn execute_approval_response<R: ApprovalResponseRuntime>(
     {
         let state_dir =
             dirs::state_dir().ok_or(CliError::PermissionRecoveryIo(intent.command_id))?;
-        let index = LinuxPermissionRecoveryIndex::new(state_dir);
+        let index = DurablePermissionRecoveryIndex::new(state_dir);
         #[cfg(test)]
         if std::env::var("RUNNE_CLI_MOCK_APPROVAL_CONSENT").as_deref()
             == Ok("approval-crash-fixture")

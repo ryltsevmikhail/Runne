@@ -1,5 +1,6 @@
 use runne_provider::{
-    ClaimedWriterAuthorization, CredentialBindingDigest, CredentialMutationGrant,
+    ClaimedWriterAuthorization, CredentialBindingDigest, CredentialBrokerCommand,
+    CredentialBrokerFrame, CredentialBrokerFrameCodec, CredentialMutationGrant,
     CredentialRuntimeMutationPlan, CredentialServiceCorrelation, CredentialServiceDeadline,
     CredentialServiceEpoch, CredentialServiceProtocolCodec, CredentialServiceRequestSequence,
     CredentialWriterAuthorityPair,
@@ -90,10 +91,11 @@ fn v3_legacy_cleanup_claim_does_not_wait_for_a_service_handoff() {
 #[test]
 fn v3_legacy_cleanup_executes_only_the_narrow_legacy_delete() {
     let command = command(18, CredentialOperationAction::LegacySourceCleanup);
-    let (parts, _) = endpoint(
+    let (mut parts, _) = endpoint(
         issue(command.clone(), binding(), [11; 32]),
         Some(accepted(&command)),
     );
+    append_release(&mut parts, &command);
     let (issuer, effects) = CredentialWriterAuthorityPair::new().split();
     let calls = Arc::new(AtomicUsize::new(0));
     let source = Arc::new(RecordingDeleteSource(calls.clone()));
@@ -113,6 +115,22 @@ fn v3_legacy_cleanup_executes_only_the_narrow_legacy_delete() {
         .unwrap();
 
     assert_eq!(calls.load(Ordering::SeqCst), 1);
+}
+
+/// Appends the exact native-effect release that a non-pair claim must read
+/// after its acknowledgement before authorizing the effect.
+fn append_release(parts: &mut TestClaimParts, command: &CredentialBrokerCommand) {
+    let mut encoded = Vec::new();
+    CredentialBrokerFrameCodec::write_to(
+        &mut encoded,
+        CredentialBrokerFrame::NativeEffectRelease {
+            operation_id: command.operation_id(),
+            attempt: command.ticket_attempt(),
+            binding: binding(),
+        },
+    )
+    .expect("release frame");
+    parts.control.input.get_mut().extend_from_slice(&encoded);
 }
 
 fn service_handoff(command: CredentialBrokerCommand) -> Vec<u8> {

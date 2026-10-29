@@ -47,7 +47,7 @@ impl NativeProviderCredentialWriters {
     ) -> Result<Self, SecureStoreError> {
         let (claim, effect) = session.split();
         #[cfg(target_os = "macos")]
-        let (issuer, control, channel, ticket, content_pin_token) = {
+        let (issuer, control, channel, ticket, release) = {
             let (issuer, control, channel, ticket, release) = claim
                 .into_macos_claim_parts()
                 .map_err(|_| SecureStoreError::CredentialAccessDenied)?;
@@ -180,7 +180,7 @@ fn build_effect_route(
     legacy: impl FnOnce(
         runne_provider::CredentialWriterEffectAuthority,
     ) -> Result<Arc<dyn BrokeredProviderCredentialWriter>, SecureStoreError>,
-    _legacy_source: impl FnOnce() -> Result<
+    #[cfg_attr(target_os = "linux", allow(unused_variables))] legacy_source: impl FnOnce() -> Result<
         Arc<dyn BrokeredProviderCredentialLegacySource>,
         SecureStoreError,
     >,

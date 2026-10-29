@@ -177,10 +177,11 @@ pub use permission_modes::{
     PermissionModeCeremonyStatusV2, PermissionModeSelectionManagedIdentity,
     PermissionModeSelectionSnapshot, PermissionModeStoreError, ProtectedNativeLaunchContext,
 };
+#[cfg(target_os = "linux")]
+pub use taskrun_local_command::LocalCommandPermissionTerminalOutputV1;
 pub use taskrun_local_command::{
     LocalCommandApprovalBinding, LocalCommandAttemptState, LocalCommandCancellationStopEvidence,
-    LocalCommandPermissionCaptureV1, LocalCommandPermissionRoute,
-    LocalCommandPermissionTerminalOutputV1, LocalCommandRecoveryCandidate,
+    LocalCommandPermissionCaptureV1, LocalCommandPermissionRoute, LocalCommandRecoveryCandidate,
     PermissionRootFenceGuardV1, PermissionRootFenceOwnerV1, PermissionRootFenceRequestV1,
 };
 mod taskrun_no_effect_proof;

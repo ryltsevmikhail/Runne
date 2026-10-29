@@ -86,28 +86,40 @@ pub(super) fn previous_results(
         return Err(CanonicalProviderExecutionError::Uncertain);
     }
 
-    let matcher = ProhibitedContentCredentialMatcher::new(service.prohibited_content.as_ref());
-    let redaction = ProviderEventRedactionBoundary::new(
-        service.tail_store.as_ref(),
-        service.scanner_store.as_ref(),
-        &matcher,
-    );
-    let execution = RuntimeProviderExecution::new(
-        service.keyring.as_ref(),
-        service.runtime_store.as_ref(),
-        route.profile.as_ref(),
-        service.prohibited_content.as_ref(),
-        &redaction,
-    );
-    execution
-        .preflight_existing_active_key(service.runtime_authority_id, service.database_generation)
-        .map_err(super::super::super::projection::map_execution_error)?;
-    chain
-        .iter()
-        .map(|record| reconstruct_result(service, &execution, record))
-        .collect()
+    #[cfg(target_os = "linux")]
+    {
+        let matcher = ProhibitedContentCredentialMatcher::new(service.prohibited_content.as_ref());
+        let redaction = ProviderEventRedactionBoundary::new(
+            service.tail_store.as_ref(),
+            service.scanner_store.as_ref(),
+            &matcher,
+        );
+        let execution = RuntimeProviderExecution::new(
+            service.keyring.as_ref(),
+            service.runtime_store.as_ref(),
+            route.profile.as_ref(),
+            service.prohibited_content.as_ref(),
+            &redaction,
+        );
+        execution
+            .preflight_existing_active_key(
+                service.runtime_authority_id,
+                service.database_generation,
+            )
+            .map_err(super::super::super::projection::map_execution_error)?;
+        chain
+            .iter()
+            .map(|record| reconstruct_result(service, &execution, record))
+            .collect()
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = (&chain, route);
+        Err(CanonicalProviderExecutionError::Uncertain)
+    }
 }
 
+#[cfg(target_os = "linux")]
 fn reconstruct_result<K, S, P>(
     service: &DaemonCanonicalProviderService,
     execution: &RuntimeProviderExecution<'_, K, S, P>,
@@ -234,14 +246,16 @@ where
         .map_err(|_| CanonicalProviderExecutionError::Uncertain)
 }
 
+#[cfg(target_os = "linux")]
 #[path = "tool_context/validation.rs"]
 mod validation;
-#[cfg(test)]
+#[cfg(all(test, target_os = "linux"))]
 use validation::validate_arguments;
+#[cfg(target_os = "linux")]
 use validation::{inspect_plain_bytes, validate_arguments_for_mode};
-#[cfg(feature = "test-support")]
+#[cfg(all(feature = "test-support", target_os = "linux"))]
 #[path = "tool_context/credential_companion_test_support.rs"]
 mod credential_companion_test_support;
-#[cfg(test)]
+#[cfg(all(test, target_os = "linux"))]
 #[path = "tool_context/tests.rs"]
 mod tests;

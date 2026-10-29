@@ -51,6 +51,7 @@ pub async fn start_protected(
     {
         return Err("Project and runtime roots must be distinct directories".into());
     }
+    #[cfg(target_os = "linux")]
     runne_platform_desktop::require_linux_cli_baseline_root(&runtime_root)
         .map_err(|_| "Protected runtime root unavailable")?;
     let executable = std::env::current_exe().map_err(|_| "CLI image unavailable")?;

@@ -14,6 +14,22 @@ use super::StoreTransaction;
 use runne_application::ports::TaskRunAssignmentIdentity;
 use runne_domain::{id::TaskRunId, reference::BudgetReservationRef};
 
+/// Canonicalises a durable 100-byte managed-area identity for cross-platform validators.
+///
+/// Managed areas are a Linux-native containment primitive. Other platforms have no
+/// producer for these rows and fail closed instead of guessing at the encoding.
+#[cfg(target_os = "linux")]
+pub(crate) fn canonical_area_identity(bytes: &[u8]) -> Option<[u8; 100]> {
+    runne_platform::process_managed_area::ManagedAreaIdentity::from_bytes(bytes)
+        .ok()
+        .map(|identity| identity.to_bytes())
+}
+
+#[cfg(not(target_os = "linux"))]
+pub(crate) fn canonical_area_identity(_bytes: &[u8]) -> Option<[u8; 100]> {
+    None
+}
+
 impl StoreTransaction {
     pub fn observe_taskrun_tool_permission(
         &self,
@@ -162,6 +178,7 @@ impl StoreTransaction {
         write::record_audit_payload(self, receipt, now_unix_ms)
     }
 
+    #[cfg(target_os = "linux")]
     pub fn record_taskrun_tool_area_launch(
         &self,
         key: ToolInvocationKey,
@@ -180,6 +197,7 @@ impl StoreTransaction {
         )
     }
 
+    #[cfg(target_os = "linux")]
     pub fn record_taskrun_tool_area_stopped(
         &self,
         key: ToolInvocationKey,

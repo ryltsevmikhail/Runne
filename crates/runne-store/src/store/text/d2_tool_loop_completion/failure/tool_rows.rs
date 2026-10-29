@@ -166,8 +166,7 @@ pub(super) fn verify_safe_tool_stop(
         let proof_ok = if let (Some(area), Some(proof)) = (&row.6, &row.7) {
             area == proof
                 && area.len() == 100
-                && runne_platform::process_managed_area::ManagedAreaIdentity::from_bytes(area)
-                    .is_ok()
+                && crate::store::taskrun_tool_invocation::canonical_area_identity(area).is_some()
                 && area[52..68] == *taskrun_id.as_bytes()
                 && area[68..84] == *attempt_id.as_bytes()
                 && area[84..100] == key.managed_area_nonce(semantic)

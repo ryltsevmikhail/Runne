@@ -88,7 +88,7 @@ async fn execute_permission_mode_set<R: PermissionModeRuntime>(
     #[cfg(target_os = "linux")]
     {
         let state = dirs::state_dir().ok_or(CliError::PermissionRecoveryIo(intent.command_id))?;
-        let index = LinuxPermissionRecoveryIndex::new(state);
+        let index = DurablePermissionRecoveryIndex::new(state);
         execute_mode_set_with_index(runtime, intent, &index).await
     }
     #[cfg(not(target_os = "linux"))]

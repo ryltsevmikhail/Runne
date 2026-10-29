@@ -206,12 +206,11 @@ fn verify_invocations(
             _ => false,
         };
         let area_binding_matches = area.as_ref().is_none_or(|bytes| {
-            let Ok(identity) =
-                runne_platform::process_managed_area::ManagedAreaIdentity::from_bytes(bytes)
+            let Some(encoded) =
+                crate::store::taskrun_tool_invocation::canonical_area_identity(bytes)
             else {
                 return false;
             };
-            let encoded = identity.to_bytes();
             let Ok(cycle_bytes) = <[u8; 16]>::try_from(cycle.as_slice()) else {
                 return false;
             };

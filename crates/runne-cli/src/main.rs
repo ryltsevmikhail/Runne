@@ -28,6 +28,8 @@ include!("cli/process_entry.rs");
 #[cfg(target_os = "linux")]
 mod linux_cli_credential_host;
 
+mod directory_scope;
+mod state_dir;
 mod tui;
 mod tui_backend;
 

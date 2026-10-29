@@ -151,9 +151,19 @@ fn checked_database_stat_value(stat: &rustix::fs::Stat) -> Result<FileIdentity, 
     Ok(identity(stat))
 }
 
+#[cfg(target_os = "linux")]
+fn device_id(stat: &rustix::fs::Stat) -> u64 {
+    stat.st_dev
+}
+
+#[cfg(not(target_os = "linux"))]
+fn device_id(stat: &rustix::fs::Stat) -> u64 {
+    stat.st_dev as u64
+}
+
 fn identity(stat: &rustix::fs::Stat) -> FileIdentity {
     FileIdentity {
-        dev: stat.st_dev,
+        dev: device_id(stat),
         ino: stat.st_ino,
     }
 }

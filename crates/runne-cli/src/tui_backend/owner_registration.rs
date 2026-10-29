@@ -114,7 +114,8 @@ impl BackendOwner {
     async fn create_registration(&mut self) -> Result<CanonicalId, String> {
         let root =
             VerifiedRootHandle::open(&self.project).map_err(|_| "Project root unavailable")?;
-        let state = dirs::state_dir().ok_or("Registration state directory unavailable")?;
+        let state =
+            crate::state_dir::state_root().ok_or("Registration state directory unavailable")?;
         let journal = intent::Journal::open(
             &state,
             intent::scope(

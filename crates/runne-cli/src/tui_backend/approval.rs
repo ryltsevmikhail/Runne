@@ -37,20 +37,12 @@ pub(super) async fn decide(
         displayed: displayed.into(),
         decision,
     };
-    #[cfg(target_os = "linux")]
-    {
-        let state = dirs::state_dir().ok_or("Recovery directory unavailable")?;
-        let index = crate::LinuxPermissionRecoveryIndex::new(state);
-        super::approval_retry::execute(client, intent, &index, &consent)
-            .await
-            .map(|_| ())
-            .map_err(|error| error.to_string())
-    }
-    #[cfg(not(target_os = "linux"))]
-    {
-        let _ = (client, intent, consent);
-        Err("Terminal approval recovery is unavailable on this platform".into())
-    }
+    let state = crate::state_dir::state_root().ok_or("Recovery directory unavailable")?;
+    let index = crate::DurablePermissionRecoveryIndex::new(state);
+    super::approval_retry::execute(client, intent, &index, &consent)
+        .await
+        .map(|_| ())
+        .map_err(|error| error.to_string())
 }
 
 struct TerminalConsent {

@@ -6,7 +6,8 @@ impl Backend {
     pub(super) fn journal(&mut self) -> Result<&Journal, String> {
         if self.journal.is_none() {
             let workspace = self.owner.workspace_id.ok_or("Project root not admitted")?;
-            let state = dirs::state_dir().ok_or("Command journal directory unavailable")?;
+            let state =
+                crate::state_dir::state_root().ok_or("Command journal directory unavailable")?;
             self.journal = Some(Journal::open(
                 &state,
                 pending::scope(self.owner.client.session_info(), workspace),
