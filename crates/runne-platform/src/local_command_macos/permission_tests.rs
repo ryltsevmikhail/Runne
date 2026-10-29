@@ -141,6 +141,39 @@ fn verify_held_rejects_a_tampered_sealed_image() {
 }
 
 #[test]
+fn verify_held_rejects_a_replaced_image_at_the_private_path() {
+    let directory = tempfile::tempdir().unwrap();
+    let workspace = File::open(directory.path()).unwrap();
+    let prepared = MacOsPermissionOwnerV1::new()
+        .unwrap()
+        .preparation()
+        .prepare_target(command(), &workspace, &workspace, sealed())
+        .unwrap();
+    let path = prepared.snapshot().path().to_path_buf();
+    let held = path.with_extension("held");
+    std::fs::rename(&path, &held).unwrap();
+    std::fs::write(&path, b"#!/bin/sh\nexit 0\n").unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o500)).unwrap();
+    assert_eq!(prepared.snapshot().validate_seals(), Ok(()));
+    assert_eq!(prepared.verify_held(), Err(CommandError::Unverified));
+}
+
+#[test]
+fn verify_held_rejects_a_symlink_at_the_private_path() {
+    let directory = tempfile::tempdir().unwrap();
+    let workspace = File::open(directory.path()).unwrap();
+    let prepared = MacOsPermissionOwnerV1::new()
+        .unwrap()
+        .preparation()
+        .prepare_target(command(), &workspace, &workspace, sealed())
+        .unwrap();
+    let path = prepared.snapshot().path().to_path_buf();
+    std::fs::rename(&path, path.with_extension("held")).unwrap();
+    std::os::unix::fs::symlink("/bin/echo", &path).unwrap();
+    assert_eq!(prepared.verify_held(), Err(CommandError::Unverified));
+}
+
+#[test]
 fn preparation_view_keeps_the_owner_identity_alive() {
     let directory = tempfile::tempdir().unwrap();
     let workspace = File::open(directory.path()).unwrap();

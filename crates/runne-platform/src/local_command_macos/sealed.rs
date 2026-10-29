@@ -29,9 +29,10 @@ impl SealedExecutableSnapshot {
     /// Returns invalid or unavailable before execution if source validation,
     /// bounded copying, durability, or identity checks fail.
     pub fn from_held_file(source: &File) -> Result<Self, CommandError> {
-        let mut stat = unsafe { std::mem::zeroed::<libc::stat>() };
-        if unsafe { libc::fstat(source.as_raw_fd(), &mut stat) } != 0
-            || stat.st_mode & libc::S_IFMT != libc::S_IFREG
+        let Ok(stat) = fstat(source) else {
+            return Err(CommandError::Invalid);
+        };
+        if stat.st_mode & libc::S_IFMT != libc::S_IFREG
             || stat.st_mode & 0o111 == 0
             || stat.st_size <= 0
             || stat.st_size as u64 > MAX_EXECUTABLE_BYTES
@@ -55,9 +56,14 @@ impl SealedExecutableSnapshot {
         })
     }
 
-    /// Exact executable path to pass to the native launcher.
+    /// Private image path retained for identity rebinding before release.
+    ///
+    /// This is deliberately not a launch token: it is not part of the public
+    /// API, and a release step must re-open it with `O_NOFOLLOW`, compare the
+    /// descriptor with the held one, and treat the result as a check rather
+    /// than an atomic bind. Executing the held descriptor is stronger.
     #[must_use]
-    pub fn path(&self) -> &Path {
+    pub(super) fn path(&self) -> &Path {
         &self.path
     }
 
@@ -73,9 +79,9 @@ impl SealedExecutableSnapshot {
         &self.object_id
     }
 
-    /// Retained descriptor for identity rechecks.
+    /// Retained descriptor for identity rechecks; not a spawn handle.
     #[must_use]
-    pub const fn file(&self) -> &File {
+    pub(super) const fn file(&self) -> &File {
         &self.file
     }
 
@@ -91,19 +97,51 @@ impl SealedExecutableSnapshot {
 
     /// Re-proves that the retained descriptor still holds exactly these bytes.
     ///
+    /// This checks the descriptor, not the path that currently names it: a
+    /// rename or a replacement at the old path does not change the held bytes.
+    ///
     /// # Errors
     /// Returns unverified when the private image was replaced, resized or is no
     /// longer a single-link regular file, and unavailable when it cannot be
     /// inspected.
     pub fn validate_seals(&self) -> Result<(), CommandError> {
-        let mut stat = unsafe { std::mem::zeroed::<libc::stat>() };
-        if unsafe { libc::fstat(self.file.as_raw_fd(), &mut stat) } != 0 {
-            return Err(CommandError::Unavailable);
-        }
+        let stat = fstat(&self.file).map_err(|_| CommandError::Unavailable)?;
         if stat.st_mode & libc::S_IFMT != libc::S_IFREG || stat.st_nlink != 1 {
             return Err(CommandError::Unverified);
         }
         let digest = crate::local_command_digest::file_digest(&self.file)
+            .map_err(|_| CommandError::Unverified)?;
+        if digest != self.digest {
+            return Err(CommandError::Unverified);
+        }
+        Ok(())
+    }
+
+    /// Re-proves that the private image path still names the held object.
+    ///
+    /// A release step must call this immediately before opening the path and
+    /// still prefer executing the held descriptor, because the path can be
+    /// replaced after any check.
+    ///
+    /// # Errors
+    /// Returns unverified when the path is gone, names another object, or the
+    /// reopened bytes no longer match the retained digest.
+    pub(super) fn verify_path_binding(&self) -> Result<(), CommandError> {
+        let opened = OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_NOFOLLOW)
+            .open(self.path())
+            .map_err(|_| CommandError::Unverified)?;
+        let held = fstat(&self.file).map_err(|_| CommandError::Unavailable)?;
+        let candidate = fstat(&opened).map_err(|_| CommandError::Unavailable)?;
+        if candidate.st_mode & libc::S_IFMT != libc::S_IFREG
+            || candidate.st_nlink != 1
+            || candidate.st_dev != held.st_dev
+            || candidate.st_ino != held.st_ino
+        {
+            return Err(CommandError::Unverified);
+        }
+        let digest = crate::local_command_digest::file_digest(&opened)
             .map_err(|_| CommandError::Unverified)?;
         if digest != self.digest {
             return Err(CommandError::Unverified);
@@ -179,17 +217,22 @@ fn copy_bounded(source: &File, destination: &mut File) -> std::io::Result<[u8; 3
     Ok(hasher.finalize().into())
 }
 
+fn fstat(file: &File) -> std::io::Result<libc::stat> {
+    let mut stat = unsafe { std::mem::zeroed::<libc::stat>() };
+    if unsafe { libc::fstat(file.as_raw_fd(), &mut stat) } != 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(stat)
+}
+
 fn reopen_verified(path: &Path, digest: &[u8; 32]) -> Result<File, CommandError> {
     let file = OpenOptions::new()
         .read(true)
         .custom_flags(libc::O_NOFOLLOW)
         .open(path)
         .map_err(|_| CommandError::Unavailable)?;
-    let mut stat = unsafe { std::mem::zeroed::<libc::stat>() };
-    if unsafe { libc::fstat(file.as_raw_fd(), &mut stat) } != 0
-        || stat.st_mode & libc::S_IFMT != libc::S_IFREG
-        || stat.st_nlink != 1
-    {
+    let stat = fstat(&file).map_err(|_| CommandError::Unverified)?;
+    if stat.st_mode & libc::S_IFMT != libc::S_IFREG || stat.st_nlink != 1 {
         return Err(CommandError::Unverified);
     }
     let mut bytes = Vec::with_capacity(stat.st_size as usize);

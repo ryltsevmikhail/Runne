@@ -60,6 +60,10 @@ pub struct PermissionTargetObservationV1 {
 }
 
 /// Held descriptors and sealed bytes fixed by one preparation.
+///
+/// Only [`Self::observation`] and [`Self::command`] are public. Descriptors and
+/// the sealed image stay inside this module, so the type grants no way to
+/// launch a child before a reviewed release gate exists.
 pub struct PreparedMacOsPermissionTargetV1 {
     command: TaskRunLocalCommand,
     workspace: File,
@@ -165,33 +169,25 @@ impl PreparedMacOsPermissionTargetV1 {
         &self.command
     }
 
-    /// Held workspace descriptor.
+    /// Sealed executable image bound to this target, for in-module rebinding.
     #[must_use]
-    pub const fn workspace(&self) -> &File {
-        &self.workspace
-    }
-
-    /// Held working-directory descriptor.
-    #[must_use]
-    pub const fn cwd(&self) -> &File {
-        &self.cwd
-    }
-
-    /// Sealed executable image bound to this target.
-    #[must_use]
-    pub const fn snapshot(&self) -> &SealedExecutableSnapshot {
+    pub(super) const fn snapshot(&self) -> &SealedExecutableSnapshot {
         &self.snapshot
     }
 
-    /// Re-proves the held descriptors and sealed bytes against the observation.
+    /// Re-proves the held descriptors, the sealed bytes, and the private image
+    /// path against the observation.
     ///
     /// # Errors
-    /// Returns unverified when any bound fact changed after preparation.
+    /// Returns unverified when any bound fact changed after preparation, when
+    /// the private image path no longer names the held object, or when the
+    /// path was replaced.
     pub fn verify_held(&self) -> Result<(), CommandError> {
-        self.snapshot.validate_seals()?;
+        self.snapshot().validate_seals()?;
+        self.snapshot().verify_path_binding()?;
         let workspace = digest::descriptor_identity(&self.workspace).map_err(into_error)?;
         let cwd = digest::descriptor_identity(&self.cwd).map_err(into_error)?;
-        let executable = digest::file_digest(self.snapshot.file()).map_err(into_error)?;
+        let executable = digest::file_digest(self.snapshot().file()).map_err(into_error)?;
         if workspace != self.observation.workspace_identity
             || cwd != self.observation.cwd_identity
             || executable != self.observation.executable_digest
