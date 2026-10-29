@@ -2,7 +2,7 @@
 use super::{
     ActivationCheckpoint, ActivationStateStore, Command, Deserialize, ExecutableIdentityV1,
     LaunchTestControls, OpenOptions, OpenOptionsExt, Path, PathBuf, ProtectedBundledRuntimeError,
-    Read, Serialize, StoredExecutableV1, Write, require_linux_cli_baseline_root, sync_directory,
+    Read, Serialize, StoredExecutableV1, Write, require_terminal_baseline_root, sync_directory,
     validate_executable_path, validate_owner_private_file,
 };
 use sha2::{Digest, Sha256};
@@ -37,7 +37,7 @@ pub fn publish_terminal_installation_source(
     daemon: &Path,
     host: &Path,
 ) -> Result<(), ProtectedBundledRuntimeError> {
-    require_linux_cli_baseline_root(root)?;
+    require_terminal_baseline_root(root)?;
     let source = TerminalSource {
         version: 1,
         config: config.to_owned(),
@@ -163,7 +163,7 @@ pub(super) fn apply(
             .directory
             .parent()
             .ok_or(ProtectedBundledRuntimeError::ActivationStateUnavailable)?;
-        require_linux_cli_baseline_root(runtime_root)?;
+        require_terminal_baseline_root(runtime_root)?;
         command.env("XDG_CONFIG_HOME", config_home);
         // Reproduce defaults of the adopted source after env_clear. This is
         // the verified launch root, never the caller's ambient XDG value.
@@ -187,7 +187,7 @@ pub fn repin_terminal_configuration(
     previous_config: &Path,
     current_config: &Path,
 ) -> Result<(), ProtectedBundledRuntimeError> {
-    require_linux_cli_baseline_root(root)?;
+    require_terminal_baseline_root(root)?;
     let store = ActivationStateStore::open(root)?;
     let previous: TerminalSource = store
         .read_record(RECORD)?
@@ -239,7 +239,7 @@ pub fn verify_terminal_installation_source(
     root: &Path,
     config: &Path,
 ) -> Result<(), ProtectedBundledRuntimeError> {
-    require_linux_cli_baseline_root(root)?;
+    require_terminal_baseline_root(root)?;
     let state = ActivationStateStore::open(root)?;
     let source = load(&state)?.ok_or(ProtectedBundledRuntimeError::ActivationStateUnavailable)?;
     if source.config != config {

@@ -12,6 +12,8 @@ include!("protected_runtime/launcher.rs");
 include!("protected_runtime/linux_launch_image.rs");
 #[cfg(target_os = "linux")]
 include!("protected_runtime/cli_baseline.rs");
+#[cfg(target_os = "macos")]
+include!("protected_runtime/cli_baseline_macos.rs");
 include!("protected_runtime/activation_rebind.rs");
 #[cfg(unix)]
 include!("protected_runtime/local_process_fixture.rs");
@@ -210,8 +212,8 @@ include!("protected_runtime/test_support_capture.rs");
 #[cfg(all(target_os = "linux", feature = "protected-channel-integration"))]
 include!("protected_runtime/permission_control.rs");
 
-#[cfg(target_os = "linux")]
+#[cfg(unix)]
 pub mod terminal_adoption;
 
-#[cfg(target_os = "linux")]
+#[cfg(unix)]
 pub mod terminal_installation;

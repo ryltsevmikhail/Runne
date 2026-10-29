@@ -1,6 +1,6 @@
 //! Explicit finite tool grant opt-in, preserving existing primary authority rows.
 use super::*;
-use crate::linux_cli_credential_host::policy::ImagePolicy;
+use crate::terminal_image_policy::ImagePolicy;
 
 /// The previous config is a private snapshot of the exact adopted source.
 /// Only an absent-to-finite tool budget is permitted; image pins and all other policy stay exact.

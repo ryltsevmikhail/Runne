@@ -6,7 +6,7 @@ use serde::Serialize;
 
 use crate::config::{BuiltInDefaults, ConfigurationSnapshot};
 use crate::error::DaemonError;
-use crate::linux_cli_credential_host::policy::ImagePolicy;
+use crate::terminal_image_policy::ImagePolicy;
 
 mod credential;
 mod journal;
@@ -120,7 +120,7 @@ fn verified_target() -> Result<(ConfigurationSnapshot, ImagePolicy, PathBuf), Da
         ));
     }
     let root = existing_root(&config)?;
-    runne_platform_desktop::require_linux_cli_baseline_root(&root)
+    runne_platform_desktop::require_terminal_baseline_root(&root)
         .map_err(|_| failure("adoption runtime root is not owner-private"))?;
     let images = ImagePolicy::load(&config).map_err(failure)?;
     images.revalidate().map_err(failure)?;

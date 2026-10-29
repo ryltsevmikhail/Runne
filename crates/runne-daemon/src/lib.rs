@@ -23,6 +23,9 @@ pub mod replay_key;
 #[cfg(target_os = "linux")]
 pub mod safe_tool_helper;
 pub mod shutdown;
+/// Measured image pins for the adopted terminal installation.
+#[cfg(unix)]
+pub mod terminal_image_policy;
 
 #[cfg(test)]
 mod source_boundary_tests;

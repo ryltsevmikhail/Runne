@@ -2,7 +2,7 @@
 use super::{
     ActivationCheckpoint, ActivationStateStore, Deserialize, LaunchTestControls, OpenOptions,
     OpenOptionsExt, Path, ProtectedBundledRuntimeError, RECORD, Serialize, TerminalSource, Write,
-    config_hash, measured, require_linux_cli_baseline_root, sync_directory,
+    config_hash, measured, require_terminal_baseline_root, sync_directory,
 };
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -26,7 +26,7 @@ pub fn upgrade_terminal_installation_source(
     current_config: &Path,
     current_directory: &Path,
 ) -> Result<(), ProtectedBundledRuntimeError> {
-    require_linux_cli_baseline_root(root)?;
+    require_terminal_baseline_root(root)?;
     let state = ActivationStateStore::open(root)?;
     let invalid = ProtectedBundledRuntimeError::ActivationStateUnavailable;
     let actual: TerminalSource = state.read_record(RECORD)?.ok_or(invalid)?;

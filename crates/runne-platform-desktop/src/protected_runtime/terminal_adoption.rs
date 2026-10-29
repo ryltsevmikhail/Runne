@@ -2,14 +2,14 @@
 use super::{
     ACTIVATION_STATE_DIRECTORY, ActivationStateStore, LOCAL_PRINCIPAL, LaunchTestControls, Path,
     ProtectedBundledRuntimeError, StableRuntimeBindingV1, ensure_owner_private_directory,
-    expected_profile_for_launch, require_linux_cli_baseline_root,
+    expected_profile_for_launch, require_terminal_baseline_root,
 };
 
 /// Publishes an existing runtime identity after the daemon committed adoption.
 ///
 /// This writes no database state and grants no consent or enrollment authority.
 /// The caller must retain exclusive runtime ownership through publication.
-#[cfg(target_os = "linux")]
+#[cfg(unix)]
 ///
 /// # Errors
 /// Rejects invalid, conflicting, or unavailable owner-private activation state.
@@ -17,7 +17,7 @@ pub fn publish_terminal_adoption_anchor(
     root: &Path,
     stable: &StableRuntimeBindingV1,
 ) -> Result<(), ProtectedBundledRuntimeError> {
-    require_linux_cli_baseline_root(root)?;
+    require_terminal_baseline_root(root)?;
     let root = ensure_owner_private_directory(root)?;
     let expected = expected_profile_for_launch(&root, true)?;
     if stable.principal_id() != LOCAL_PRINCIPAL
@@ -35,7 +35,7 @@ pub fn publish_terminal_adoption_anchor(
 }
 
 /// Reads an exact published anchor without creating activation state.
-#[cfg(target_os = "linux")]
+#[cfg(unix)]
 ///
 /// # Errors
 /// Rejects invalid, conflicting, or unavailable owner-private activation state.
@@ -43,7 +43,7 @@ pub fn terminal_adoption_anchor_matches(
     root: &Path,
     expected: &StableRuntimeBindingV1,
 ) -> Result<bool, ProtectedBundledRuntimeError> {
-    require_linux_cli_baseline_root(root)?;
+    require_terminal_baseline_root(root)?;
     if !root.join(ACTIVATION_STATE_DIRECTORY).exists() {
         return Ok(false);
     }

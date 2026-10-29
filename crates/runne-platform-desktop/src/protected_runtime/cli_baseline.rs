@@ -4,6 +4,17 @@ use std::os::unix::ffi::OsStrExt as _;
 use rustix::fs::{AtFlags, Dir, Mode, OFlags, open, openat, statat};
 use rustix::io::Errno;
 
+/// Platform-neutral name for the runtime-root baseline.
+///
+/// # Errors
+///
+/// Delegates to [`require_linux_cli_baseline_root`].
+pub fn require_terminal_baseline_root(
+    runtime_root: &Path,
+) -> Result<(), ProtectedBundledRuntimeError> {
+    require_linux_cli_baseline_root(runtime_root)
+}
+
 /// Allows an explicit Linux CLI runtime root only while legacy containers are absent.
 ///
 /// This is read-only. The caller must still construct a launch spec and use its

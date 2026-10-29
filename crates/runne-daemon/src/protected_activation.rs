@@ -268,7 +268,7 @@ pub mod test_support;
 
 include!("protected_activation/bootstrap_validation.rs");
 
-#[cfg(all(target_os = "linux", feature = "desktop-protected"))]
+#[cfg(all(unix, feature = "desktop-protected"))]
 pub mod terminal_adoption;
 
 #[cfg(all(

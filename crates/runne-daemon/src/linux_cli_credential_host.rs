@@ -1,6 +1,5 @@
 //! Reader-only selection for the separate standalone Linux credential host.
-pub mod policy;
-use policy::ImagePolicy;
+pub use crate::terminal_image_policy::ImagePolicy;
 
 pub(crate) fn execution_access_policy()
 -> Result<Option<runne_secure_store::ProviderCredentialAccessPolicy>, crate::error::DaemonError> {

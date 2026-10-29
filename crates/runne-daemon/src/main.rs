@@ -87,7 +87,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     {
         return provider_dispatch_command::run();
     }
-    #[cfg(all(target_os = "linux", feature = "desktop-protected"))]
+    #[cfg(all(unix, feature = "desktop-protected"))]
     if arguments
         .first()
         .is_some_and(|argument| argument == "terminal-adoption")
@@ -188,5 +188,5 @@ fn run_protected(
 #[cfg(all(target_os = "macos", feature = "persistent-reference-probe"))]
 pub mod persistent_reference_probe;
 
-#[cfg(all(target_os = "linux", feature = "desktop-protected"))]
+#[cfg(all(unix, feature = "desktop-protected"))]
 mod terminal_adoption_command;

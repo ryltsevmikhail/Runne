@@ -27,12 +27,21 @@ impl ImagePolicy {
             .canonicalize()
             .map_err(|_| "host image unavailable")?;
         let directory = current.parent().ok_or("host directory unavailable")?;
+        // The CLI is the credential writer on every platform. Linux keeps a
+        // separate measured host binary; macOS writes through the Keychain
+        // from the CLI image itself, so the host pin is the CLI image.
+        let cli = directory.join("runne");
+        let host = if cfg!(target_os = "linux") {
+            directory.join("runne-credential-host")
+        } else {
+            cli.clone()
+        };
         Self::load_for_paths(
             config,
             crate::config::external_config_path(),
-            directory.join("runne"),
+            cli,
             directory.join("runned"),
-            directory.join("runne-credential-host"),
+            host,
         )
     }
 
@@ -78,8 +87,9 @@ impl ImagePolicy {
         if config.digest != self.config_digest {
             return Err("credential host configuration changed");
         }
-        let live =
-            std::fs::metadata("/proc/self/exe").map_err(|_| "live host image unavailable")?;
+        let live = std::env::current_exe()
+            .and_then(|path| std::fs::metadata(path))
+            .map_err(|_| "live host image unavailable")?;
         let installed =
             std::fs::metadata(&self.daemon).map_err(|_| "installed host image unavailable")?;
         let host =
@@ -187,5 +197,5 @@ fn image_digest(path: &Path) -> HostResult<[u8; 32]> {
 }
 
 #[cfg(test)]
-#[path = "policy_tests.rs"]
+#[path = "terminal_image_policy_tests.rs"]
 mod tests;

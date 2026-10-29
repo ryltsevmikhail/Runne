@@ -19,6 +19,9 @@ pub use protected_runtime::linux_activation_approval::{
 };
 #[cfg(target_os = "linux")]
 pub use protected_runtime::require_linux_cli_baseline_root;
+/// Platform-neutral owner-private runtime-root baseline.
+#[cfg(unix)]
+pub use protected_runtime::require_terminal_baseline_root;
 /// Platform-validated writer-process handoff for protected credential enrollment.
 pub mod provider_credential_broker;
 mod provider_credential_prompt;
@@ -228,8 +231,8 @@ pub use protected_runtime::terminal_adoption::{
     publish_terminal_adoption_anchor, terminal_adoption_anchor_matches,
 };
 
-#[cfg(target_os = "linux")]
+#[cfg(unix)]
 pub use protected_runtime::terminal_installation::{
-    publish_terminal_installation_source, repin_terminal_configuration, upgrade_terminal_installation_source,
-    verify_terminal_installation_source,
+    publish_terminal_installation_source, repin_terminal_configuration,
+    upgrade_terminal_installation_source, verify_terminal_installation_source,
 };
