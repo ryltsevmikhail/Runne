@@ -5120,11 +5120,11 @@ name = "runne-secure-store"
 version = "0.0.3"
 dependencies = [
  "aes 0.9.3",
+ "base64 0.22.1",
  "block-padding 0.4.2",
  "cbc 0.2.1",
  "dbus",
  "ed25519-dalek",
- "hex",
  "hkdf",
  "keyring",
  "linux-keyutils",

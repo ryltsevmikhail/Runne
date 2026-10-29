@@ -139,3 +139,4 @@ mod tests {
 include!("migrations/v70_workspace_root_identity.rs");
 
 include!("migrations/v71_coding_tool_budget.rs");
+include!("migrations/v72_execution_node_platform.rs");

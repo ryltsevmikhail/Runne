@@ -96,5 +96,8 @@ fn apply_execution_migrations(
     if source_version < 71 && target_version >= 71 {
         apply_v71_migration(conn)?;
     }
+    if target_version >= 71 {
+        repair_execution_node_platform(conn)?;
+    }
     Ok(())
 }

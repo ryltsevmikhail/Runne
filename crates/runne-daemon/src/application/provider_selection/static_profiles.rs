@@ -27,6 +27,43 @@ pub(super) fn deepseek_runtime() -> Result<SelectedProviderRuntime, DaemonError>
         "../../../../../docs/profiles/deepseek-responses-text-v1.json"
     ))
     .map_err(|_| DaemonError::Bootstrap("provider profile unavailable".into()))?;
+    #[cfg(feature = "test-support")]
+    if let (Ok(address), Ok(certificate_path)) = (
+        std::env::var("RUNNE_TEST_DEEPSEEK_LOOPBACK_ADDR"),
+        std::env::var("RUNNE_TEST_DEEPSEEK_LOOPBACK_CERT"),
+    ) {
+        let address = address
+            .parse::<std::net::SocketAddr>()
+            .map_err(|_| DaemonError::Bootstrap("provider loopback address".into()))?;
+        let certificate = std::fs::read(certificate_path)
+            .map_err(|_| DaemonError::Bootstrap("provider loopback certificate".into()))?;
+        let policy = std::sync::Arc::new(
+            runne_provider_deepseek::DeepSeekTransportPolicy::for_profile(&profile)
+                .map_err(|_| DaemonError::Bootstrap("provider loopback policy".into()))?,
+        );
+        let loopback_profile = std::sync::Arc::new(profile.clone());
+        return Ok(SelectedProviderRuntime {
+            profile: Arc::new(SharedTextProviderProfile::new(loopback_profile)),
+            adapter_factory: Arc::new(move |authority, _budget_store| {
+                let client = runne_daemon_deepseek_effect::loopback_fixture_client(
+                    &policy,
+                    address,
+                    &certificate,
+                )
+                .map_err(|_| DaemonError::Bootstrap("provider loopback client".into()))?;
+                runne_daemon_deepseek_effect::effect_from_loopback_fixture_with_materializer(
+                    client, authority,
+                )
+                .map(deepseek_effect_adapter)
+                .map_err(|_| DaemonError::Bootstrap("provider loopback adapter".into()))
+            }),
+            provider_id: Cow::Borrowed("deepseek"),
+            model_id: Cow::Borrowed(DEEPSEEK_MODEL_ID),
+            model_revision: Cow::Borrowed(DEEPSEEK_MODEL_REVISION),
+            scope: Cow::Borrowed("provider.deepseek.responses.text"),
+            credential_id: ProviderCredentialId::DeepSeek,
+        });
+    }
     Ok(SelectedProviderRuntime {
         profile: Arc::new(SharedTextProviderProfile::new(Arc::new(profile))),
         adapter_factory: Arc::new(|authority, _budget_store| {

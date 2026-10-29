@@ -43,6 +43,7 @@ fn create_partition_acl(
         access,
         &description,
         unsafe { kSecACLAuthorizationPartitionID },
+        0,
     )
 }
 
@@ -50,6 +51,7 @@ fn create_null_application_acl(
     access: &SecAccess,
     description: &str,
     authorization: CFStringRef,
+    prompt_selector: u16,
 ) -> Result<(), KeychainAclError> {
     let description = CFString::new(description);
     let mut acl = ptr::null();
@@ -58,7 +60,7 @@ fn create_null_application_acl(
             access.as_concrete_TypeRef(),
             ptr::null(),
             description.as_concrete_TypeRef(),
-            0,
+            prompt_selector,
             &raw mut acl,
         )
     })?;

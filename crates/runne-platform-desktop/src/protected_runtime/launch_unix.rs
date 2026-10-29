@@ -113,6 +113,21 @@ impl DevelopmentBundledRuntimeLauncher {
         let child_stdin = Stdio::from(OwnedFd::from(child_channel));
         let mut command = Command::new(&launch_executable_path);
         command.env_clear().stdin(child_stdin);
+        if let (Some(writer), Some(reader)) =
+            (spec.credential_writer(), spec.credential_reader())
+        {
+            command
+                .env("RUNNE_CLI_PATH", writer)
+                .env("RUNNE_DAEMON_PATH", reader);
+        }
+        for name in [
+            "RUNNE_TEST_DEEPSEEK_LOOPBACK_ADDR",
+            "RUNNE_TEST_DEEPSEEK_LOOPBACK_CERT",
+        ] {
+            if let Some(value) = std::env::var_os(name) {
+                command.env(name, value);
+            }
+        }
         terminal_installation::apply(&mut command, &state_store)?;
         #[cfg(target_os = "linux")]
         linux_provider_bus::apply_to_command(

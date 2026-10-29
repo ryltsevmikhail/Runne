@@ -85,7 +85,7 @@ impl VerifiedOwnerPrivateConfig {
 /// canonical router, and shutdown authority kept alive together.
 pub struct DaemonApplication {
     pub(super) bootstrap: BootstrapOutcome,
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     pub(super) execution_node: super::execution_node_lifecycle::LinuxExecutionNode,
     pub(super) store: StoreTransaction,
     pub(super) http_host: LocalRuntimeTlsHost,

@@ -66,6 +66,13 @@ pub async fn start_protected(
         .with_provider_activation(
             runne_api::ProviderActivationBindingV1::deepseek_responses_text_v1(),
         );
+    let spec = if let Ok(cli) = std::env::current_exe()
+        && let Some(daemon) = cli.parent().map(|directory| directory.join("runned"))
+    {
+        spec.with_credential_paths(cli, daemon)
+    } else {
+        spec
+    };
     let mut supervisor =
         ProtectedBundledRuntimeSupervisor::new(DevelopmentBundledRuntimeLauncher::new(), spec);
     supervisor

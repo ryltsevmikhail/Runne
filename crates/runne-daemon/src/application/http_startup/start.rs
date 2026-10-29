@@ -115,14 +115,14 @@ pub(in crate::application) async fn start_http_and_runtime(
         #[cfg(feature = "desktop-protected")]
         &permission_startup,
     );
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     let registered_execution_node = execution_node::register_before_taskrun_recovery(
         &store,
         &local_session_service,
         &bootstrap,
         &binding,
     )?;
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     let execution_node_epoch = Arc::clone(&registered_execution_node.worker_epoch);
     #[cfg(target_os = "linux")]
     let node_lease_heartbeat = Arc::clone(&registered_execution_node.heartbeat);
@@ -272,7 +272,7 @@ pub(in crate::application) async fn start_http_and_runtime(
     };
     Ok(DaemonApplication {
         bootstrap,
-        #[cfg(target_os = "linux")]
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
         execution_node: registered_execution_node.node,
         store,
         http_host,

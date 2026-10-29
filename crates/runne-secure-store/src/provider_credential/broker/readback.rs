@@ -9,7 +9,7 @@ use super::readback_observation::{
 };
 use crate::{
     NativeProviderCredentialVersionStore, ProviderCredentialAccessPolicy, ProviderCredentialId,
-    ProviderCredentialStatus, SecureStoreError,
+    ProviderCredentialStatus, ProviderCredentialStore, SecureStoreError,
 };
 
 pub trait ProviderCredentialReadback: Send + Sync {
@@ -209,22 +209,7 @@ impl LegacyCredentialSourceReadback for crate::NativeProviderCredentialStore {
     ) -> Result<ProviderCredentialStatus, SecureStoreError> {
         let provider = ProviderCredentialId::from_account(provider.as_str())
             .ok_or(BrokerError::Unsupported)?;
-        #[cfg(target_os = "macos")]
-        {
-            self.legacy_source_metadata_presence(provider, access)
-                .map(|present| {
-                    if present {
-                        ProviderCredentialStatus::Configured
-                    } else {
-                        ProviderCredentialStatus::Missing
-                    }
-                })
-        }
-        #[cfg(not(target_os = "macos"))]
-        {
-            let _ = (provider, access);
-            Err(BrokerError::Unsupported.into())
-        }
+        self.provider_credential_status(provider, access)
     }
 }
 

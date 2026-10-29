@@ -1,93 +1,136 @@
 // macOS 27-compatible provider credential storage.
 //
-// macOS 27 splits executable partition ACL records on save, so the legacy
-// exact-ACL provider item cannot be created reliably. This backend uses the
-// same login-Keychain generic-password protection as the provider journal key.
-// It intentionally implements only the legacy credential store: the daemon is
-// forbidden from holding native writer authority, so lifecycle enrollment stays
-// on the credential-service path.
+// The exact-ACL backend is unusable on macOS 27 by construction: saving the
+// item erases the partition ACL, so no cross-process executable ACL survives.
+// This backend keeps ONE login-Keychain generic password per provider under
+// the same service as the provider journal key. The payload carries the
+// installation/writer/reader path binding checked by `provider_credential_binding`.
+//
+// Delete and overwrite resolve the item by query, never by an ACL identity, so
+// a rebuilt CLI can still replace or remove the item it wrote earlier.
 
-use sha2::{Digest, Sha256};
-
-const PLAIN_PROVIDER_SERVICE: &str = "dev.runne.provider-credential.plain.v1";
+const PROVIDER_CREDENTIAL_ACCOUNT_PREFIX: &str = "provider_credential";
+const PROVIDER_CREDENTIAL_SERVICE: &str = SERVICE_NAME;
 
 #[derive(Debug)]
 pub struct MacOsPlainProviderCredentialStore {
     service: String,
     account: String,
+    authority: Option<NativeCredentialAuthority>,
 }
 
 impl MacOsPlainProviderCredentialStore {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            service: PLAIN_PROVIDER_SERVICE.to_owned(),
+            service: PROVIDER_CREDENTIAL_SERVICE.to_owned(),
             account: ProviderCredentialId::OpenAi.account().to_owned(),
+            authority: None,
+        }
+    }
+
+    #[must_use]
+    pub fn new_versioned(authority: NativeCredentialAuthority) -> Self {
+        Self {
+            authority: Some(authority),
+            ..Self::new()
         }
     }
 
     fn scoped_provider_store(&self, provider: ProviderCredentialId) -> Self {
         let account = if self.account == ProviderCredentialId::OpenAi.account() {
-            provider.account().to_owned()
+            format!("{PROVIDER_CREDENTIAL_ACCOUNT_PREFIX}:{}", provider.account())
         } else {
             self.account.clone()
         };
         Self {
             service: self.service.clone(),
             account,
+            authority: self.authority.clone(),
         }
     }
 
     fn validate_provider(&self, provider: ProviderCredentialId) -> Result<(), SecureStoreError> {
-        if provider.account() == self.account {
+        if self.account == format!("{PROVIDER_CREDENTIAL_ACCOUNT_PREFIX}:{}", provider.account()) {
             Ok(())
         } else {
             Err(SecureStoreError::CredentialAccessDenied)
         }
     }
 
-    fn exists(&self) -> Result<bool, SecureStoreError> {
-        let _locks =
-            acquire_keychain_interaction_locks().map_err(|()| SecureStoreError::Unavailable)?;
-        let keychain = active_keychain().map_err(|()| SecureStoreError::Unavailable)?;
-        runne_macos_keychain_acl::generic_password_exists(&keychain, &self.service, &self.account)
+    fn read_encoded(&self) -> Result<Option<Zeroizing<Vec<u8>>>, SecureStoreError> {
+        runne_macos_keychain_acl::read_open_generic_password(&self.service, &self.account)
+            .map(|value| value.map(Zeroizing::new))
             .map_err(|_| SecureStoreError::ProviderCredentialOperationFailed)
     }
 
-    fn read_bytes(&self) -> Result<Option<Zeroizing<Vec<u8>>>, SecureStoreError> {
-        let _locks =
-            acquire_keychain_interaction_locks().map_err(|()| SecureStoreError::Unavailable)?;
-        let keychain = active_keychain().map_err(|()| SecureStoreError::Unavailable)?;
-        match keychain.find_generic_password(&self.service, &self.account) {
-            Ok((bytes, _)) => Ok(Some(Zeroizing::new(bytes.as_ref().to_vec()))),
-            Err(error) if error.code() == ERR_SEC_ITEM_NOT_FOUND => Ok(None),
-            Err(_) => Err(SecureStoreError::ProviderCredentialOperationFailed),
-        }
-    }
-
-    fn write_bytes(&self, bytes: &[u8]) -> Result<(), SecureStoreError> {
-        let _locks =
-            acquire_keychain_interaction_locks().map_err(|()| SecureStoreError::Unavailable)?;
-        let keychain = active_keychain().map_err(|()| SecureStoreError::Unavailable)?;
-        keychain
-            .set_generic_password(&self.service, &self.account, bytes)
+    fn write_encoded(
+        &self,
+        encoded: &[u8],
+        _access: &ProviderCredentialAccessPolicy,
+    ) -> Result<(), SecureStoreError> {
+        let text = std::str::from_utf8(encoded)
+            .map_err(|_| SecureStoreError::InvalidProviderCredential)?;
+        runne_macos_keychain_acl::write_open_generic_password(&self.service, &self.account, text)
             .map_err(|_| SecureStoreError::ProviderCredentialOperationFailed)
     }
 
-    fn delete_bytes(&self) -> Result<bool, SecureStoreError> {
-        let _locks =
-            acquire_keychain_interaction_locks().map_err(|()| SecureStoreError::Unavailable)?;
-        let keychain = active_keychain().map_err(|()| SecureStoreError::Unavailable)?;
-        match keychain.find_generic_password(&self.service, &self.account) {
-            Ok((_, item)) => {
-                runne_macos_keychain_acl::delete_item(&item)
-                    .map_err(|_| SecureStoreError::ProviderCredentialOperationFailed)?;
-                Ok(true)
+    fn delete_item(&self) -> Result<bool, SecureStoreError> {
+        runne_macos_keychain_acl::delete_open_generic_password(&self.service, &self.account)
+            .map(|()| true)
+            .map_err(|_| SecureStoreError::ProviderCredentialOperationFailed)
+    }
+
+    fn status_for(
+        &self,
+        provider: ProviderCredentialId,
+        access: &ProviderCredentialAccessPolicy,
+    ) -> Result<ProviderCredentialStatus, SecureStoreError> {
+        let store = self.scoped_provider_store(provider);
+        store.validate_provider(provider)?;
+        let Some(encoded) = store.read_encoded()? else {
+            return Ok(ProviderCredentialStatus::Missing);
+        };
+        let decoded = decode_stored_payload(&encoded)?;
+        decode_provider_credential(&decoded, access)?;
+        Ok(ProviderCredentialStatus::Configured)
+    }
+
+    fn load_for(
+        &self,
+        provider: ProviderCredentialId,
+        access: &ProviderCredentialAccessPolicy,
+    ) -> Result<ProviderCredentialMaterial, SecureStoreError> {
+        let store = self.scoped_provider_store(provider);
+        store.validate_provider(provider)?;
+        let encoded = store
+            .read_encoded()?
+            .ok_or(SecureStoreError::ProviderCredentialNotFound)?;
+        let decoded = decode_stored_payload(&encoded)?;
+        decode_provider_credential(&decoded, access)
+    }
+
+    fn revision_for(
+        material: &ProviderCredentialMaterial,
+    ) -> Result<ProviderCredentialSourceRevision, SecureStoreError> {
+        material.with_bytes(|bytes| {
+            let digest = Sha256::digest(bytes);
+            let mut revision = [0_u8; 16];
+            revision.copy_from_slice(&digest[..16]);
+            if revision == [0; 16] {
+                revision[0] = 1;
             }
-            Err(error) if error.code() == ERR_SEC_ITEM_NOT_FOUND => Ok(false),
-            Err(_) => Err(SecureStoreError::ProviderCredentialOperationFailed),
-        }
+            ProviderCredentialSourceRevision::new(revision)
+        })
     }
+}
+
+fn decode_stored_payload(encoded: &[u8]) -> Result<Zeroizing<Vec<u8>>, SecureStoreError> {
+    use base64::Engine as _;
+    base64::engine::general_purpose::STANDARD
+        .decode(encoded)
+        .map(Zeroizing::new)
+        .map_err(|_| SecureStoreError::CorruptProviderCredential)
 }
 
 impl Default for MacOsPlainProviderCredentialStore {
@@ -100,39 +143,33 @@ impl ProviderCredentialStore for MacOsPlainProviderCredentialStore {
     fn provider_credential_status(
         &self,
         provider: ProviderCredentialId,
-        _access: &ProviderCredentialAccessPolicy,
+        access: &ProviderCredentialAccessPolicy,
     ) -> Result<ProviderCredentialStatus, SecureStoreError> {
-        let store = self.scoped_provider_store(provider);
-        store.validate_provider(provider)?;
-        Ok(if store.exists()? {
-            ProviderCredentialStatus::Configured
-        } else {
-            ProviderCredentialStatus::Missing
-        })
+        self.status_for(provider, access)
     }
 
     fn store_provider_credential(
         &self,
         provider: ProviderCredentialId,
         credential: &ProviderCredentialMaterial,
-        _access: &ProviderCredentialAccessPolicy,
+        access: &ProviderCredentialAccessPolicy,
     ) -> Result<(), SecureStoreError> {
         let store = self.scoped_provider_store(provider);
         store.validate_provider(provider)?;
-        credential.with_bytes(|bytes| store.write_bytes(bytes))
+        // Overwrite resolves the existing item by query; a rebuilt writer with
+        // a different executable digest still replaces the same logical item.
+        use base64::Engine as _;
+        let encoded = encode_provider_credential(credential, access)?;
+        let text = base64::engine::general_purpose::STANDARD.encode(&encoded);
+        store.write_encoded(text.as_bytes(), access)
     }
 
     fn load_provider_credential(
         &self,
         provider: ProviderCredentialId,
-        _access: &ProviderCredentialAccessPolicy,
+        access: &ProviderCredentialAccessPolicy,
     ) -> Result<ProviderCredentialMaterial, SecureStoreError> {
-        let store = self.scoped_provider_store(provider);
-        store.validate_provider(provider)?;
-        let bytes = store
-            .read_bytes()?
-            .ok_or(SecureStoreError::ProviderCredentialNotFound)?;
-        ProviderCredentialMaterial::from_zeroizing(bytes)
+        self.load_for(provider, access)
     }
 
     fn load_provider_credential_source(
@@ -140,16 +177,8 @@ impl ProviderCredentialStore for MacOsPlainProviderCredentialStore {
         provider: ProviderCredentialId,
         access: &ProviderCredentialAccessPolicy,
     ) -> Result<ProviderCredentialSource, SecureStoreError> {
-        let material = self.load_provider_credential(provider, access)?;
-        let revision = material.with_bytes(|bytes| {
-            let digest = Sha256::digest(bytes);
-            let mut revision = [0_u8; 16];
-            revision.copy_from_slice(&digest[..16]);
-            if revision == [0; 16] {
-                revision[0] = 1;
-            }
-            crate::ProviderCredentialSourceRevision::new(revision)
-        })?;
+        let material = self.load_for(provider, access)?;
+        let revision = Self::revision_for(&material)?;
         Ok(ProviderCredentialSource::new(material, revision))
     }
 
@@ -159,7 +188,8 @@ impl ProviderCredentialStore for MacOsPlainProviderCredentialStore {
     ) -> Result<(), SecureStoreError> {
         let store = self.scoped_provider_store(provider);
         store.validate_provider(provider)?;
-        let _ = store.delete_bytes()?;
+        // Query-only delete: no ACL identity is compared after a rebuild.
+        let _ = store.delete_item()?;
         Ok(())
     }
 
@@ -172,3 +202,20 @@ impl ProviderCredentialStore for MacOsPlainProviderCredentialStore {
         Err(SecureStoreError::UnsupportedSecureStoreBackend)
     }
 }
+
+#[cfg(any(test, feature = "provider-credential-broker-writer"))]
+impl crate::provider_credential::AuthorizedLegacySourceStore
+    for MacOsPlainProviderCredentialStore
+{
+    fn load_authorized_legacy_source(
+        &self,
+        read: runne_provider::AuthorizedCredentialLegacyRead,
+        access: &ProviderCredentialAccessPolicy,
+    ) -> Result<ProviderCredentialSource, SecureStoreError> {
+        let provider = ProviderCredentialId::from_account(read.command().provider().as_str())
+            .ok_or(SecureStoreError::ProviderCredentialOperationFailed)?;
+        self.load_provider_credential_source(provider, access)
+    }
+}
+
+include!("plain_provider_credential_versioned.inc");

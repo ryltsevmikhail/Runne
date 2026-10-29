@@ -3,7 +3,7 @@ use super::*;
 mod automatic_taskruns;
 mod command_hosts;
 mod enrollment;
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 mod execution_node;
 mod linux_enrollment_control;
 mod profile_models;

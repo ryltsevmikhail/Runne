@@ -40,8 +40,33 @@ pub const fn credential_source() -> &'static str {
 }
 
 pub(super) fn credential_disposition(id: ProviderCredentialId) -> CredentialDisposition {
-    match credential_access_policy(id) {
-        Ok(_) => CredentialDisposition::Missing,
-        Err(_) => CredentialDisposition::IdentityMismatch,
+    let access = match credential_access_policy(id) {
+        Ok(access) => access,
+        Err(_) => return CredentialDisposition::IdentityMismatch,
+    };
+    #[cfg(target_os = "macos")]
+    {
+        use runne_secure_store::{
+            MacOsPlainProviderCredentialStore, ProviderCredentialStatus, ProviderCredentialStore,
+            SecureStoreError,
+        };
+        return match MacOsPlainProviderCredentialStore::new()
+            .provider_credential_status(id, &access)
+        {
+            Ok(ProviderCredentialStatus::Configured) => CredentialDisposition::Configured,
+            Ok(ProviderCredentialStatus::Missing) => CredentialDisposition::Missing,
+            Ok(ProviderCredentialStatus::Unsupported) => CredentialDisposition::Unsupported,
+            Err(SecureStoreError::CredentialAccessDenied) => CredentialDisposition::AccessDenied,
+            Err(
+                SecureStoreError::CredentialIdentityMismatch
+                | SecureStoreError::CorruptProviderCredential,
+            ) => CredentialDisposition::IdentityMismatch,
+            Err(_) => CredentialDisposition::Unavailable,
+        };
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = access;
+        CredentialDisposition::Missing
     }
 }

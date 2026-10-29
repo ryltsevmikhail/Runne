@@ -19,7 +19,8 @@ use crate::provider_credential::{
 };
 use crate::{
     NativeProviderCredentialVersionStore, ProviderCredentialAccessPolicy, ProviderCredentialId,
-    ProviderCredentialMaterial, ProviderCredentialSource, ProviderCredentialStatus,
+    ProviderCredentialMaterial, ProviderCredentialSource, ProviderCredentialSourceRevision,
+    ProviderCredentialStatus,
     ProviderCredentialStore, ProviderJournalKeyDeletionProof, ProviderJournalKeyMaterial,
     ProviderJournalKeyRef, ProviderJournalKeyStatus, ProviderJournalKeyring, SecureStore,
     SecureStoreError, SecurityAnchorV1, SecurityProfileLock, StoredSecurityAnchor,

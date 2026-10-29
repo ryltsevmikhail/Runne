@@ -202,6 +202,8 @@ pub struct ProtectedBundledRuntimeLaunchSpec {
     runtime_root: PathBuf,
     trusted_source_identity: ExecutableIdentityV1,
     provider_activation: Option<ProviderActivationBindingV1>,
+    credential_writer: Option<PathBuf>,
+    credential_reader: Option<PathBuf>,
     // Test-support seam: a session-bus address already validated through the
     // strict production checks, injected so hosted-CI Linux tests do not
     // depend on a real `/run/user/<euid>/bus`. Absent from production builds.
@@ -225,6 +227,24 @@ impl fmt::Debug for ProtectedBundledRuntimeLaunchSpec {
 }
 
 impl ProtectedBundledRuntimeLaunchSpec {
+    /// Names the stable writer/reader install paths for the child binding.
+    #[must_use]
+    pub fn with_credential_paths(mut self, writer: PathBuf, reader: PathBuf) -> Self {
+        self.credential_writer = Some(writer);
+        self.credential_reader = Some(reader);
+        self
+    }
+
+    #[must_use]
+    pub(crate) fn credential_writer(&self) -> Option<&Path> {
+        self.credential_writer.as_deref()
+    }
+
+    #[must_use]
+    pub(crate) fn credential_reader(&self) -> Option<&Path> {
+        self.credential_reader.as_deref()
+    }
+
     /// Validates one direct, absolute executable and owner-private runtime root.
     ///
     /// # Errors
@@ -250,6 +270,8 @@ impl ProtectedBundledRuntimeLaunchSpec {
                 runtime_root,
                 trusted_source_identity,
                 provider_activation: None,
+            credential_writer: None,
+            credential_reader: None,
                 #[cfg(all(
                     target_os = "linux",
                     any(test, feature = "test-support")

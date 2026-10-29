@@ -6,7 +6,6 @@
 // item is created with the exact trusted-application set the authorized
 // import path verifies, under the scenario's explicit disposable keychain.
 #[cfg(feature = "test-support")]
-use crate::ProviderCredentialSourceRevision;
 
 /// Scenario-facing placement of one committed fixture slot: the physical
 /// slot (primary or alternate) and its committed generation.
