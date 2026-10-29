@@ -14,6 +14,12 @@ use crate::args::MAX_PROFILE_BYTES;
 /// larger than [`MAX_PROFILE_BYTES`], is not UTF-8, contains a NUL byte, or
 /// does not declare Seatbelt profile version 1.
 pub fn read(fd: RawFd) -> Result<CString, String> {
+    // A closed descriptor would make `File::from_raw_fd` abort the process on
+    // drop instead of returning the documented profile error.
+    // SAFETY: F_GETFD only inspects this process's descriptor table.
+    if unsafe { libc::fcntl(fd, libc::F_GETFD) } == -1 {
+        return Err(format!("profile descriptor {fd} is not open"));
+    }
     // SAFETY: the parent passes ownership of this descriptor to the helper.
     let mut file = unsafe { File::from_raw_fd(fd) };
     let mut bytes = Vec::new();
@@ -62,6 +68,12 @@ mod tests {
     fn rejects_a_profile_with_an_interior_nul() {
         let file = profile_file(b"(version 1)\0\n");
         assert!(read(file.into_raw_fd()).is_err());
+    }
+
+    #[test]
+    fn rejects_a_descriptor_that_is_not_open() {
+        let error = read(i32::MAX).expect_err("an unopened descriptor must fail");
+        assert!(error.contains("is not open"), "unexpected error: {error}");
     }
 
     #[test]

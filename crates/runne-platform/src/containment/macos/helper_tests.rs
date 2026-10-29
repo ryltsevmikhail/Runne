@@ -8,12 +8,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 use super::MacOsSeatbeltProfileV1;
-
-fn helper_binary_path() -> PathBuf {
-    std::env::current_dir()
-        .expect("current dir")
-        .join("../../target/debug/runne-sandbox-helper")
-}
+use super::tests::helper_binary_path;
 
 fn build_helper() {
     let status = Command::new("cargo")
@@ -152,6 +147,91 @@ fn helper_applies_the_profile_before_exec() {
         "write outside the workspace succeeded"
     );
     assert!(!outside_file.exists());
+}
+
+#[test]
+fn helper_rejects_a_closed_profile_descriptor() {
+    build_helper();
+    let output = Command::new("/bin/sh")
+        .arg("-c")
+        .arg("exec 3<&-; exec \"$0\" --profile-fd 3 -- /bin/echo")
+        .arg(helper_binary_path())
+        .output()
+        .expect("spawn helper through sh");
+    assert_eq!(
+        output.status.code(),
+        Some(4),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("is not open"),
+        "unexpected stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn helper_closes_inherited_descriptors_before_exec() {
+    if !seatbelt_available() {
+        eprintln!("skipping: Seatbelt cannot be applied in this process tree");
+        return;
+    }
+    let (_directory, helper) = signed_helper();
+    let workspace = tempfile::tempdir().expect("temporary workspace");
+    let workspace = fs::canonicalize(workspace.path()).expect("canonical workspace");
+    let profile = MacOsSeatbeltProfileV1::new(&workspace)
+        .expect("workspace profile")
+        .render();
+
+    let target = workspace.join("leaked.txt");
+    let target_file = File::create(&target).expect("create target");
+    // F_DUPFD (not F_DUPFD_CLOEXEC) creates an inheritable descriptor, which
+    // stands in for one the runtime forgot to mark close-on-exec.
+    // SAFETY: fcntl duplicates this process's descriptor and optionally
+    // changes the duplicate's flags.
+    let source = unsafe { libc::fcntl(target_file.as_raw_fd(), libc::F_DUPFD, 30) };
+    assert!(source >= 30, "cannot duplicate the target descriptor");
+    unsafe { libc::fcntl(source, libc::F_SETFD, 0) };
+
+    let mut profile_file = tempfile::tempfile().expect("temporary profile");
+    profile_file
+        .write_all(profile.as_bytes())
+        .expect("write profile");
+    profile_file.rewind().expect("rewind profile");
+    let profile_fd = dup_high(profile_file.as_raw_fd());
+
+    let mut command = Command::new(&helper);
+    command
+        .arg("--profile-fd")
+        .arg("3")
+        .arg("--")
+        .arg("/bin/sh")
+        .arg("-c")
+        .arg("printf leaked >&30");
+    let profile_source = profile_fd.as_raw_fd();
+    // SAFETY: dup2 and fcntl only touch already-open descriptors; no
+    // allocation happens after fork.
+    unsafe {
+        command.pre_exec(move || {
+            if libc::dup2(profile_source, 3) < 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            if libc::dup2(source, 30) < 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            if libc::fcntl(30, libc::F_SETFD, 0) < 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            Ok(())
+        });
+    }
+    let output = command.output().expect("spawn signed helper");
+    assert!(
+        !output.status.success(),
+        "write through the leaked descriptor succeeded"
+    );
+    assert_eq!(fs::read(&target).expect("read target"), b"");
 }
 
 #[test]

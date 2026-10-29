@@ -97,12 +97,28 @@ mod tests {
     }
 
     /// Возвращает путь к собранному `runne-sandbox-helper` binary.
-    fn helper_binary_path() -> std::path::PathBuf {
-        // Тест запускается из `crates/runne-platform`, поэтому workspace target
-        // находится в `../../target/debug`.
-        std::env::current_dir()
-            .expect("current dir")
-            .join("../../target/debug/runne-sandbox-helper")
+    ///
+    /// `CARGO_TARGET_DIR` учитывается, потому что `cargo build` внутри теста
+    /// кладёт helper именно туда, а не в `target/` рабочего дерева.
+    pub(super) fn helper_binary_path() -> std::path::PathBuf {
+        let workspace = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .ancestors()
+            .nth(2)
+            .expect("workspace root");
+        let target = std::env::var_os("CARGO_TARGET_DIR").map_or_else(
+            || workspace.join("target"),
+            |value| {
+                let path = std::path::PathBuf::from(value);
+                if path.is_absolute() {
+                    path
+                } else {
+                    // Cargo resolves a relative target directory against the
+                    // directory the nested `cargo build` runs in.
+                    std::env::current_dir().expect("current dir").join(path)
+                }
+            },
+        );
+        target.join("debug/runne-sandbox-helper")
     }
 
     fn build_helper() {
