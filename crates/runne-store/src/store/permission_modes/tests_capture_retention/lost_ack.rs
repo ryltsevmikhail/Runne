@@ -54,3 +54,6 @@ fn guard_history() {
 // Pure SQLite Reader regressions; no native effect or crash acceptance authority.
 #[path = "lost_ack_reader/snapshot.rs"]
 mod logical_reader;
+
+#[path = "lost_ack_success.rs"]
+mod success_history;

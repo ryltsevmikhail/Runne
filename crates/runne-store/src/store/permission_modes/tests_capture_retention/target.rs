@@ -54,6 +54,21 @@ pub(super) fn prepare_with_command(
     LocalCommandPermissionBindingV1,
     runne_platform::local_command_linux::PreparedPermissionTargetV1,
 ) {
+    let (binding, prepared, _) = prepare_with_command_recorded(f, command, executable, &f.store);
+    (binding, prepared)
+}
+
+// Preserve call-time originals for the crash oracle; ordinary callers are unchanged.
+pub(super) fn prepare_with_command_recorded<P: TaskRunClaimPort>(
+    f: &Fixture,
+    command: TaskRunLocalCommand,
+    executable: &[u8],
+    claim_port: &P,
+) -> (
+    LocalCommandPermissionBindingV1,
+    runne_platform::local_command_linux::PreparedPermissionTargetV1,
+    ConversationId,
+) {
     let prepared = support::prepare(f, &command, executable);
     let observation = prepared.observation();
     let conversation_id = ConversationId::from_bytes(uuid::Uuid::now_v7().into_bytes());
@@ -133,7 +148,7 @@ pub(super) fn prepare_with_command(
                 capability_descriptor: "linux-executor-v1".into(),
                 lease_duration_ms: 300_000,
             },
-            &f.store,
+            claim_port,
         )
         .unwrap()
     else {
@@ -162,7 +177,7 @@ pub(super) fn prepare_with_command(
             expires_at_unix_ms: now() + 120_000,
         },
     );
-    (binding, prepared)
+    (binding, prepared, conversation_id)
 }
 
 pub(super) fn capture(
