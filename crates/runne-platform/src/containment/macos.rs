@@ -1,14 +1,21 @@
-//! macOS containment — blocked by missing Developer ID signing identity.
+//! macOS containment — fail-closed until a signed helper is qualified.
 //!
 //! Platform-specific OS APIs require `unsafe`; all unsafe blocks are isolated
 //! in this module with safety comments.
 #![allow(unsafe_code)]
 
+mod profile;
+
+pub use profile::MacOsSeatbeltProfileV1;
+
 use super::{
     AttestationVerdict, ContainmentError, ContainmentRequest, NativeCertificate, RuntimeProbe,
 };
 
-/// Недоступный до появления подписанного helper бэкенд macOS containment.
+/// Fail-closed macOS containment backend.
+///
+/// The Seatbelt profile builder and the signed helper exist, but no permit is
+/// issued until the helper is qualified and the release gate consumes it.
 pub struct MacOsContainment;
 
 unsafe extern "C" {
@@ -68,10 +75,26 @@ impl MacOsContainment {
 }
 
 #[cfg(test)]
+#[path = "macos/helper_tests.rs"]
+mod helper_tests;
+
+#[cfg(test)]
 mod tests {
     use std::process::Command;
 
     use super::*;
+
+    /// Reports whether this process tree can apply a Seatbelt profile at all.
+    ///
+    /// Agent and CI sandboxes already confine the test process, and a nested
+    /// profile cannot be applied from there. Apple's own `sandbox-exec` is the
+    /// control: when it fails, the limitation is the environment, not the code.
+    fn seatbelt_available() -> bool {
+        Command::new("/usr/bin/sandbox-exec")
+            .args(["-p", "(version 1)(allow default)", "/usr/bin/true"])
+            .output()
+            .is_ok_and(|output| output.status.success())
+    }
 
     /// Возвращает путь к собранному `runne-sandbox-helper` binary.
     fn helper_binary_path() -> std::path::PathBuf {
@@ -164,12 +187,13 @@ mod tests {
 
     #[test]
     fn sandbox_api_probe_reports_availability() {
-        // На macOS с libsandbox должен вернуться true.
-        // Этот тест собирается только под cfg(target_os = \"macos\").
-        let available = probe_sandbox_api();
+        if !seatbelt_available() {
+            eprintln!("skipping: Seatbelt cannot be applied in this process tree");
+            return;
+        }
         assert!(
-            available,
-            "sandbox API should be available on macOS; ad-hoc/test mode only"
+            probe_sandbox_api(),
+            "sandbox API should be available when sandbox-exec succeeds"
         );
     }
 
@@ -181,6 +205,11 @@ mod tests {
         let identity = resolve_developer_id_identity();
         let identity = identity.as_deref().unwrap_or("-");
         sign_helper(&helper_binary_path(), identity);
+
+        if !seatbelt_available() {
+            eprintln!("skipping: Seatbelt cannot be applied in this process tree");
+            return;
+        }
 
         let status = Command::new(helper_binary_path())
             .arg("--self-test")
