@@ -190,3 +190,17 @@ fn symlinked_ancestor_and_leaf_are_rejected() {
     fs::remove_dir_all(directory).unwrap();
     fs::remove_dir_all(outside.0).unwrap();
 }
+
+#[test]
+fn primitive_open_beneath_rejects_parent_component() {
+    let (directory, root) = fixture();
+    let error = super::platform::open_beneath(
+        &root,
+        &std::ffi::CString::new("../outside").unwrap(),
+        libc::O_RDONLY,
+        0,
+    )
+    .unwrap_err();
+    assert_eq!(error, "target_denied");
+    fs::remove_dir_all(directory).unwrap();
+}

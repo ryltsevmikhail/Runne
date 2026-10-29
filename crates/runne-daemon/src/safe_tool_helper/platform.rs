@@ -110,6 +110,11 @@ mod imp {
         let mut components = path.to_bytes().split(|byte| *byte == b'/').peekable();
         let mut current = root.try_clone().map_err(|_| "target_denied")?;
         while let Some(component) = components.next() {
+            if component == b".." {
+                // Linux gets this guarantee from `RESOLVE_BENEATH`; refuse it
+                // here so a future caller cannot escape the pinned root.
+                return Err("target_denied");
+            }
             if component.is_empty() || component == b"." {
                 continue;
             }
