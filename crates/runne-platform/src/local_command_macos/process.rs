@@ -1,7 +1,7 @@
 //! Bounded macOS process-area child with group termination and emptiness proof.
 #![allow(unsafe_code)]
 
-use super::area::{MacOsAreaIdentity, MacOsManagedArea, VerifiedEmptyMacOsArea};
+use super::area::{MacOsAreaIdentity, MacOsManagedArea};
 use super::error::MacOsCommandError as CommandError;
 use super::exit::{LinuxLeaderExitKindV1, LinuxLeaderExitObservationV1};
 use std::io::Read;

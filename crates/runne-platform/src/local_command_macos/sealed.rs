@@ -78,6 +78,38 @@ impl SealedExecutableSnapshot {
     pub const fn file(&self) -> &File {
         &self.file
     }
+
+    /// Identity of this sealed object and its immutable generation.
+    ///
+    /// A macOS snapshot is a one-shot private copy, so it is never rotated and
+    /// always reports generation `1`. A second snapshot of the same bytes is a
+    /// distinct object with its own identity.
+    #[must_use]
+    pub const fn permission_identity(&self) -> ([u8; 16], u64) {
+        (self.object_id, 1)
+    }
+
+    /// Re-proves that the retained descriptor still holds exactly these bytes.
+    ///
+    /// # Errors
+    /// Returns unverified when the private image was replaced, resized or is no
+    /// longer a single-link regular file, and unavailable when it cannot be
+    /// inspected.
+    pub fn validate_seals(&self) -> Result<(), CommandError> {
+        let mut stat = unsafe { std::mem::zeroed::<libc::stat>() };
+        if unsafe { libc::fstat(self.file.as_raw_fd(), &mut stat) } != 0 {
+            return Err(CommandError::Unavailable);
+        }
+        if stat.st_mode & libc::S_IFMT != libc::S_IFREG || stat.st_nlink != 1 {
+            return Err(CommandError::Unverified);
+        }
+        let digest = crate::local_command_digest::file_digest(&self.file)
+            .map_err(|_| CommandError::Unverified)?;
+        if digest != self.digest {
+            return Err(CommandError::Unverified);
+        }
+        Ok(())
+    }
 }
 
 impl std::fmt::Debug for SealedExecutableSnapshot {

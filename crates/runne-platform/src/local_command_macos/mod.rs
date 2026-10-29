@@ -8,6 +8,7 @@
 mod area;
 mod error;
 mod exit;
+mod permission;
 mod process;
 mod sealed;
 
@@ -15,5 +16,9 @@ pub use area::{MacOsAreaIdentity, MacOsManagedArea, VerifiedEmptyMacOsArea};
 pub use error::MacOsCommandError;
 pub use error::MacOsCommandError as LinuxCommandError;
 pub use exit::{LinuxLeaderExitKindV1, LinuxLeaderExitObservationV1};
+pub use permission::{
+    MacOsPermissionOwnerV1, MacOsPermissionPreparationV1, PermissionTargetObservationV1,
+    PreparedMacOsPermissionTargetV1,
+};
 pub use process::{MacOsCommandSpec, MacOsManagedChild};
 pub use sealed::SealedExecutableSnapshot;

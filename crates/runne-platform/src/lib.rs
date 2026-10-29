@@ -6,6 +6,9 @@
 pub mod certification;
 pub mod containment;
 pub mod fence;
+/// Shared structured-command digests used by every local command adapter.
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+mod local_command_digest;
 /// Structured, fail-closed local Linux command gate.
 #[cfg(target_os = "linux")]
 pub mod local_command_linux;
