@@ -1,0 +1,24 @@
+{
+  "manifest_version": 1,
+  "fixtures": [
+    {
+      "path": "v71-legacy-execution-node.sqlite",
+      "fixture_kind": "sanitized_schema_shape",
+      "captured_from": "v71 daemon state root (event-log.db), 2026-10-30",
+      "sanitization": "all installation rows removed; schema, indexes and triggers are the installation DDL; schema_version 1..71, one canonical schema_lineage marker, one neutral schema_upgrade_fence row, two synthetic Linux execution_nodes rows",
+      "schema_version": 71,
+      "page_size": 512,
+      "sha256": "6b2db1458719b9e76366025bc1d02180eebeb954dab462f6e040ae6514d7ba15",
+      "expected_shape": {
+        "execution_nodes_platform_check": "platform = 'linux'",
+        "execution_nodes_rows": 2,
+        "execution_nodes_fence_triggers": [
+          "schema_v12_fence_execution_nodes_delete",
+          "schema_v12_fence_execution_nodes_insert",
+          "schema_v12_fence_execution_nodes_update"
+        ]
+      },
+      "purpose": "Regression fixture for repairing a released v71 execution_nodes table that still enforces platform='linux'."
+    }
+  ]
+}

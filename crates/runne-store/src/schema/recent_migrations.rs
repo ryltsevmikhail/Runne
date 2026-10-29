@@ -134,6 +134,7 @@ mod tests {
     include!("tests/conversation_context_scope_v40.rs");
     include!("tests/frozen_migrations.rs");
     include!("tests/provider_accounting_v37.rs");
+    include!("tests/v72_execution_node_platform.rs");
 }
 
 include!("migrations/v70_workspace_root_identity.rs");
