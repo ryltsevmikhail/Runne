@@ -6,7 +6,6 @@ use runne_provider::{
     CredentialEnrollmentAuthorityPair, CredentialEnrollmentMeasurementAuthority,
     CredentialEnrollmentStoreAuthority,
 };
-#[cfg(not(all(target_os = "macos", feature = "desktop-protected")))]
 use runne_secure_store::NativeProviderCredentialReaders;
 use runne_secure_store::{
     ProviderCredentialAccessPolicy, ProviderCredentialDispatchMaterializer, ProviderCredentialId,
@@ -67,13 +66,7 @@ pub(super) fn compose(
             defer_initial_reconciliation: true,
         });
     }
-    #[cfg(all(target_os = "macos", feature = "desktop-protected"))]
-    return Err(DaemonError::Bootstrap(
-        "protected credential service registration is required".into(),
-    ));
-    #[cfg(not(all(target_os = "macos", feature = "desktop-protected")))]
     let _ = service_only;
-    #[cfg(not(all(target_os = "macos", feature = "desktop-protected")))]
     let (lifecycle_authority, readback, dispatch, _) = {
         #[cfg(target_os = "linux")]
         if _credential_id == ProviderCredentialId::DeepSeek {
@@ -104,19 +97,14 @@ pub(super) fn compose(
             NativeProviderCredentialReaders::new(_access.clone()).into_parts()
         }
     };
-    #[cfg(not(all(target_os = "macos", feature = "desktop-protected")))]
     let store = SqliteProviderCredentialLifecycleStore::open_with_connection_and_authorities(
         connection,
         lifecycle_authority,
         enrollment_store_authority.clone(),
     )
     .map_err(|_| DaemonError::Bootstrap("provider credential lifecycle unavailable".into()))?;
-    #[cfg(all(
-        feature = "test-support",
-        not(all(target_os = "macos", feature = "desktop-protected"))
-    ))]
+    #[cfg(feature = "test-support")]
     prove_existing_local_material(&store, _credential_id, &_access)?;
-    #[cfg(not(all(target_os = "macos", feature = "desktop-protected")))]
     Ok(ComposedCredentialReaders {
         store: Arc::new(store),
         readback,
@@ -129,10 +117,7 @@ pub(super) fn compose(
     })
 }
 
-#[cfg(all(
-    feature = "test-support",
-    not(all(target_os = "macos", feature = "desktop-protected"))
-))]
+#[cfg(feature = "test-support")]
 fn prove_existing_local_material(
     store: &SqliteProviderCredentialLifecycleStore,
     credential_id: ProviderCredentialId,
