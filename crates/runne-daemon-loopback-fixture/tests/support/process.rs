@@ -1,8 +1,9 @@
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt as _;
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 use std::os::unix::net::UnixListener;
 use std::path::{Path, PathBuf};
+#[cfg(target_os = "linux")]
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
 
@@ -17,7 +18,7 @@ const PROTECTED_CLIENT_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Monotonic suffix so repeated launches into one fixture root never collide
 /// with a stale fixture socket file.
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 static SESSION_BUS_SEQUENCE: AtomicU32 = AtomicU32::new(0);
 
 /// Binds one real session-bus fixture socket inside the owner-private fixture
@@ -29,7 +30,7 @@ static SESSION_BUS_SEQUENCE: AtomicU32 = AtomicU32::new(0);
 /// produces, so Linux provider-bound launches do not depend on a real bus.
 /// `with_validated_session_bus_address` re-validates the path through the
 /// strict production checks before injecting it into the launch spec.
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 fn fixture_session_bus(root: &Path) -> PathBuf {
     let sequence = SESSION_BUS_SEQUENCE.fetch_add(1, Ordering::Relaxed);
     let socket_path = root.join(format!("session-bus-{sequence}.sock"));
@@ -64,13 +65,13 @@ pub fn executable(name: &str, fixture_root: &Path) -> PathBuf {
 
 fn openai_spec(executable: &Path, runtime_root: &Path) -> ProtectedBundledRuntimeLaunchSpec {
     // The fixture root (runtime_root's parent) is the owner-private tempdir.
-    #[cfg(unix)]
+    #[cfg(target_os = "linux")]
     let session_bus_socket =
         fixture_session_bus(runtime_root.parent().expect("owner-private fixture root"));
     let spec = ProtectedBundledRuntimeLaunchSpec::new(executable, runtime_root)
         .expect("owner-private protected fixture spec")
         .with_provider_activation(ProviderActivationBindingV1::openai_responses_text_v1());
-    #[cfg(unix)]
+    #[cfg(target_os = "linux")]
     let spec = spec
         .with_validated_session_bus_address(&session_bus_socket)
         .expect("fixture session bus address");

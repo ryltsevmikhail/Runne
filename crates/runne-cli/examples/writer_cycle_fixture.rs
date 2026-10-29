@@ -1,22 +1,32 @@
 //! Test-only Linux Pair cycle, using the exact production claim/effect source.
 //! Only the store backend is fake. Never staged or shipped; no real credentials.
 #![allow(dead_code)]
+#[cfg(target_os = "linux")]
 use std::io::Write as _;
+#[cfg(target_os = "linux")]
 use std::os::fd::AsFd as _;
+#[cfg(target_os = "linux")]
 #[path = "../src/cli/provider_credential_broker/channel.rs"]
 mod channel;
+#[cfg(target_os = "linux")]
 #[path = "../src/cli/provider_credential_broker/claim.rs"]
 mod claim;
+#[cfg(target_os = "linux")]
 #[path = "../src/cli/provider_credential_broker/effect.rs"]
 mod effect;
+#[cfg(target_os = "linux")]
 #[path = "../src/cli/provider_credential_broker/pair.rs"]
 mod pair;
+#[cfg(target_os = "linux")]
 #[path = "../src/cli/provider_credential_broker/run.rs"]
 mod run;
+#[cfg(target_os = "linux")]
 #[path = "../src/cli/provider_credential_broker/secret.rs"]
 mod secret;
+#[cfg(target_os = "linux")]
 #[path = "../tests/writer_fixture_support/mod.rs"]
 mod support;
+#[cfg(target_os = "linux")]
 #[path = "../src/cli/provider_credential_broker/writer_fd_sweep.rs"]
 mod writer_fd_sweep;
 
@@ -25,6 +35,7 @@ pub enum CliError {
     CredentialOperation,
 }
 
+#[cfg(target_os = "linux")]
 fn main() {
     let secret = channel::InheritedSecretInputSlot::inspect().unwrap();
     let retained = secret.validated_descriptor_for_sweep().unwrap();
@@ -76,4 +87,10 @@ fn main() {
             b"noeffect"
         })
         .unwrap();
+}
+
+#[cfg(not(target_os = "linux"))]
+fn main() {
+    eprintln!("this fixture is Linux-only");
+    std::process::exit(1);
 }

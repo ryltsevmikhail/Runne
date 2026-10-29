@@ -14,6 +14,8 @@ const SECONDARY_BACKGROUND: &str =
 const SECONDARY_METADATA: &str =
     "crates/runne-daemon/src/canonical_provider/composition/secondary_effects_metadata.rs";
 
+const TOOL_ACTIVITY: &str = "crates/runne-daemon/src/application/http_startup/tool_activity.rs";
+
 pub(super) fn audit(
     path: &str,
     tokens: &[Token],
@@ -37,7 +39,10 @@ pub(super) fn audit(
         ["vec"] => path == AGGREGATES || exact_selected_identity_vec(path, tokens, open),
         ["params"] => path == ACCOUNTING || path == RUNTIME,
         ["tokio", "pin"] | ["tokio", "select"] => path == HTTP_HOST,
-        ["format"] => existing_format(path, tokens, index, open),
+        ["format"] => {
+            existing_format(path, tokens, index, open)
+                || tool_activity_format(path, tokens, open)
+        }
         ["env"] => path == START && cargo_pkg_version(tokens, index, open),
         ["include_bytes"] => {
             (path == COMPOSITION && openai_profile(tokens, open))
@@ -102,6 +107,20 @@ fn existing_format(path: &str, tokens: &[Token], index: usize, open: usize) -> b
         && punct(tokens, index - 1, '(')
         && punct(tokens, open + 2, ')')
         && punct(tokens, open + 3, ')')
+}
+
+fn tool_activity_format(path: &str, tokens: &[Token], open: usize) -> bool {
+    path == TOOL_ACTIVITY
+        && matches!(
+            tokens.get(open + 1),
+            Some(Token::String { value, .. }) if matches!(
+                value.as_str(),
+                "{}:{}:{}"
+                    | "{:?}"
+                    | "{}\\n{}"
+                    | "exit: {:?}; timed out: {}\\nstdout:\\n{}\\nstderr:\\n{}"
+            )
+        )
 }
 
 fn cargo_pkg_version(tokens: &[Token], index: usize, open: usize) -> bool {

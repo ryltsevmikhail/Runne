@@ -108,6 +108,7 @@ pub(super) fn spawn_daemon_with_rendezvous(
             Arc::new(|| Ok(1_800_000_000_000)),
             V3EnrollmentDispatch::new(Some(control), rendezvous, Some(installed))
                 .with_test_qualification(verifier, Arc::new(|| Ok(1_800_000_000)), verified),
+            None,
         )
     })
 }

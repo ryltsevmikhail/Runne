@@ -218,10 +218,11 @@ pub(crate) fn session_with_active(
         .unwrap(),
     );
     let session = control
-        .start_protected_session(
+        .start_protected_session_with_controls(
             &keys,
             &owned,
             DaemonOwnedUnixBrokerRendezvous::create().unwrap(),
+            Vec::new(),
             installed,
         )
         .unwrap();

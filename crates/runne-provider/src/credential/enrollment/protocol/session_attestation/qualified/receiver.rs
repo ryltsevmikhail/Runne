@@ -3,6 +3,7 @@ use runne_native_qualification::{
 };
 
 use super::super::PendingCredentialIssueTicketV1;
+#[cfg(target_os = "linux")]
 use super::codec::CredentialWriterSessionAttestationV2Codec;
 use super::{CredentialWriterQualifiedPreludeV1, SignedCredentialWriterSessionAttestationV2};
 use crate::credential::enrollment::CredentialEnrollmentError;
@@ -22,6 +23,7 @@ mod linux_tests;
 /// Verifies the signed Linux record and re-binds the ticket's qualified
 /// receiver from the signed claims; the content-pin token never leaves the
 /// crate. Returns the bound ticket.
+#[cfg(target_os = "linux")]
 pub(crate) fn bind_verified_linux_attestation(
     ticket: PendingCredentialIssueTicketV1,
     bytes: &[u8],
@@ -81,6 +83,7 @@ impl WriterQualificationReceiver {
     /// qualification facts from a daemon-attested local content pin
     /// (candidate image digest + tuple digest) with the same compiled
     /// verifier — an authoritative binding, not a bypass.
+    #[cfg(target_os = "linux")]
     fn bind_verified_content_pin(
         self,
         candidate_sha256: [u8; 32],
@@ -100,6 +103,7 @@ impl WriterQualificationReceiver {
         )
     }
 
+    #[cfg(target_os = "linux")]
     fn bind_release_facts(
         mut self,
         candidate_sha256: [u8; 32],

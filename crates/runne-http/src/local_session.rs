@@ -17,6 +17,7 @@ use crate::error::{RequestId, canonical_error_response};
 
 #[path = "local_session/bootstrap_v3_http.rs"]
 mod bootstrap_v3_http;
+#[path = "local_session/close.rs"]
 mod close;
 use bootstrap_v3_http::{authenticate, challenge};
 

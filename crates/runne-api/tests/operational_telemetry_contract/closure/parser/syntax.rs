@@ -238,10 +238,14 @@ fn item_starts(token: Option<&Token>) -> bool {
 }
 
 fn skip_item(tokens: &[Token], mut index: usize, end: usize) -> Result<usize, String> {
-    let body_item = matches!(
-        tokens.get(index),
-        Some(Token::Ident(name)) if matches!(name.as_str(), "enum" | "extern" | "fn" | "impl" | "struct" | "trait" | "union")
-    );
+    let body_item = match tokens.get(index) {
+        Some(Token::Ident(name)) if name == "const" => ident(tokens.get(index + 1), "fn"),
+        Some(Token::Ident(name)) => matches!(
+            name.as_str(),
+            "enum" | "extern" | "fn" | "impl" | "struct" | "trait" | "union"
+        ),
+        _ => false,
+    };
     while index < end {
         if punct(tokens.get(index), ';') {
             return Ok(index + 1);

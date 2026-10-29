@@ -53,13 +53,14 @@ fn publish(directory: &std::path::Path, stage: &'static str) -> std::io::Result<
         std::path::PathBuf::from(format!("/proc/self/fd/{}", directory_file.as_raw_fd()));
     let anchored = anchored.as_path();
     let destination = anchored.join("provider-delivery-status");
-    if let Ok(meta) = destination.symlink_metadata()
-        && (!meta.is_file()
+    if let Ok(meta) = destination.symlink_metadata() {
+        if !meta.is_file()
             || meta.uid() != unsafe { libc::geteuid() }
             || meta.mode() & 0o777 != 0o600
-            || meta.nlink() != 1)
-    {
-        return Err(io::Error::other("private status required"));
+            || meta.nlink() != 1
+        {
+            return Err(io::Error::other("private status required"));
+        }
     }
     let temporary = anchored.join(format!(".provider-delivery-{}.tmp", uuid::Uuid::now_v7()));
     let result = (|| {

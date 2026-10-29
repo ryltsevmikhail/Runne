@@ -286,6 +286,7 @@ impl BundledRuntimeController {
 
 include!("bundled_runtime_parts/connect.rs");
 include!("bundled_runtime_parts/monitor.rs");
+#[cfg(target_os = "linux")]
 include!("bundled_runtime_parts/permission_control.rs");
 #[cfg(target_os = "linux")]
 #[path = "bundled_runtime_parts/linux_v3_latch.rs"]

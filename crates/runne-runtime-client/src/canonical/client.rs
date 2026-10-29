@@ -136,6 +136,7 @@ impl AuthenticatedRuntimeClient {
         client
     }
 
+    #[cfg(target_os = "linux")]
     pub(crate) const fn has_native_v3_enrollment_attestation(&self) -> bool {
         self.native_v3_enrollment_attested
     }

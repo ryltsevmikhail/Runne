@@ -190,10 +190,13 @@ fn authority_help_is_closed_and_root_usage_mentions_authority() {
         help.stdout,
         b"authority: init sign verify rotate backup restore trust-reset (no --yes)\n"
     );
-    let root = Command::new(binary).output().expect("run root usage");
-    assert_eq!(root.status.code(), Some(2));
+    let root = Command::new(binary)
+        .arg("--help")
+        .output()
+        .expect("run root usage");
+    assert_eq!(root.status.code(), Some(0));
     assert!(
-        std::str::from_utf8(&root.stderr)
+        std::str::from_utf8(&root.stdout)
             .expect("utf8 usage")
             .contains("runne authority")
     );

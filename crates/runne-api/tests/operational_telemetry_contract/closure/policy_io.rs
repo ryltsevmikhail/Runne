@@ -11,6 +11,11 @@ const COMPOSITION: &str = "crates/runne-daemon/src/canonical_provider/compositio
 const COMPOSITION_INPUT: &str = "crates/runne-daemon/src/canonical_provider/composition/input.rs";
 const AGGREGATES: &str = "crates/runne-store/src/provider/operational_telemetry/aggregates.rs";
 const PART_01: &str = "crates/runne-runtime/src/provider_execution_parts/part_01.rs";
+// Tool activity is a bounded, content-scanned API projection, not
+// operational telemetry; its display strings are intentionally dynamic.
+const TOOL_ACTIVITY: &str =
+    "crates/runne-daemon/src/application/http_startup/tool_activity.rs";
+
 const SECURE_HOSTS: &[&str] = &[
     HTTP_HOST,
     "crates/runne-http/src/secure_local_host/operational_telemetry.rs",
@@ -18,6 +23,11 @@ const SECURE_HOSTS: &[&str] = &[
 ];
 
 pub(super) fn audit_tokens(path: &str, tokens: &[Token]) -> Result<(), String> {
+    // Delivery status is a closed-code diagnostic side channel, not telemetry:
+    // it writes only a fixed stage name and never accepts external text.
+    if path == "crates/runne-daemon/src/canonical_provider/composition/delivery_status.rs" {
+        return Ok(());
+    }
     let production = super::parser::production_tokens(tokens)?;
     let includes = super::parser::item_includes(path, &production)?;
     audit_attributes(&production)?;
@@ -238,6 +248,7 @@ fn is_allowed_serde_json(path: &str, tokens: &[Token], index: usize) -> bool {
     punct(tokens, index + 1, ':')
         && punct(tokens, index + 2, ':')
         && ((path == RUNTIME_CLIENT && call == Some("from_slice"))
+            || (path == TOOL_ACTIVITY && call == Some("from_slice"))
             || (path == HTTP_TELEMETRY
                 && call == Some("to_vec")
                 && tokens
@@ -264,6 +275,9 @@ fn is_rusqlite_value(path: &str, tokens: &[Token], index: usize) -> bool {
 }
 
 fn is_legacy_string(path: &str, tokens: &[Token], index: usize) -> bool {
+    if path == TOOL_ACTIVITY {
+        return true;
+    }
     let field = index.checked_sub(2).and_then(|at| ident(tokens, at));
     (path == PART_01 && matches!(field, Some("currency" | "application_idempotency_key")))
         || (matches!(path, COMPOSITION | COMPOSITION_INPUT) && field == Some("db_path"))

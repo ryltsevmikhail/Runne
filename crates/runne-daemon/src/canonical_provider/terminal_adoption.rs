@@ -39,6 +39,6 @@ pub(crate) fn adopt_terminal_provider(
         })
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "linux"))]
 #[path = "terminal_adoption_native_tests.rs"]
 mod native_tests;

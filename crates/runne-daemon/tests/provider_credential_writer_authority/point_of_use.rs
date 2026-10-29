@@ -59,6 +59,7 @@ const fn service_loss_error(kind: RuntimeApiErrorKind) -> &'static str {
         RuntimeApiErrorKind::InvalidResponse => "service-loss-invalid-response",
         RuntimeApiErrorKind::Incompatible => "service-loss-incompatible",
         RuntimeApiErrorKind::Unavailable => "service-loss-unavailable",
+        _ => "service-loss-other",
     }
 }
 

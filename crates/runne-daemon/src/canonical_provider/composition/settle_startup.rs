@@ -17,20 +17,11 @@ pub(super) fn settle_uncertain_without_delivery(store: &SqliteProviderDispatchSt
     let Ok(candidates) = store.uncertain_without_delivery_candidates(CANDIDATE_LIMIT, now) else {
         return;
     };
-    let mut settled = 0usize;
     for attempt in candidates {
-        if store
-            .settle_uncertain_without_delivery(
-                attempt,
-                ProviderPreEffectRejection::AdapterRejected,
-                now,
-            )
-            .is_ok()
-        {
-            settled = settled.saturating_add(1);
-        }
-    }
-    if settled > 0 {
-        eprintln!("runne-provider-startup: dispatch_settled_without_delivery");
+        let _ = store.settle_uncertain_without_delivery(
+            attempt,
+            ProviderPreEffectRejection::AdapterRejected,
+            now,
+        );
     }
 }
