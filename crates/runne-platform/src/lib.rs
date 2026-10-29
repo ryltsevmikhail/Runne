@@ -9,6 +9,9 @@ pub mod fence;
 /// Structured, fail-closed local Linux command gate.
 #[cfg(target_os = "linux")]
 pub mod local_command_linux;
+/// Structured, fail-closed local macOS command primitives.
+#[cfg(target_os = "macos")]
+pub mod local_command_macos;
 /// Fail-closed native process contract stubs.
 pub mod process_contract;
 /// Linux cgroup-v2 process-area lifecycle primitive.
