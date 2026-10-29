@@ -171,12 +171,33 @@ pub(super) fn apply(
             .parent()
             .ok_or(ProtectedBundledRuntimeError::ActivationStateUnavailable)?;
         require_terminal_baseline_root(runtime_root)?;
-        command.env("XDG_CONFIG_HOME", config_home);
-        // Reproduce defaults of the adopted source after env_clear. This is
-        // the verified launch root, never the caller's ambient XDG value.
-        command.env("XDG_RUNTIME_DIR", runtime_root);
+        #[cfg(target_os = "linux")]
+        {
+            command.env("XDG_CONFIG_HOME", config_home);
+            // Reproduce defaults of the adopted source after env_clear. This is
+            // the verified launch root, never the caller's ambient XDG value.
+            command.env("XDG_RUNTIME_DIR", runtime_root);
+        }
+        #[cfg(target_os = "macos")]
+        {
+            // macOS resolves the fixed config and the data directory from HOME.
+            // The protected child starts with an empty environment, so restore
+            // the exact adopting account instead of letting path resolution
+            // fall back to a different login home.
+            command.env("HOME", macos_home_for(config_home)?);
+        }
     }
     Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn macos_home_for(config_home: &Path) -> Result<PathBuf, ProtectedBundledRuntimeError> {
+    config_home
+        .parent()
+        .and_then(Path::parent)
+        .filter(|home| config_home == home.join("Library").join("Application Support"))
+        .map(Path::to_path_buf)
+        .ok_or(ProtectedBundledRuntimeError::ActivationStateUnavailable)
 }
 
 #[cfg(test)]

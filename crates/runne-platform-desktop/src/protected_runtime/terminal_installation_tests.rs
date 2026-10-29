@@ -33,29 +33,32 @@ fn terminal_source_requires_exact_config_and_original_images() {
     let store = ActivationStateStore::open(&root).unwrap();
     let source = load(&store).unwrap().unwrap();
     assert_eq!(source.daemon, daemon);
-    let mut command = Command::new(&daemon);
-    command.env_clear();
-    apply(&mut command, &store).unwrap();
-    assert!(
-        command
-            .get_envs()
-            .any(|(key, value)| key == "XDG_RUNTIME_DIR" && value == Some(root.as_os_str())),
-        "adopted child must resolve omitted database/key paths under the verified root"
-    );
-    let mut child = Command::new("/bin/sh");
-    child
-        .env_clear()
-        .args(["-c", "printf %s \"$XDG_RUNTIME_DIR\""]);
-    apply(&mut child, &store).unwrap();
-    let output = child.output().unwrap();
-    assert!(output.status.success());
-    assert_eq!(output.stdout, root.as_os_str().as_encoded_bytes());
-    assert!(
-        command
-            .get_envs()
-            .any(|(key, value)| key == "XDG_CONFIG_HOME"
-                && value == Some(base.join("config").as_os_str()))
-    );
+    #[cfg(target_os = "linux")]
+    {
+        let mut command = Command::new(&daemon);
+        command.env_clear();
+        apply(&mut command, &store).unwrap();
+        assert!(
+            command
+                .get_envs()
+                .any(|(key, value)| key == "XDG_RUNTIME_DIR" && value == Some(root.as_os_str())),
+            "adopted child must resolve omitted database/key paths under the verified root"
+        );
+        let mut child = Command::new("/bin/sh");
+        child
+            .env_clear()
+            .args(["-c", "printf %s \"$XDG_RUNTIME_DIR\""]);
+        apply(&mut child, &store).unwrap();
+        let output = child.output().unwrap();
+        assert!(output.status.success());
+        assert_eq!(output.stdout, root.as_os_str().as_encoded_bytes());
+        assert!(
+            command
+                .get_envs()
+                .any(|(key, value)| key == "XDG_CONFIG_HOME"
+                    && value == Some(base.join("config").as_os_str()))
+        );
+    }
     std::fs::write(&config, "changed configuration").unwrap();
     assert!(load(&store).is_err());
     let previous = base.join("previous.toml");
@@ -83,4 +86,15 @@ fn ordinary_root_does_not_forward_terminal_environment() {
             .get_envs()
             .any(|(key, _)| key == "XDG_RUNTIME_DIR" || key == "XDG_CONFIG_HOME")
     );
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn macos_home_is_derived_only_from_the_fixed_application_support_layout() {
+    assert_eq!(
+        macos_home_for(Path::new("/Users/owner/Library/Application Support")).unwrap(),
+        PathBuf::from("/Users/owner")
+    );
+    assert!(macos_home_for(Path::new("/Users/owner/Library")).is_err());
+    assert!(macos_home_for(Path::new("/Users/owner/config")).is_err());
 }

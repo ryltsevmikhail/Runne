@@ -232,7 +232,7 @@ fn tool_profile(
         status.profile_id() == "runne-deepseek-responses-tools/1"
             && status.readiness() == runne_api::ProviderReadinessStatusV1::Ready
     });
-    let status = matching.next().ok_or("Protected runtime has no ready finite DeepSeek coding grant; complete the explicit tool-budget opt-in")?;
+    let status = matching.next().ok_or_else(missing_coding_profile)?;
     if matching.next().is_some() {
         return Err("Tool profile admission is ambiguous".into());
     }
@@ -242,6 +242,32 @@ fn tool_profile(
         .map_err(|_| "Tool profile digest invalid")?;
     runne_api::SelectedProviderProfile::new(status.profile_id().to_owned(), digest)
         .map_err(|_| "Tool profile identity invalid".into())
+}
+
+fn missing_coding_profile() -> String {
+    if cfg!(target_os = "macos") {
+        // The coding tool loop still depends on Linux containment and file
+        // receipts, so the finite budget opt-in alone cannot publish it.
+        "The native macOS runtime has no coding tool profile; the protected tool loop is not yet available on this platform. No provider request was sent.".to_owned()
+    } else {
+        "Protected runtime has no ready finite DeepSeek coding grant; complete the explicit tool-budget opt-in".to_owned()
+    }
+}
+
+#[cfg(test)]
+mod profile_tests {
+    use super::missing_coding_profile;
+
+    #[test]
+    fn missing_profile_message_matches_platform_capability() {
+        let message = missing_coding_profile();
+        if cfg!(target_os = "macos") {
+            assert!(message.contains("not yet available"));
+            assert!(message.contains("No provider request"));
+        } else {
+            assert!(message.contains("tool-budget opt-in"));
+        }
+    }
 }
 
 #[cfg(all(test, target_os = "linux"))]
