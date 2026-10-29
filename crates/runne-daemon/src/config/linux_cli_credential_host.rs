@@ -12,7 +12,7 @@ impl LinuxCliCredentialHostConfig {
         &self,
         mode: runne_api::ProviderActivationModeV1,
     ) -> Result<(), crate::error::DaemonError> {
-        if !cfg!(target_os = "linux")
+        if !cfg!(any(target_os = "linux", target_os = "macos"))
             || !matches!(
                 mode,
                 runne_api::ProviderActivationModeV1::DeterministicV1
@@ -27,7 +27,7 @@ impl LinuxCliCredentialHostConfig {
                 })
         {
             return Err(crate::error::DaemonError::Config(
-                "invalid Linux CLI credential host selection".into(),
+                "invalid CLI credential host selection".into(),
             ));
         }
         Ok(())

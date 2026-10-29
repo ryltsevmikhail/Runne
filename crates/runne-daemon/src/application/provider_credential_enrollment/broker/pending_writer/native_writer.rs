@@ -1,4 +1,8 @@
 use super::*;
+use runne_api::ProviderCredentialEnrollmentHostError;
+use std::os::unix::net::UnixStream;
+
+use super::evidence_flows::map_handoff;
 
 impl VerifiedMacOsWriterWithDaemonKillCapability {
     pub(crate) const fn verified_measurement_facts(
@@ -36,9 +40,9 @@ impl VerifiedMacOsWriterWithDaemonKillCapability {
             supervisor_generation: self.binding.supervisor_generation,
             release_tuple: self.binding.release_tuple,
             endpoint_handoff_digest: self.handoff.digest(),
-            writer_process_start: *self.kill.verified_measurement_facts().process_start(),
-            writer_image: *self.kill.verified_measurement_facts().image(),
-            writer_kill_public_key: *self
+            writer_process_start: self.kill.verified_measurement_facts().process_start(),
+            writer_image: self.kill.verified_measurement_facts().image(),
+            writer_kill_public_key: self
                 .kill
                 .verified_measurement_facts()
                 .writer_kill_public_key(),

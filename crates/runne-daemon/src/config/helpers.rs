@@ -5,7 +5,7 @@ use canonical_values::{canonical_values_map, compute_digest};
 impl ConfigurationSnapshot {
     /// Copy only the D2 finite-budget opt-in from a verified external snapshot.
     /// Protected startup uses this without importing external DB/provider settings.
-    #[cfg(all(feature = "desktop-protected", target_os = "linux"))]
+    #[cfg(feature = "desktop-protected")]
     pub(crate) fn with_d2_tool_budget_from(&self, external: &Self) -> Self {
         let mut snapshot = self.clone();
         snapshot.d2_safe_tool_loop_budget = external.d2_safe_tool_loop_budget;

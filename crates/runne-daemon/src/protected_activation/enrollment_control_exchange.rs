@@ -131,7 +131,11 @@ where
         request_validation_now,
         composition.installation_identity_digest,
     );
-    let prepared = admit_transition(&input, request, channel)?;
+    #[cfg_attr(
+        not(all(target_os = "macos", target_arch = "aarch64")),
+        allow(unused_mut)
+    )]
+    let mut prepared = admit_transition(&input, request, channel)?;
     // The retired V2 HTTP admission facts must not outlive the exchange; only
     // the credential control owns those facts on Linux and macOS.
     #[cfg(all(

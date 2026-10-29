@@ -40,7 +40,7 @@ impl DaemonActivationProvenance {
             ),
         }
     }
-    #[cfg(all(target_os = "linux", feature = "desktop-protected"))]
+    #[cfg(all(unix, feature = "desktop-protected"))]
     pub(super) fn for_terminal_adoption(
         binding: &ProviderActivationBindingV1,
         authority: [u8; 16],

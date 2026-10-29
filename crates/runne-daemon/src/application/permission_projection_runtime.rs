@@ -203,6 +203,7 @@ fn observe_current_target_linux(
 
 #[cfg(target_os = "linux")]
 pub(super) use super::permission_projection_targets::closed_identity;
+#[cfg(target_os = "linux")]
 pub(crate) use super::permission_projection_targets::selected_target;
 pub(super) use super::permission_projection_targets::workspace_binding_matches;
 

@@ -128,6 +128,7 @@ pub(crate) fn run_control_loop_v2(
                     )
                     .with_http_controls(composition.session_controls())
                     .with_round_profile(composition.profile_directory.clone(), installation),
+                    root_admission,
                 );
             }
             #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]

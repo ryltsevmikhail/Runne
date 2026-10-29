@@ -48,12 +48,25 @@ pub fn require_terminal_baseline_root(
     if !metadata.is_dir()
         || metadata.file_type().is_symlink()
         || metadata.uid() != rustix::process::geteuid().as_raw()
-        || metadata.mode() & 0o077 != 0
+        || metadata.mode() & 0o022 != 0
     {
         return Err(unavailable);
     }
     if runtime_root.canonicalize().ok().as_deref() != Some(runtime_root) {
         return Err(unavailable);
+    }
+    // The daemon state directory itself stays owner-only even though the
+    // shared Application Support parent is group-readable on macOS.
+    let state = runtime_root.join("runne-daemon");
+    if state.exists() {
+        let state_metadata = std::fs::symlink_metadata(&state).map_err(|_| unavailable)?;
+        if !state_metadata.is_dir()
+            || state_metadata.file_type().is_symlink()
+            || state_metadata.uid() != rustix::process::geteuid().as_raw()
+            || state_metadata.mode() & 0o077 != 0
+        {
+            return Err(unavailable);
+        }
     }
     Ok(())
 }

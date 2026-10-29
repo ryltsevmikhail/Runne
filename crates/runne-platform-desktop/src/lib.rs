@@ -226,7 +226,7 @@ pub mod local_model_source;
 #[cfg(unix)]
 pub use provider_credential_broker::UnixRetainedWriterProcess;
 
-#[cfg(target_os = "linux")]
+#[cfg(unix)]
 pub use protected_runtime::terminal_adoption::{
     publish_terminal_adoption_anchor, terminal_adoption_anchor_matches,
 };

@@ -209,7 +209,12 @@ where
         DaemonLaunchProtocolExpectation::enrollment(authority),
     )?;
     let keys = request.derive_keys_and_forget();
-    Ok(PreparedDaemonEnrollmentTransitionV3 { request, keys })
+    Ok(PreparedDaemonEnrollmentTransitionV3 {
+        request,
+        keys,
+        #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+        installed_facts: None,
+    })
 }
 
 fn v3_matches_original(

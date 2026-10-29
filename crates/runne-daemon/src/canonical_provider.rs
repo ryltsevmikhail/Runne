@@ -114,9 +114,9 @@ pub(crate) type RuntimeStoreDecorator = dyn Fn(
 mod installation_upgrade;
 pub(crate) use installation_upgrade::upgrade_cli_installation;
 
-#[cfg(all(target_os = "linux", feature = "desktop-protected"))]
+#[cfg(all(unix, feature = "desktop-protected"))]
 mod terminal_adoption;
-#[cfg(all(target_os = "linux", feature = "desktop-protected"))]
+#[cfg(all(unix, feature = "desktop-protected"))]
 pub(crate) use terminal_adoption::adopt_terminal_provider;
 
 mod coding_status;

@@ -265,9 +265,12 @@ pub(crate) fn run_control_loop_v3_entered(
         #[cfg(all(unix, any(target_os = "macos", target_os = "linux")))]
         if transcript.is_err() {
             // Fail-closed recovery: the exact writer never outlives a failed loop.
+            #[cfg(target_os = "linux")]
             runtime
                 .terminate_retained_writer()
                 .map_err(runtime::map_enrollment_error)?;
+            #[cfg(target_os = "macos")]
+            runtime.terminate_retained_writer();
         }
         transcript
     }
