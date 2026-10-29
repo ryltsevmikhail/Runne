@@ -20,7 +20,7 @@ fn restore() {
 
 impl Terminal {
     pub fn enter() -> io::Result<Self> {
-        if !io::stdin().is_terminal() || !io::stdout().is_terminal() {
+        if !std::io::stdin().is_terminal() || !io::stdout().is_terminal() {
             return Err(io::Error::other("Interactive chat requires a terminal"));
         }
         let previous = std::sync::Arc::new(std::panic::take_hook());

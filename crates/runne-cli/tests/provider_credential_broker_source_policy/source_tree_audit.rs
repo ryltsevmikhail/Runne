@@ -13,6 +13,15 @@ const PROVIDER_CREDENTIAL: &str = "cli/provider_credential.rs";
 const BROKER: &str = "cli/provider_credential_broker.rs";
 const PERSISTENT_REFERENCE_PROBE: &str = "persistent_reference_probe.rs";
 const TASK_RUN: &str = "cli/task_run.rs";
+/// Interactive terminal surfaces reviewed for D1.4b follow-up: the full-screen
+/// client owns the terminal (raw mode, crossterm events), so its stdin checks
+/// and the adoption consent read are expected, not credential receivers.
+const TUI_STDIN_SURFACES: &[&str] = &[
+    "cli/chat_scope.rs",
+    "tui/terminal.rs",
+    "tui_backend/mod.rs",
+    "tui_backend/owner_startup.rs",
+];
 const RAW_RECEIVER_IDENTIFIERS: &[&str] = &[
     "recvmsg",
     "RecvMsg",
@@ -37,8 +46,9 @@ pub fn source_tree_violations(root: &Path) -> Vec<String> {
         audit_file(root, &path, &mut counts, &mut violations);
     }
     // Two provider-credential prompt paths plus two headless exec prompt
-    // paths (TTY check and piped read), reviewed for D1.4b on 2026-09-28.
-    if counts.stdin != 4 {
+    // paths (TTY check and piped read), reviewed for D1.4b on 2026-09-28, and
+    // four interactive-terminal paths reviewed for the TUI client.
+    if counts.stdin != 8 {
         violations.push(format!(
             "expected exactly four reviewed std::io::stdin paths, found {}",
             counts.stdin
@@ -131,6 +141,7 @@ fn audit_file(root: &Path, path: &Path, counts: &mut SurfaceCounts, violations: 
         }
     };
     SourceVisitor {
+        root,
         relative: &relative,
         counts,
         violations,

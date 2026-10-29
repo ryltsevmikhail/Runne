@@ -28,6 +28,10 @@ pub struct BackendOwner {
     registration_intent_saved: bool,
 }
 
+#[path = "owner_command.rs"]
+mod command;
+#[path = "owner_fresh.rs"]
+mod fresh;
 #[path = "owner_registration.rs"]
 mod registration;
 #[path = "owner_startup.rs"]
@@ -92,7 +96,7 @@ pub async fn start_protected(
         client,
         workspace_id: None,
         project_label: project.display().to_string(),
-        selected_profile: Some(selected_profile),
+        selected_profile,
         supervisor: Some(supervisor),
         project,
         renewed_at: Instant::now(),
@@ -147,7 +151,7 @@ impl BackendOwner {
             .record_client_ready(&client)
             .map_err(|_| "Renewed identity mismatch")?;
         let selected = tool_profile(&client)?;
-        if self.selected_profile.as_ref() != Some(&selected) {
+        if self.selected_profile != selected {
             return Err("Tool profile changed during session renewal".into());
         }
         self.client = client;
@@ -225,14 +229,22 @@ fn api(error: runne_runtime_client::RuntimeApiError) -> String {
     error.to_string()
 }
 
+/// Selects the exact admitted coding profile, or none when this platform has
+/// no coding loop yet.
+///
+/// A missing coding profile must not block the interactive client: the runtime
+/// still owns the released text profile, and a first launch with no credential
+/// has to open so the owner can enroll one. `None` keeps runtime selection.
 fn tool_profile(
     client: &AuthenticatedRuntimeClient,
-) -> Result<runne_api::SelectedProviderProfile, String> {
+) -> Result<Option<runne_api::SelectedProviderProfile>, String> {
     let mut matching = client.provider_statuses().iter().filter(|status| {
         status.profile_id() == "runne-deepseek-responses-tools/1"
             && status.readiness() == runne_api::ProviderReadinessStatusV1::Ready
     });
-    let status = matching.next().ok_or_else(missing_coding_profile)?;
+    let Some(status) = matching.next() else {
+        return no_coding_profile();
+    };
     if matching.next().is_some() {
         return Err("Tool profile admission is ambiguous".into());
     }
@@ -241,33 +253,20 @@ fn tool_profile(
         .try_into()
         .map_err(|_| "Tool profile digest invalid")?;
     runne_api::SelectedProviderProfile::new(status.profile_id().to_owned(), digest)
+        .map(Some)
         .map_err(|_| "Tool profile identity invalid".into())
 }
 
-fn missing_coding_profile() -> String {
-    if cfg!(target_os = "macos") {
-        // The coding tool loop still depends on Linux containment and file
-        // receipts, so the finite budget opt-in alone cannot publish it.
-        "The native macOS runtime has no coding tool profile; the protected tool loop is not yet available on this platform. No provider request was sent.".to_owned()
-    } else {
-        "Protected runtime has no ready finite DeepSeek coding grant; complete the explicit tool-budget opt-in".to_owned()
-    }
+#[cfg(target_os = "macos")]
+fn no_coding_profile() -> Result<Option<runne_api::SelectedProviderProfile>, String> {
+    // The protected macOS node has no coding tool loop yet; the client still
+    // admits the released text profile so registration and a first session work.
+    Ok(None)
 }
 
-#[cfg(test)]
-mod profile_tests {
-    use super::missing_coding_profile;
-
-    #[test]
-    fn missing_profile_message_matches_platform_capability() {
-        let message = missing_coding_profile();
-        if cfg!(target_os = "macos") {
-            assert!(message.contains("not yet available"));
-            assert!(message.contains("No provider request"));
-        } else {
-            assert!(message.contains("tool-budget opt-in"));
-        }
-    }
+#[cfg(not(target_os = "macos"))]
+fn no_coding_profile() -> Result<Option<runne_api::SelectedProviderProfile>, String> {
+    Err("Protected runtime has no ready finite DeepSeek coding grant; complete the explicit tool-budget opt-in".to_owned())
 }
 
 #[cfg(all(test, target_os = "linux"))]

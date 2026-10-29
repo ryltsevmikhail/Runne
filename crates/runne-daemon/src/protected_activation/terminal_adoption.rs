@@ -9,8 +9,10 @@ use crate::error::DaemonError;
 use crate::terminal_image_policy::ImagePolicy;
 
 mod credential;
+mod fresh;
 mod journal;
 pub use credential::credential_access;
+pub use fresh::{InstallationStatus, initialize_fresh, inspect};
 mod image_upgrade;
 pub use image_upgrade::upgrade_images;
 mod repin;
