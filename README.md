@@ -16,7 +16,7 @@ Coding agents need more than a model connection: they need durable task state, e
 
 ## Development status
 
-Runne is under active development, not a production-readiness guarantee. **Linux is the only active execution-node target.** macOS and Windows execution are deferred; platform-specific code or a control client does not imply supported local execution. Provider integrations, credential enrollment, native inference, and release packaging require their own validation; source code and passing unit tests alone do not establish that they work in every environment.
+Runne is under active development, not a production-readiness guarantee. **Linux is the active execution-node target. macOS (Apple Silicon) is an active target under qualification:** startup works, but provider dispatch, credential enrollment, and command execution are not yet qualified. Windows execution is deferred. Platform-specific code or a control client does not imply supported local execution. Provider integrations, credential enrollment, native inference, and release packaging require their own validation; source code and passing unit tests alone do not establish that they work in every environment.
 
 ## Architecture
 

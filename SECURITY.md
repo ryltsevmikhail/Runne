@@ -14,6 +14,6 @@ Maintainers assess reports and coordinate fixes and disclosure through the priva
 
 ## Supported versions and limitations
 
-Runne is under active development. Security work targets the current development code; there is no promised long-term support or backport schedule for older versions. Linux is the only active execution-node target. The presence of sandboxing, credential storage, or platform code is not a claim of independently audited security or production readiness.
+Runne is under active development. Security work targets the current development code; there is no promised long-term support or backport schedule for older versions. Linux is the active execution-node target; macOS (Apple Silicon) is under active qualification. The presence of sandboxing, credential storage, or platform code is not a claim of independently audited security or production readiness.
 
 Never include API keys or runtime credentials in a public bug report. If a credential has been exposed, revoke or rotate it with its issuer; removing a public message alone is insufficient.

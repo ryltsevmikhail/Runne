@@ -16,7 +16,7 @@ Runne is a desktop application and provider-neutral runtime for AI coding-agent 
 - The Vue renderer receives typed DTOs through Tauri IPC; it must not acquire runtime secrets or implement privileged runtime operations.
 - Keep domain logic, persistence, provider adapters, platform integration, and UI responsibilities separated.
 - Preserve capability, admission, containment, secret-handling, replay, and cancellation invariants. Never turn an unconfirmed process stop into a confirmed cancellation or silently replay a possibly completed external effect.
-- Linux is the only active execution-node target. Other platform adapters or control clients are not evidence of supported execution.
+- Linux is the active execution-node target. macOS (Apple Silicon) is an active target under qualification; until provider dispatch, credential enrollment, command execution, and the macOS CI gates are green, macOS adapters, tests, or a control client are not evidence of supported execution.
 
 ## Repository layout
 
