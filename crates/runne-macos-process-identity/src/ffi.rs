@@ -12,6 +12,22 @@ use sha2::{Digest, Sha256};
 use crate::MacOsProcessIdentityError;
 
 const DOMAIN: &[u8] = b"runne.macos-process-identity.v1";
+/// Kernel-reported executable image path of one live process.
+///
+/// The path is the image the process is actually running, which differs from
+/// the static-code path of a bundle-signed GUI guest (that path is the `.app`).
+pub fn executable_path(pid: NonZeroU32) -> Option<std::path::PathBuf> {
+    let pid = i32::try_from(pid.get()).ok()?;
+    let size = u32::try_from(libc::PROC_PIDPATHINFO_MAXSIZE).ok()?;
+    let mut buffer = vec![0_u8; usize::try_from(size).ok()?];
+    // SAFETY: `buffer` is writable for `size` bytes and the kernel fills at most
+    // that many; the pid is caller-validated as nonzero.
+    let written = unsafe { libc::proc_pidpath(pid, buffer.as_mut_ptr().cast(), size) };
+    let written = usize::try_from(written).ok().filter(|length| *length > 0)?;
+    let path = std::str::from_utf8(buffer.get(..written)?).ok()?;
+    std::fs::canonicalize(path).ok()
+}
+
 const PROC_PIDREGIONPATHINFO: libc::c_int = 8;
 const VM_PROT_EXECUTE: u32 = 4;
 const MAX_REGIONS: usize = 16_384;
