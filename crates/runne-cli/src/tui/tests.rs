@@ -236,7 +236,7 @@ fn login_prompt_hides_typed_key_and_never_puts_it_in_the_editor() {
     assert!(state.editor.text().is_empty());
     assert_eq!(
         render::lines(&state, 80, 24)[22],
-        "> [input hidden] · Enter save · Esc cancel"
+        "> [input hidden] · Enter enroll · Esc cancel"
     );
     assert!(rx.try_recv().is_err());
     input::key(
@@ -250,7 +250,7 @@ fn login_prompt_hides_typed_key_and_never_puts_it_in_the_editor() {
 }
 
 #[test]
-fn stored_key_notice_never_claims_activation_or_restart() {
+fn submitted_key_notice_never_claims_activation_or_restart() {
     let seen = std::cell::RefCell::new(Vec::new());
     let mut state = state::State {
         credential_prompt: Some(crate::ProviderCredentialId::DeepSeek),
@@ -275,11 +275,43 @@ fn stored_key_notice_never_claims_activation_or_restart() {
     assert!(state.credential_prompt.is_none());
     assert!(state.secret.is_empty());
     let notice = state.notice.to_lowercase();
-    assert!(notice.contains("key saved to keychain"));
-    assert!(notice.contains("activation not performed"));
-    assert!(notice.contains("unavailable in the cli"));
+    assert!(notice.contains("key captured"));
+    assert!(notice.contains("authenticated enrollment requested"));
+    assert!(notice.contains("waiting for the protected runtime"));
     assert!(!notice.contains("restart"));
     assert!(!notice.contains("ready"));
+}
+
+#[test]
+fn login_hands_the_hidden_key_to_the_enrollment_channel() {
+    let (commands, mut received) = tokio::sync::mpsc::channel(4);
+    let slot = CredentialSlot::default();
+    let mut state = state::State {
+        credential_prompt: Some(crate::ProviderCredentialId::DeepSeek),
+        credential_slot: slot.clone(),
+        ..state::State::default()
+    };
+    state.push_secret("sk-test-key");
+    assert!(
+        input::key(
+            &mut state,
+            KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+            &commands,
+        )
+        .unwrap()
+    );
+    assert!(matches!(
+        received.try_recv(),
+        Ok(UiCommand::EnrollCredential {
+            provider: crate::ProviderCredentialId::DeepSeek
+        })
+    ));
+    let pending = slot.lock().unwrap();
+    let (provider, material) = pending.as_ref().expect("pending credential");
+    assert_eq!(*provider, crate::ProviderCredentialId::DeepSeek);
+    material.with_bytes(|bytes| assert_eq!(bytes, b"sk-test-key"));
+    assert!(state.secret.is_empty());
+    assert!(state.editor.text().is_empty());
 }
 
 #[test]

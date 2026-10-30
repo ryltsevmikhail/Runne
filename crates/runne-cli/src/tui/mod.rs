@@ -11,9 +11,23 @@ mod tests;
 
 use tokio::sync::mpsc::{Receiver, Sender};
 
+/// One hidden-input credential handed from the terminal frontend to the
+/// protected runtime owner. It never carries serialization or debug output.
+pub type CredentialSlot = std::sync::Arc<
+    std::sync::Mutex<
+        Option<(
+            crate::ProviderCredentialId,
+            runne_secure_store::ProviderCredentialMaterial,
+        )>,
+    >,
+>;
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum UiCommand {
     Send(String),
+    EnrollCredential {
+        provider: crate::ProviderCredentialId,
+    },
     NewSession,
     RegisterProject,
     SelectSession(String),
@@ -54,6 +68,7 @@ pub struct UiSnapshot {
     pub actions: Vec<String>,
     pub diff: String,
     pub approvals: Vec<ApprovalEntry>,
+    pub credential_enrollment: Option<bool>,
 }
 #[derive(Debug)]
 pub enum UiEvent {
@@ -72,10 +87,6 @@ pub enum UiEvent {
         reason = "channel supports provisional streaming text; snapshots currently carry durable messages"
     )]
     Text(String),
-    #[expect(
-        dead_code,
-        reason = "channel supports transport status updates independently of snapshots"
-    )]
     Status(String),
     Error(String),
 }
@@ -83,10 +94,14 @@ pub enum UiEvent {
 pub async fn run(
     commands: Sender<UiCommand>,
     mut events: Receiver<UiEvent>,
+    credential_slot: CredentialSlot,
 ) -> std::io::Result<()> {
     use crossterm::event::{self, Event};
     let _terminal = terminal::Terminal::enter()?;
-    let mut state = state::State::default();
+    let mut state = state::State {
+        credential_slot,
+        ..state::State::default()
+    };
     commands
         .try_send(UiCommand::Refresh)
         .map_err(|_| std::io::Error::other("runtime channel closed"))?;

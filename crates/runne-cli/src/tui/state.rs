@@ -1,4 +1,4 @@
-use super::{UiEvent, UiSnapshot, editor::Editor};
+use super::{CredentialSlot, UiEvent, UiSnapshot, editor::Editor};
 use zeroize::Zeroizing;
 
 #[derive(Default, PartialEq)]
@@ -26,6 +26,7 @@ pub(super) struct State {
     pub submitted_approvals: std::collections::HashSet<(String, String)>,
     pub credential_prompt: Option<crate::ProviderCredentialId>,
     pub secret: Zeroizing<String>,
+    pub credential_slot: CredentialSlot,
 }
 
 impl State {

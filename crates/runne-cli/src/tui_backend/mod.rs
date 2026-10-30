@@ -7,7 +7,7 @@ mod approval_retry;
 mod commands;
 mod journal;
 mod options;
-pub mod owner;
+pub(crate) mod owner;
 mod pending;
 mod projection;
 #[cfg(test)]
@@ -16,12 +16,13 @@ mod quit;
 mod recovery;
 
 use crate::tui::{self, UiCommand, UiEvent, UiSnapshot};
-pub use options::selected;
+pub(crate) use options::selected;
 use owner::BackendOwner;
 use runne_runtime_client::{ApprovalSummaryDto, CanonicalId, TaskRunSnapshot};
 use std::{collections::HashMap, ffi::OsString, io::IsTerminal};
 use tokio::sync::mpsc;
 
+#[must_use]
 pub fn entry(arguments: Vec<OsString>) -> crate::ProcessOutcome {
     if arguments.iter().any(|arg| arg == "--help" || arg == "-h") {
         return outcome(Ok(options::HELP.to_owned()));
@@ -72,26 +73,35 @@ fn outcome(result: Result<String, String>) -> crate::ProcessOutcome {
     }
 }
 
-pub async fn run_with_owner(
+pub(crate) async fn run_with_owner(
     owner: BackendOwner,
     resume: Option<String>,
     picker: bool,
 ) -> Result<(), String> {
     let (commands, incoming) = mpsc::channel(32);
     let (events, snapshots) = mpsc::channel(16);
-    let backend = serve(owner, resume, picker, incoming, events);
-    let (frontend, ()) = tokio::join!(tui::run(commands, snapshots), backend);
+    let credential_slot = tui::CredentialSlot::default();
+    let backend = serve(
+        owner,
+        resume,
+        picker,
+        incoming,
+        events,
+        credential_slot.clone(),
+    );
+    let (frontend, ()) = tokio::join!(tui::run(commands, snapshots, credential_slot), backend);
     frontend.map_err(|error| error.to_string())
 }
 
-pub async fn serve(
+pub(crate) async fn serve(
     owner: BackendOwner,
     resume: Option<String>,
     picker: bool,
     mut commands: mpsc::Receiver<UiCommand>,
     events: mpsc::Sender<UiEvent>,
+    credential_slot: tui::CredentialSlot,
 ) {
-    let mut state = Backend::new(owner);
+    let mut state = Backend::new(owner, credential_slot);
     state.selected = resume.as_deref().and_then(|id| CanonicalId::parse(id).ok());
     if picker && resume.is_none() {
         let _ = events.send(UiEvent::ShowSessions).await;
@@ -117,7 +127,16 @@ pub async fn serve(
                         UiCommand::Approval { id, review_key, .. } => Some((id.clone(), review_key.clone())),
                         _ => None,
                     };
+                    let enroll_requested = matches!(&command, UiCommand::EnrollCredential { .. });
                     let result = state.command(command).await;
+                    if enroll_requested && result.is_ok() {
+                        let status = if BackendOwner::is_desktop_host() {
+                            "Credential activated · provider ready"
+                        } else {
+                            "Key saved to Keychain · activation requires runne-desktop --chat"
+                        };
+                        let _ = events.send(UiEvent::Status(status.into())).await;
+                    }
                     if let Some((id, review_key)) = approval {
                         let _ = events.send(UiEvent::ApprovalHandled { id, review_key }).await;
                     }
@@ -162,6 +181,8 @@ pub async fn serve(
 
 struct Backend {
     owner: BackendOwner,
+    credential_slot: tui::CredentialSlot,
+    enrollment_admission: Option<bool>,
     selected: Option<CanonicalId>,
     snapshot: UiSnapshot,
     runs: Vec<TaskRunSnapshot>,
@@ -174,8 +195,15 @@ struct Backend {
     journal: Option<journal::Journal>,
 }
 impl Backend {
-    fn new(owner: BackendOwner) -> Self {
+    fn new(owner: BackendOwner, credential_slot: tui::CredentialSlot) -> Self {
+        let enrollment_admission = if BackendOwner::is_desktop_host() {
+            Some(owner.enrollment_admission_available())
+        } else {
+            None
+        };
         Self {
+            credential_slot,
+            enrollment_admission,
             snapshot: UiSnapshot {
                 project: owner.project_label.clone(),
                 model: owner.selected_profile.as_ref().map_or_else(

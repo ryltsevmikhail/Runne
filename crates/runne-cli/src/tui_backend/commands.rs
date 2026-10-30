@@ -59,9 +59,39 @@ impl Backend {
                 version,
                 review_key,
             } => self.approve(id, decision, version, review_key).await?,
+            UiCommand::EnrollCredential { provider } => self.enroll(provider).await?,
             UiCommand::Refresh | UiCommand::Quit => {}
         }
         self.refresh().await
+    }
+
+    async fn enroll(&mut self, provider: crate::ProviderCredentialId) -> Result<(), String> {
+        let pending = self
+            .credential_slot
+            .lock()
+            .map_err(|_| "credential input unavailable".to_owned())?
+            .take();
+        let Some((slot_provider, material)) = pending else {
+            return Err("credential input expired; enter the key again".to_owned());
+        };
+        if slot_provider != provider {
+            return Err("credential input expired; enter the key again".to_owned());
+        }
+        #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+        {
+            if super::BackendOwner::is_desktop_host() {
+                self.owner.enroll_provider(provider, material).await?;
+            } else {
+                crate::store_provider_credential_material(provider, &material)
+                    .map_err(|error| error.to_string())?;
+            }
+            Ok(())
+        }
+        #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
+        {
+            let _ = (provider, material);
+            Err("provider credential enrollment is unavailable on this platform".to_owned())
+        }
     }
 
     async fn create(&mut self) -> Result<(), String> {

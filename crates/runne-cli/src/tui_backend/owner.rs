@@ -23,6 +23,7 @@ pub struct BackendOwner {
     pub selected_profile: Option<runne_api::SelectedProviderProfile>,
     supervisor: Option<ProtectedBundledRuntimeSupervisor>,
     project: PathBuf,
+    runtime_root: PathBuf,
     renewed_at: Instant,
     pending_registration: Option<CanonicalId>,
     registration_intent_saved: bool,
@@ -30,6 +31,9 @@ pub struct BackendOwner {
 
 #[path = "owner_command.rs"]
 mod command;
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[path = "owner_enrollment.rs"]
+mod enrollment;
 #[path = "owner_fresh.rs"]
 mod fresh;
 #[path = "owner_registration.rs"]
@@ -39,6 +43,23 @@ mod startup;
 
 pub async fn resolve(project: PathBuf, profile: Option<PathBuf>) -> Result<BackendOwner, String> {
     Box::pin(startup::resolve(project, profile)).await
+}
+
+/// Returns the CLI writer image that belongs to this host bundle.
+///
+/// The TUI runs in the signed `runne-desktop` host, while the installed tuple
+/// binds `runne` as the credential writer. Both live in the same bundle.
+pub(super) fn co_located_cli(executable: &std::path::Path) -> PathBuf {
+    let Some(candidate) = executable.parent().map(|directory| directory.join("runne")) else {
+        return executable.to_path_buf();
+    };
+    let regular =
+        std::fs::symlink_metadata(&candidate).is_ok_and(|metadata| metadata.file_type().is_file());
+    if regular && candidate != executable {
+        candidate
+    } else {
+        executable.to_path_buf()
+    }
 }
 
 /// Starts an already-adopted installation; grants no trust or policy.
@@ -65,13 +86,7 @@ pub async fn start_protected(
         .with_provider_activation(
             runne_api::ProviderActivationBindingV1::deepseek_responses_text_v1(),
         );
-    let spec = if let Ok(cli) = std::env::current_exe()
-        && let Some(daemon) = cli.parent().map(|directory| directory.join("runned"))
-    {
-        spec.with_credential_paths(cli, daemon)
-    } else {
-        spec
-    };
+    let spec = spec.with_credential_paths(co_located_cli(&executable), daemon);
     let mut supervisor =
         ProtectedBundledRuntimeSupervisor::new(DevelopmentBundledRuntimeLauncher::new(), spec);
     supervisor
@@ -111,6 +126,7 @@ pub async fn start_protected(
         selected_profile,
         supervisor: Some(supervisor),
         project,
+        runtime_root,
         renewed_at: Instant::now(),
         pending_registration: None,
         registration_intent_saved: false,
@@ -122,6 +138,15 @@ pub async fn start_protected(
 }
 
 impl BackendOwner {
+    /// Returns true only when the current image is the signed desktop host.
+    #[must_use]
+    pub(crate) fn is_desktop_host() -> bool {
+        std::env::current_exe()
+            .ok()
+            .and_then(|image| image.file_name().map(|name| name == "runne-desktop"))
+            .unwrap_or(false)
+    }
+
     pub async fn maintain(&mut self) -> Result<(), String> {
         if self.renewed_at.elapsed() < RENEW_AFTER {
             return Ok(());
@@ -270,6 +295,11 @@ fn tool_profile(
 }
 
 #[cfg(target_os = "macos")]
+#[allow(
+    clippy::unnecessary_wraps,
+    clippy::missing_const_for_fn,
+    reason = "keeps the platform-return shape shared with non-macOS"
+)]
 fn no_coding_profile() -> Result<Option<runne_api::SelectedProviderProfile>, String> {
     // The protected macOS node has no coding tool loop yet; the client still
     // admits the released text profile so registration and a first session work.

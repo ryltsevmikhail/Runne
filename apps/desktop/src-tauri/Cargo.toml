@@ -34,6 +34,7 @@ tauri-build = { version = "=2.6.3", features = [] }
 
 [dependencies]
 runne-app-core = { path = "../../../crates/runne-app-core" }
+runne-cli = { path = "../../../crates/runne-cli" }
 runne-api = { path = "../../../crates/runne-api" }
 runne-platform-desktop = { path = "../../../crates/runne-platform-desktop", features = ["protected-channel-integration"] }
 runne-macos-xpc = { path = "../../../crates/runne-macos-xpc" }

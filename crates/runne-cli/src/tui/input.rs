@@ -15,7 +15,7 @@ pub(super) fn key(
         return Ok(true);
     }
     if state.credential_prompt.is_some() {
-        return Ok(credential_key(state, key));
+        return Ok(credential_key(state, key, commands));
     }
     let send = |command| send_command(commands, command);
     if key.modifiers.contains(KeyModifiers::CONTROL) {
@@ -194,22 +194,39 @@ fn begin_credential(
         ));
     }
     state.secret.clear();
+    if state.snapshot.credential_enrollment == Some(false) {
+        state.notice =
+            "Qualified installed release unavailable · enrollment requires a qualified signed release"
+                .into();
+        return Ok(());
+    }
     state.credential_prompt = Some(provider);
     state.notice =
-        "Enter the API key (input hidden) · Enter saves to Keychain · Esc cancels".into();
+        "Enter the API key (input hidden) · Enter starts authenticated enrollment · Esc cancels"
+            .into();
     Ok(())
 }
 
-/// Reports exactly the completed step: the key reached the login Keychain.
-///
-/// The TUI cannot run the credential enrollment lifecycle, so the provider
-/// stays unactivated and dispatch keeps failing closed. The notice must not
-/// imply readiness or a runtime restart that would not change that.
-const CREDENTIAL_STORED_NOTICE: &str =
-    "Key saved to Keychain · provider activation not performed · unavailable in the CLI";
+/// Reports exactly the completed step: the hidden key was handed to the
+/// authenticated enrollment channel. It never claims the provider is ready.
+const CREDENTIAL_ENROLLMENT_NOTICE: &str =
+    "Key captured · authenticated enrollment requested · waiting for the protected runtime";
 
-fn credential_key(state: &mut State, key: KeyEvent) -> bool {
-    credential_key_with(state, key, crate::store_provider_credential_material)
+fn credential_key(state: &mut State, key: KeyEvent, commands: &Sender<UiCommand>) -> bool {
+    let slot = state.credential_slot.clone();
+    credential_key_with(state, key, move |provider, material| {
+        *slot.lock().map_err(|_| crate::CliError::Runtime)? = Some((provider, material));
+        if commands
+            .try_send(UiCommand::EnrollCredential { provider })
+            .is_err()
+        {
+            if let Ok(mut slot) = slot.lock() {
+                *slot = None;
+            }
+            return Err(crate::CliError::Runtime);
+        }
+        Ok(())
+    })
 }
 
 pub(super) fn credential_key_with(
@@ -217,7 +234,7 @@ pub(super) fn credential_key_with(
     key: KeyEvent,
     store: impl Fn(
         crate::ProviderCredentialId,
-        &ProviderCredentialMaterial,
+        ProviderCredentialMaterial,
     ) -> Result<(), crate::CliError>,
 ) -> bool {
     if key.kind == KeyEventKind::Release {
@@ -237,12 +254,12 @@ pub(super) fn credential_key_with(
                 state.notice = "Error: key is empty or exceeds the credential bound".into();
                 return true;
             };
-            match store(provider, &material) {
+            match store(provider, material) {
                 Ok(()) => {
-                    state.notice = CREDENTIAL_STORED_NOTICE.into();
+                    state.notice = CREDENTIAL_ENROLLMENT_NOTICE.into();
                 }
                 Err(error) => {
-                    state.notice = format!("Error: {error}; the key was not saved");
+                    state.notice = format!("Error: {error}; the key was not submitted");
                 }
             }
         }

@@ -4,7 +4,7 @@
 //! empty layout instead of failing on a missing legacy installation.
 use super::{BackendOwner, PathBuf, command, fresh, start_protected};
 use serde::Deserialize;
-use std::io::{self, Read, Write};
+use std::io::{self, Write};
 use std::path::Path;
 
 #[derive(Deserialize)]
@@ -36,7 +36,7 @@ pub(super) async fn resolve(
     let runtime_root = match installation.state.as_str() {
         "initialized" => installation.runtime_root.clone(),
         "legacy" => adopt(&daemon, &project)?,
-        _ => fresh::initialize(&daemon, &executable)?,
+        _ => fresh::initialize(&daemon, &super::co_located_cli(&executable))?,
     };
     let root_handle = runne_platform_desktop::VerifiedRootHandle::open(&project)
         .map_err(|_| "Project root identity unavailable")?;

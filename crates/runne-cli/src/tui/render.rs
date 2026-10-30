@@ -102,7 +102,7 @@ pub(super) fn lines(state: &State, width: u16, height: u16) -> Vec<String> {
     result.push(wrap(&format!("Project: {}", state.snapshot.project), width).remove(0));
     let header_height = result.len();
     let input = if state.credential_prompt.is_some() {
-        wrap("> [input hidden] · Enter save · Esc cancel", width)
+        wrap("> [input hidden] · Enter enroll · Esc cancel", width)
     } else {
         wrap(&format!("> {}", state.editor.display()), width)
     };

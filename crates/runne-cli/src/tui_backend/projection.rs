@@ -5,6 +5,7 @@ use std::fmt::Write as _;
 
 impl Backend {
     pub(super) async fn refresh(&mut self) -> Result<(), String> {
+        self.snapshot.credential_enrollment = self.enrollment_admission;
         self.owner.maintain().await?;
         let Some(workspace) = self.owner.workspace_id else {
             self.snapshot.status = self.owner.registration_status().into();

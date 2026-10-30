@@ -4386,6 +4386,7 @@ dependencies = [
  "rand 0.8.7",
  "runne-api",
  "runne-app-core",
+ "runne-cli",
  "runne-macos-xpc",
  "runne-native-qualification",
  "runne-platform-desktop",
