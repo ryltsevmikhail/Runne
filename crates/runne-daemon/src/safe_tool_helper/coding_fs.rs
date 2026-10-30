@@ -81,6 +81,13 @@ pub(crate) fn bounded_read(root: &File, path: &str) -> Result<Vec<u8>, &'static 
     Ok(bytes)
 }
 
+#[cfg(not(target_os = "macos"))]
 pub(crate) fn namespace_root(root: &File) -> Result<File, &'static str> {
     platform::namespace_root(root)
+}
+
+/// Returns the workspace path backing a pinned root descriptor.
+#[cfg(target_os = "macos")]
+pub(crate) fn pinned_path(root: &File) -> Result<std::path::PathBuf, &'static str> {
+    platform::pinned_path(root)
 }

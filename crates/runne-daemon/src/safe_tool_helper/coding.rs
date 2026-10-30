@@ -52,7 +52,7 @@ pub(super) fn execute(
         #[cfg(not(target_os = "macos"))]
         "workspace.command.run" => coding_command::run(root, &args)?,
         #[cfg(target_os = "macos")]
-        "workspace.command.run" => return Err("command_unavailable"),
+        "workspace.command.run" => coding_command_sandbox::run(root, &args)?,
         _ => return Err("unknown_operation"),
     };
     let directory = matches!(

@@ -148,11 +148,40 @@ mod imp {
         pinned.try_clone().map_err(|_| "read_denied")
     }
 
-    /// Mount namespaces are inherited per process on macOS; the held root is
-    /// already bound to this invocation.
-    pub(crate) fn namespace_root(root: &File) -> Result<File, &'static str> {
-        root.try_clone().map_err(|_| "target_denied")
+    /// Resolves the path a pinned descriptor names and proves it still refers
+    /// to the same file before returning it.
+    pub(crate) fn pinned_path(file: &File) -> Result<std::path::PathBuf, &'static str> {
+        use std::os::unix::ffi::OsStrExt;
+        let mut buffer = vec![0u8; libc::PATH_MAX as usize];
+        // SAFETY: F_GETPATH writes at most PATH_MAX bytes, including the
+        // terminating NUL, into a buffer sized for exactly that.
+        let result = unsafe {
+            libc::fcntl(
+                file.as_raw_fd(),
+                libc::F_GETPATH,
+                buffer.as_mut_ptr().cast::<libc::c_char>(),
+            )
+        };
+        if result == -1 {
+            return Err("target_denied");
+        }
+        let end = buffer
+            .iter()
+            .position(|byte| *byte == 0)
+            .ok_or("target_denied")?;
+        let path = std::path::PathBuf::from(std::ffi::OsStr::from_bytes(&buffer[..end]));
+        let reopened = std::fs::File::open(&path).map_err(|_| "target_changed")?;
+        if identity(&reopened)? != identity(file)? {
+            return Err("target_changed");
+        }
+        Ok(path)
     }
 }
 
-pub(crate) use imp::{O_PATH, namespace_root, open_beneath, reopen_pinned_read};
+pub(crate) use imp::{O_PATH, open_beneath, reopen_pinned_read};
+
+#[cfg(not(target_os = "macos"))]
+pub(crate) use imp::namespace_root;
+
+#[cfg(target_os = "macos")]
+pub(crate) use imp::pinned_path;

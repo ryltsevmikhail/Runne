@@ -105,6 +105,10 @@ runne-macos-xpc = { path = "../runne-macos-xpc" }
 runne-macos-keychain-acl = { path = "../runne-macos-keychain-acl" }
 runne-native-qualification = { path = "../runne-native-qualification" }
 runne-native-enrollment-authority = { path = "../runne-native-enrollment-authority", optional = true }
+# Seatbelt helper trust: the runtime validates the helper's Developer ID
+# signature before executing it.
+core-foundation = "=0.10.1"
+security-framework = { version = "=3.7.0", features = ["OSX_10_15"] }
 
 [dev-dependencies]
 runne-daemon-local-engine-effect = { path = "../runne-daemon-local-engine-effect", features = ["test-support"] }
@@ -125,12 +129,6 @@ runne-secure-store = { path = "../runne-secure-store", default-features = false,
 runne-sqlite-handle-identity = { path = "../runne-sqlite-handle-identity" }
 tempfile = "3"
 reqwest = { workspace = true, features = ["json", "rustls-tls"] }
-
-# macOS keychain writer-authority tests only; core-foundation does not build
-# on Windows targets.
-[target.'cfg(target_os = "macos")'.dev-dependencies]
-core-foundation = "=0.10.1"
-security-framework = { version = "=3.7.0", features = ["OSX_10_15"] }
 
 [[bin]]
 name = "runned"

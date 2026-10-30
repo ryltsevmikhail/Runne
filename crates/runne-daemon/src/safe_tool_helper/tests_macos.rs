@@ -148,23 +148,97 @@ fn list_and_search_walk_the_pinned_directory() {
     fs::remove_dir_all(directory).unwrap();
 }
 
+/// Returns `true` when the environment cannot exercise the sandbox at all.
+fn unsupported_environment(error: &str) -> bool {
+    match error {
+        "command_spawn_policy" => {
+            eprintln!("skipping: Seatbelt cannot be applied in this process tree");
+            true
+        }
+        "command_helper_missing" | "command_helper_untrusted" => {
+            eprintln!("skipping: no Developer ID signed runne-sandbox-helper for this test");
+            true
+        }
+        _ => false,
+    }
+}
+
+fn command(
+    root: &File,
+    directory: &std::path::Path,
+    arguments: serde_json::Value,
+) -> Option<serde_json::Value> {
+    let expected = version(&File::open(directory).unwrap()).unwrap();
+    match coding(root, "workspace.command.run", arguments, Some(expected)) {
+        Ok(receipt) => {
+            Some(serde_json::from_slice(&STANDARD.decode(receipt.bytes_base64).unwrap()).unwrap())
+        }
+        Err(error) if unsupported_environment(error) => None,
+        Err(error) => panic!("command failed: {error}"),
+    }
+}
+
 #[test]
-fn command_is_not_available_on_macos() {
+fn command_runs_inside_the_signed_seatbelt_helper() {
     let (directory, root) = fixture();
-    let directory_version = version(&File::open(&directory).unwrap()).unwrap();
+    let Some(output) = command(
+        &root,
+        &directory,
+        serde_json::json!({
+            "cwd": ".",
+            "argv": ["/bin/pwd"],
+            "timeout_ms": 5000,
+        }),
+    ) else {
+        fs::remove_dir_all(directory).unwrap();
+        return;
+    };
+    assert_eq!(output["exit_code"], 0);
+    let stdout = STANDARD
+        .decode(output["stdout_base64"].as_str().unwrap())
+        .unwrap();
+    let printed = std::str::from_utf8(&stdout).unwrap().trim_end();
     assert_eq!(
-        coding(
-            &root,
-            "workspace.command.run",
-            serde_json::json!({
-                "cwd": ".",
-                "argv": ["/bin/pwd"],
-                "timeout_ms": 5000,
-            }),
-            Some(directory_version),
-        ),
-        Err("command_unavailable")
+        std::fs::canonicalize(printed).unwrap(),
+        std::fs::canonicalize(&directory).unwrap()
     );
+    fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+fn command_confines_reads_and_writes_to_the_workspace() {
+    let (directory, root) = fixture();
+    let Some(read_denied) = command(
+        &root,
+        &directory,
+        serde_json::json!({
+            "cwd": ".",
+            "argv": ["/bin/cat", "/etc/passwd"],
+            "timeout_ms": 5000,
+        }),
+    ) else {
+        fs::remove_dir_all(directory).unwrap();
+        return;
+    };
+    assert_ne!(read_denied["exit_code"], 0);
+    assert_eq!(read_denied["stdout_base64"], "");
+
+    let outside = std::env::temp_dir().join(format!("runne-outside-{}", std::process::id()));
+    let _ = fs::remove_file(&outside);
+    let Some(write_denied) = command(
+        &root,
+        &directory,
+        serde_json::json!({
+            "cwd": ".",
+            "argv": ["/usr/bin/touch", outside.to_str().unwrap()],
+            "timeout_ms": 5000,
+        }),
+    ) else {
+        fs::remove_dir_all(directory).unwrap();
+        return;
+    };
+    assert_ne!(write_denied["exit_code"], 0);
+    assert!(!outside.exists());
     fs::remove_dir_all(directory).unwrap();
 }
 
