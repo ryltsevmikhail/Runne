@@ -11,6 +11,40 @@ use super::online_test_support::{
 };
 
 #[test]
+fn completion_activates_the_head_and_no_dispatch_lease_exists_before_it() {
+    let store = store();
+    assert!(store.active_lease(&provider()).unwrap().is_none());
+
+    prepare_pair(&store);
+    let head_before: Option<i64> = store
+        .connection
+        .lock()
+        .unwrap()
+        .query_row(
+            "SELECT active_credential_version FROM provider_credential_authority_heads WHERE provider_id='openai'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(head_before, None);
+
+    ProviderCredentialEnrollmentStore::complete(&store, completion()).unwrap();
+
+    let head_after: Option<i64> = store
+        .connection
+        .lock()
+        .unwrap()
+        .query_row(
+            "SELECT active_credential_version FROM provider_credential_authority_heads WHERE provider_id='openai'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(head_after, Some(1));
+    assert!(store.active_lease(&provider()).unwrap().is_some());
+}
+
+#[test]
 fn credential_online_pair_completion_persists_readiness_atomically() {
     let store = store();
     prepare_pair(&store);
