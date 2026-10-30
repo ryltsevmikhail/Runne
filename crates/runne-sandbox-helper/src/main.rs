@@ -17,6 +17,8 @@ mod profile;
 mod seatbelt;
 #[cfg(target_os = "macos")]
 mod self_test;
+#[cfg(target_os = "macos")]
+mod status;
 
 use std::process::ExitCode;
 

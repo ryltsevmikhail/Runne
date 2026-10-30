@@ -217,3 +217,7 @@ mod tests;
 #[cfg(all(test, target_os = "macos"))]
 #[path = "safe_tool_helper/tests_macos.rs"]
 mod tests_macos;
+
+#[cfg(all(test, target_os = "macos"))]
+#[path = "safe_tool_helper/tests_macos_status.rs"]
+mod tests_macos_status;

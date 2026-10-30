@@ -4179,6 +4179,7 @@ dependencies = [
  "runne-provider-zai",
  "runne-runtime",
  "runne-runtime-client",
+ "runne-sandbox-protocol",
  "runne-secure-store",
  "runne-security",
  "runne-sqlite-handle-identity",
@@ -5113,8 +5114,13 @@ name = "runne-sandbox-helper"
 version = "0.0.3"
 dependencies = [
  "libc",
+ "runne-sandbox-protocol",
  "tempfile",
 ]
+
+[[package]]
+name = "runne-sandbox-protocol"
+version = "0.0.3"
 
 [[package]]
 name = "runne-secure-store"
