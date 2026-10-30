@@ -5125,6 +5125,7 @@ dependencies = [
  "cbc 0.2.1",
  "dbus",
  "ed25519-dalek",
+ "hex",
  "hkdf",
  "keyring",
  "linux-keyutils",
