@@ -170,7 +170,7 @@ fn ready_v3_parts(
         graceful_requested: false, graceful_acknowledged: false,
         enrollment_broker_facts: with_broker_facts
             .then(|| EnrollmentBrokerFacts::new([31; 32], [32; 32])),
-        captured_stdout: None, captured_stderr: None,
+        captured_stdout: None, captured_stderr: None, child_stderr: None,
     };
     let root = std::env::temp_dir().join(format!("runne-v3-test-{}", uuid::Uuid::now_v7()));
     std::fs::create_dir(&root).expect("runtime root");

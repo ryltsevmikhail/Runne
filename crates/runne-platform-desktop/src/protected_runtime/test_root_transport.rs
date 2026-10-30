@@ -23,6 +23,7 @@ impl ProtectedBundledRuntimeProcess {
             enrollment_broker_facts: None,
             captured_stdout: None,
             captured_stderr: None,
+            child_stderr: None,
         }
     }
 }
