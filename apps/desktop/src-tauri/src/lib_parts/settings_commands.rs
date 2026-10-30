@@ -95,6 +95,8 @@ async fn get_provider_credential_enrollment_status(
     updater: tauri::State<'_, UpdateStatusStore>,
     provider: runne_api::ProviderCredentialProviderV2,
 ) -> Result<runne_app_core::ProviderCredentialEnrollmentProjection, IpcError> {
+    crate::provider_credential_enrollment::ensure_credential_service_registered()
+        .map_err(|code| IpcError { code })?;
     crate::provider_credential_enrollment::load_status(
         &app,
         state.inner(),
@@ -133,6 +135,10 @@ async fn request_provider_credential_intent(
             code: "provider_credential_intent_rejected",
         });
     }
+    // The packaged LaunchAgent must serve the native chain before it starts;
+    // a withheld registration is reported with its own actionable code.
+    crate::provider_credential_enrollment::ensure_credential_service_registered()
+        .map_err(|code| IpcError { code })?;
     // Trusted native chain only: leases, native prompt, exact daemon
     // confirmation, V3 transition with writer handoff. The renderer receives
     // just the closed projection; every failure is fail-closed and actionable.

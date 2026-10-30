@@ -34,7 +34,7 @@ import {
   type ProviderCatalogSnapshot,
   type ProviderQuotaProjection,
 } from '@/shared/api/platform/providers'
-import { translate } from '@/shared/i18n'
+import { translate, type LocaleKey } from '@/shared/i18n'
 import ProviderRow from './ProviderRow.vue'
 
 type LoadProviderStatus = () => Promise<readonly ProviderStatusSnapshot[]>
@@ -208,14 +208,28 @@ async function changeCredential(providerId: ProviderStatusSnapshot['providerId']
     }
   }
   catch (error) {
-    enrollNotes.value[provider] = translate(action === 'verify'
-      ? 'providers.quotaRefreshFailed'
-      : action === 'revoke' ? 'providers.revokeFailed' : 'providers.enrollFailed', {
-      code: enrollErrorCode(error),
-    })
+    const code = enrollErrorCode(error)
+    enrollNotes.value[provider] = action === 'verify'
+      ? translate('providers.quotaRefreshFailed', { code })
+      : action === 'revoke'
+        ? translate('providers.revokeFailed', { code })
+        : translate(enrollFailureKey(code), { code })
   }
   finally {
     enrolling.value[provider] = false
+  }
+}
+
+function enrollFailureKey(code: string): LocaleKey {
+  switch (code) {
+    case 'provider_credential_service_approval_required':
+      return 'providers.enrollFailed.approvalRequired'
+    case 'provider_credential_service_not_found':
+      return 'providers.enrollFailed.serviceNotFound'
+    case 'provider_credential_service_unavailable':
+      return 'providers.enrollFailed.serviceUnavailable'
+    default:
+      return 'providers.enrollFailed'
   }
 }
 
