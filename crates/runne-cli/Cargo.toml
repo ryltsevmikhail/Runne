@@ -31,7 +31,7 @@ crossterm = "=0.29.0"
 unicode-width = "=0.2.2"
 base64.workspace = true
 chrono.workspace = true
-dirs = "6"
+dirs = "7"
 runne-runtime-client = { path = "../runne-runtime-client" }
 runne-api = { path = "../runne-api" }
 runne-provider = { path = "../runne-provider" }
