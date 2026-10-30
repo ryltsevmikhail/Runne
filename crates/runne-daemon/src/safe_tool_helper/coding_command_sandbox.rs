@@ -51,14 +51,23 @@ pub(super) fn run(root: &File, args: &CodingArguments) -> Result<Vec<u8>, &'stat
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .process_group(0);
-    let mut child = command
-        .spawn()
-        .map_err(|error| match error.raw_os_error() {
-            Some(libc::EACCES) => "command_spawn_access",
-            Some(libc::ENOENT) => "command_spawn_missing",
-            Some(libc::EPERM) => "command_spawn_policy",
-            _ => "command_spawn_other",
-        })?;
+    let mut child = match command.spawn() {
+        Ok(child) => child,
+        Err(error) => {
+            // No helper inherited the read end, and the write end was never
+            // handed to `write_profile`, so both descriptors still belong here.
+            unsafe {
+                libc::close(read_fd);
+                libc::close(write_fd);
+            }
+            return Err(match error.raw_os_error() {
+                Some(libc::EACCES) => "command_spawn_access",
+                Some(libc::ENOENT) => "command_spawn_missing",
+                Some(libc::EPERM) => "command_spawn_policy",
+                _ => "command_spawn_other",
+            });
+        }
+    };
     // The helper owns the read end from here; keeping it open in the parent
     // would leave the helper waiting for end-of-profile.
     unsafe {
