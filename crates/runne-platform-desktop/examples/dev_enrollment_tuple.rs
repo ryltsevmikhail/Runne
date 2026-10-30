@@ -13,6 +13,10 @@
 //!    /abs/path/Runne.app /abs/tuple.json --artifact-sha256 <64-hex> \
 //!    --artifact-size <bytes> --artifact-url https://.../Runne.dmg \
 //!    --runtime-version 0.0.3 --channel dev`
+//!
+//! `--receipt PATH --qualified-at UNIX --qualification-expires UNIX` attaches
+//! the local macOS qualification row. The three flags are all-or-nothing and
+//! the receipt must bind this commit, artifact, and every measured input.
 
 use std::process::ExitCode;
 
@@ -30,7 +34,9 @@ use sha2::{Digest, Sha256};
 use runne_platform_desktop::{NativeEnrollmentTupleV3, UpdateTargetV2};
 
 #[cfg(target_os = "macos")]
-use runne_platform_desktop::produce_staged_native_enrollment_tuple_v3;
+use runne_platform_desktop::{
+    produce_staged_native_enrollment_tuple_v3, produce_staged_native_enrollment_tuple_v3_qualified,
+};
 
 /// Mirrors the staged `release-candidate-binding.json` (camelCase on disk).
 #[cfg(target_os = "macos")]
@@ -80,7 +86,23 @@ struct PolicyFacts {
 }
 
 #[cfg(target_os = "macos")]
-fn parse_arguments() -> Result<(PathBuf, PathBuf, ArtifactFacts, PolicyFacts), String> {
+struct QualificationFacts {
+    receipt: PathBuf,
+    qualified_at: u64,
+    qualification_expires: u64,
+}
+
+#[cfg(target_os = "macos")]
+fn parse_arguments() -> Result<
+    (
+        PathBuf,
+        PathBuf,
+        ArtifactFacts,
+        PolicyFacts,
+        Option<QualificationFacts>,
+    ),
+    String,
+> {
     let mut arguments = std::env::args().skip(1);
     let candidate_app = arguments.next().ok_or("missing candidate app path")?;
     let output = arguments.next().ok_or("missing output json path")?;
@@ -89,6 +111,9 @@ fn parse_arguments() -> Result<(PathBuf, PathBuf, ArtifactFacts, PolicyFacts), S
     let mut artifact_url = None;
     let mut runtime_version = None;
     let mut channel = None;
+    let mut receipt = None;
+    let mut qualified_at = None;
+    let mut qualification_expires = None;
     while let Some(flag) = arguments.next() {
         let value = arguments
             .next()
@@ -101,6 +126,17 @@ fn parse_arguments() -> Result<(PathBuf, PathBuf, ArtifactFacts, PolicyFacts), S
             "--artifact-url" => artifact_url = Some(value),
             "--runtime-version" => runtime_version = Some(value),
             "--channel" => channel = Some(value),
+            "--receipt" => receipt = Some(PathBuf::from(value)),
+            "--qualified-at" => {
+                qualified_at = Some(value.parse::<u64>().map_err(|_| "invalid --qualified-at")?);
+            }
+            "--qualification-expires" => {
+                qualification_expires = Some(
+                    value
+                        .parse::<u64>()
+                        .map_err(|_| "invalid --qualification-expires")?,
+                );
+            }
             other => return Err(format!("unknown flag: {other}")),
         }
     }
@@ -115,6 +151,22 @@ fn parse_arguments() -> Result<(PathBuf, PathBuf, ArtifactFacts, PolicyFacts), S
         PolicyFacts {
             runtime_version: runtime_version.ok_or("missing --runtime-version")?,
             channel: channel.ok_or("missing --channel")?,
+        },
+        match (receipt, qualified_at, qualification_expires) {
+            (None, None, None) => None,
+            (Some(receipt), Some(qualified_at), Some(qualification_expires)) => {
+                Some(QualificationFacts {
+                    receipt,
+                    qualified_at,
+                    qualification_expires,
+                })
+            }
+            _ => {
+                return Err(
+                    "--receipt, --qualified-at and --qualification-expires must be given together"
+                        .into(),
+                );
+            }
         },
     ))
 }
@@ -139,7 +191,7 @@ fn load_staged_binding(candidate_app: &Path) -> Result<StagedReleaseCandidateBin
 
 #[cfg(target_os = "macos")]
 fn main() -> ExitCode {
-    let (candidate_app, output, artifact, policy) = match parse_arguments() {
+    let (candidate_app, output, artifact, policy, qualification) = match parse_arguments() {
         Ok(parsed) => parsed,
         Err(message) => return fail("arguments", &message),
     };
@@ -180,7 +232,17 @@ fn main() -> ExitCode {
         native_enrollment_tuple_v3: None,
         qualification_bootstrap_client_v1: None,
     };
-    let tuple = match produce_staged_native_enrollment_tuple_v3(&candidate_app, &target) {
+    let produced = match qualification {
+        Some(qualification) => produce_staged_native_enrollment_tuple_v3_qualified(
+            &candidate_app,
+            &target,
+            &qualification.receipt,
+            qualification.qualified_at,
+            qualification.qualification_expires,
+        ),
+        None => produce_staged_native_enrollment_tuple_v3(&candidate_app, &target),
+    };
+    let tuple = match produced {
         Ok(tuple) => tuple,
         Err(error) => return fail("produce", &format!("{error:?}")),
     };
@@ -197,11 +259,15 @@ fn main() -> ExitCode {
     if let Err(error) = std::fs::write(&output, &bytes) {
         return fail("write-output", &error.to_string());
     }
+    let qualified = serde_json::to_value(&produced.tuple)
+        .ok()
+        .is_some_and(|value| value.get("nativeEnrollmentQualification").is_some());
     println!(
-        "stage=produce status=ok output={} bundleSha256={} runtimeDigest={}",
+        "stage=produce status=ok output={} bundleSha256={} runtimeDigest={} qualified={}",
         output.display(),
         produced.target.bundle_sha256,
         produced.target.runtime_digest,
+        qualified,
     );
     ExitCode::SUCCESS
 }
