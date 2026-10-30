@@ -40,6 +40,49 @@ pub fn prepare() -> Result<TerminalAdoptionPreview, DaemonError> {
     })
 }
 
+/// Repins the installation source to the exact binaries in `directory`.
+///
+/// Explicit stopped-runtime command for a rebuilt CLI/daemon pair whose
+/// configuration, authority and database are unchanged. The previous source
+/// record is retained beside the new one; no database or credential is touched.
+pub fn pin_source(directory: &Path) -> Result<InstallationStatus, DaemonError> {
+    let config = crate::config::load_external_config()?;
+    let database = Path::new(&config.db_path);
+    let root = database
+        .parent()
+        .and_then(Path::parent)
+        .filter(|root| root.is_absolute())
+        .ok_or_else(|| failure("pinned runtime layout unavailable"))?;
+    let config_path = crate::config::external_config_path();
+    let cli = std::fs::canonicalize(directory.join("runne"))
+        .map_err(|_| failure("pinned CLI image unavailable"))?;
+    let daemon = std::env::current_exe()
+        .and_then(std::fs::canonicalize)
+        .map_err(|_| failure("pinned daemon image unavailable"))?;
+    let record = root
+        .join(".desktop-protected-activation")
+        .join("terminal-installation-v1.json");
+    let backup = record.with_extension("previous.json");
+    if record.exists() {
+        std::fs::rename(&record, &backup).map_err(|_| failure("source backup unavailable"))?;
+    }
+    match runne_platform_desktop::publish_terminal_installation_source(
+        root,
+        &config_path,
+        &cli,
+        &daemon,
+        &cli,
+    ) {
+        Ok(()) => inspect(),
+        Err(_) => {
+            if backup.exists() && !record.exists() {
+                let _ = std::fs::rename(&backup, &record);
+            }
+            Err(failure("pinned installation source unavailable"))
+        }
+    }
+}
+
 /// Commits only the exact preview explicitly accepted by the local owner.
 /// The manifest binds the fixed configuration and all three pinned executable images.
 /// Callers must not invoke this automatically on connection failure or ordinary startup.

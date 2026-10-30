@@ -26,6 +26,12 @@ pub fn run(arguments: &[OsString]) -> Result<(), Box<dyn std::error::Error>> {
                 let manifest = manifest.to_str().ok_or("invalid adoption manifest")?;
                 terminal_adoption::repin_tools(std::path::Path::new(previous), manifest)?
             }
+            [pin, directory] if pin == "pin-source" => {
+                let directory = directory.to_str().ok_or("invalid source directory")?;
+                return print(&terminal_adoption::pin_source(std::path::Path::new(
+                    directory,
+                ))?);
+            }
             [upgrade, directory, previous, manifest] if upgrade == "upgrade-images" => {
                 terminal_adoption::upgrade_images(
                     std::path::Path::new(directory),
