@@ -11,7 +11,7 @@ test-support = []
 
 [dependencies]
 base64.workspace = true
-dirs = "6"
+dirs = "7"
 runne-api = { path = "../runne-api" }
 runne-pairing-crypto = { path = "../runne-pairing-crypto" }
 chrono.workspace = true
