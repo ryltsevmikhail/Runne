@@ -24,7 +24,7 @@ body:
     id: environment
     attributes:
       label: Environment
-      description: Linux distribution, architecture, desktop/session, Rust, Node.js, pnpm, and bundled or external runtime mode. Linux is the only active execution-node target.
+      description: Linux distribution, architecture, desktop/session, Rust, Node.js, pnpm, and bundled or external runtime mode. Linux is the active execution-node target; macOS (Apple Silicon) is under qualification.
     validations:
       required: true
   - type: textarea

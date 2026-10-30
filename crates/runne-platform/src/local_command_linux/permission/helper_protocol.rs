@@ -8,25 +8,23 @@ use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use std::{
     ffi::CString,
-    fs::File,
-    os::fd::{AsRawFd, FromRawFd},
     time::{SystemTime, UNIX_EPOCH},
 };
 
 const HELPER_MAX_INPUT: usize = 16 * 1024;
-const HELPER_MAX_CONTENT: usize = 8 * 1024;
+pub(super) const HELPER_MAX_CONTENT: usize = 8 * 1024;
 const HELPER_REQUEST_DOMAIN: &[u8] = b"runne:d21:tool-helper-request:v1\0";
 
 #[derive(Clone)]
 pub(super) struct ParsedHelperRequest {
     pub(super) observation: PermissionHelperObservationV1,
-    path: CString,
-    absent: bool,
+    pub(super) path: CString,
+    pub(super) absent: bool,
 }
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct HelperBindingV1 {
+pub(super) struct HelperBindingV1 {
     taskrun_id: String,
     attempt_id: String,
     cycle_id: String,
@@ -41,14 +39,14 @@ struct HelperBindingV1 {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct HelperIdentityV1 {
+pub(super) struct HelperIdentityV1 {
     device: u64,
     inode: u64,
 }
 
 #[derive(Clone, Copy, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct HelperVersionV1 {
+pub(super) struct HelperVersionV1 {
     device: u64,
     inode: u64,
     size: u64,
@@ -61,6 +59,13 @@ struct HelperVersionV1 {
 #[derive(Deserialize)]
 #[serde(tag = "operation", deny_unknown_fields)]
 enum HelperRequestV1 {
+    Coding {
+        binding: HelperBindingV1,
+        tool_name: String,
+        arguments: serde_json::Value,
+        root: HelperIdentityV1,
+        expected: Option<HelperVersionV1>,
+    },
     Read {
         binding: HelperBindingV1,
         path: String,
@@ -80,8 +85,21 @@ pub(super) fn parse_helper_request(bytes: &[u8]) -> Result<ParsedHelperRequest, 
     if bytes.is_empty() || bytes.len() > HELPER_MAX_INPUT {
         return Err(LinuxCommandError::Invalid);
     }
+    let mut coding_arguments = None;
     let (binding, path, root, operation, target, content, original_base64) =
         match serde_json::from_slice(bytes).map_err(|_| LinuxCommandError::Invalid)? {
+            HelperRequestV1::Coding {
+                binding,
+                tool_name,
+                arguments,
+                root,
+                expected,
+            } => {
+                let (operation, path, content) =
+                    super::helper_coding::validate(&tool_name, &arguments, expected.is_some())?;
+                coding_arguments = Some(arguments);
+                (binding, path, root, operation, expected, content, None)
+            }
             HelperRequestV1::Read {
                 binding,
                 path,
@@ -142,7 +160,13 @@ pub(super) fn parse_helper_request(bytes: &[u8]) -> Result<ParsedHelperRequest, 
     {
         return Err(LinuxCommandError::Invalid);
     }
-    let arguments_digest = helper_arguments_digest(&path, original_base64.as_deref())?;
+    let arguments_digest = match coding_arguments.as_ref() {
+        Some(value) => {
+            Sha256::digest(serde_json::to_vec(value).map_err(|_| LinuxCommandError::Invalid)?)
+                .into()
+        }
+        None => helper_arguments_digest(&path, original_base64.as_deref())?,
+    };
     let expires_at_unix_ms = binding.expires_at_unix_ms;
     let binding = PermissionHelperBindingObservationV1 {
         taskrun_id: binding.taskrun_id,
@@ -156,8 +180,14 @@ pub(super) fn parse_helper_request(bytes: &[u8]) -> Result<ParsedHelperRequest, 
         approval_digest: binding.approval_digest,
         expires_at_unix_ms,
     };
-    let path_c = helper_target_path(&path)?;
-    if target.is_some_and(|version| version.size > HELPER_MAX_CONTENT as u64) {
+    let path_c = if coding_arguments.is_some() {
+        super::helper_coding::path(&path)?
+    } else {
+        helper_target_path(&path)?
+    };
+    if !operation.is_directory()
+        && target.is_some_and(|version| version.size > HELPER_MAX_CONTENT as u64)
+    {
         return Err(LinuxCommandError::Invalid);
     }
     let target = target.map(|version| PermissionHelperTargetVersionV1 {
@@ -231,61 +261,4 @@ fn helper_target_path(path: &str) -> Result<CString, LinuxCommandError> {
     CString::new(path).map_err(|_| LinuxCommandError::Invalid)
 }
 
-pub(super) fn check_helper_target(
-    parsed: &ParsedHelperRequest,
-    workspace: &File,
-) -> Result<(), LinuxCommandError> {
-    let mut root = unsafe { std::mem::zeroed::<libc::stat>() };
-    if unsafe { libc::fstat(workspace.as_raw_fd(), &mut root) } != 0
-        || root.st_mode & libc::S_IFMT != libc::S_IFDIR
-        || root.st_dev as u64 != parsed.observation.root_device
-        || root.st_ino as u64 != parsed.observation.root_inode
-    {
-        return Err(LinuxCommandError::Unverified);
-    }
-    let fd = unsafe {
-        libc::openat(
-            workspace.as_raw_fd(),
-            parsed.path.as_ptr(),
-            libc::O_PATH | libc::O_NOFOLLOW | libc::O_CLOEXEC,
-            0,
-        )
-    };
-    if parsed.absent {
-        if fd >= 0 {
-            unsafe { libc::close(fd) };
-            return Err(LinuxCommandError::Unverified);
-        }
-        return (std::io::Error::last_os_error().raw_os_error() == Some(libc::ENOENT))
-            .then_some(())
-            .ok_or(LinuxCommandError::Unverified);
-    }
-    if fd < 0 {
-        return Err(LinuxCommandError::Unverified);
-    }
-    let file = unsafe { File::from_raw_fd(fd) };
-    let mut actual = unsafe { std::mem::zeroed::<libc::stat>() };
-    if unsafe { libc::fstat(file.as_raw_fd(), &mut actual) } != 0
-        || actual.st_mode & libc::S_IFMT != libc::S_IFREG
-        || actual.st_nlink != 1
-        || actual.st_size < 0
-    {
-        return Err(LinuxCommandError::Unverified);
-    }
-    let expected = parsed
-        .observation
-        .target
-        .ok_or(LinuxCommandError::Unverified)?;
-    if actual.st_dev as u64 != expected.device
-        || actual.st_ino as u64 != expected.inode
-        || actual.st_size as u64 != expected.size
-        || actual.st_mtime != expected.mtime_sec
-        || actual.st_mtime_nsec != expected.mtime_nsec
-        || actual.st_ctime != expected.ctime_sec
-        || actual.st_ctime_nsec != expected.ctime_nsec
-        || actual.st_size as u64 > HELPER_MAX_CONTENT as u64
-    {
-        return Err(LinuxCommandError::Unverified);
-    }
-    Ok(())
-}
+pub(super) use super::helper_target::check_helper_target;

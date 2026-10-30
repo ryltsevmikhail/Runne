@@ -1,4 +1,3 @@
-use super::model::now_ms;
 use crate::store::StoreTransaction;
 use runne_application::{
     commands::CommandOutcome,
@@ -91,28 +90,26 @@ impl StoreTransaction {
         let lease = owner
             .acquire_effect_lease(&self.runtime_authority_id, project)
             .map_err(|_| terminal_unavailable_error())?;
-        let trust = lease.snapshot().map_err(|_| terminal_unavailable_error())?;
-        let scope = binding.selection().scope.clone();
-        if !trust.is_valid() {
-            return Err(terminal_integrity_error());
-        }
-        let current_selection = self
-            .load_permission_mode_selection(&scope, &scope.principal_id)
-            .map_err(|_| terminal_integrity_error())?;
-        let policy_stop = current_selection != *binding.selection()
-            || trust != binding.closed_rules_snapshot()
-            || trust.record.status
-                == runne_application::project_trust::ProjectTrustStatus::Untrusted
-            || current_selection
-                .expires_at_unix_ms
-                .is_some_and(|expiry| expiry <= now_ms());
-        let policy_stop = policy_stop || binding.approval().expires_at_unix_ms <= now_ms();
+        let assessment = {
+            let mut writer = self
+                .inner
+                .writer
+                .lock()
+                .map_err(|_| terminal_unavailable_error())?;
+            let tx = writer
+                .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+                .map_err(|_| terminal_unavailable_error())?;
+            super::retained_policy::assess_binding(&tx, self, binding, lease.as_ref())
+                .map_err(|_| terminal_integrity_error())?
+        };
+        let current_selection = assessment.selection;
+        let policy_stop = assessment.stop.is_some();
         let terminal = PermissionTerminalCommitV1 {
             identity,
             binding,
             child,
             output,
-            trust,
+            lease: lease.as_ref(),
             current_selection,
             policy_stop,
         };
@@ -127,7 +124,7 @@ pub(crate) struct PermissionTerminalCommitV1<'child, 'area> {
     pub(super) binding: &'child LocalCommandPermissionBindingV1,
     pub(super) child: &'child PermissionChildV1<'area>,
     pub(super) output: LocalCommandPermissionTerminalOutputV1,
-    pub(super) trust: runne_application::project_trust::ProjectTrustEffectPolicySnapshot,
+    pub(super) lease: &'child dyn runne_application::project_trust::ProjectTrustEffectLease,
     pub(super) current_selection: ModeSelection,
     pub(super) policy_stop: bool,
 }

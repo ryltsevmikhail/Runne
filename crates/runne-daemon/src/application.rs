@@ -104,7 +104,7 @@ pub(crate) mod exec_taskrun_recovery;
 mod exec_taskrun_service;
 pub(crate) mod exec_taskrun_worker;
 mod executable_identity;
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 mod execution_node_lifecycle;
 mod http_startup;
 mod http_startup_support;

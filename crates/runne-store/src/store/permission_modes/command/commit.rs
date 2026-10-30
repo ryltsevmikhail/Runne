@@ -122,6 +122,7 @@ pub(super) fn commit(
         command.scope.principal_id.as_str(),
         command.scope.workspace_id.as_bytes(),
         now,
+        None,
     )
     .map_err(|_| PermissionModeStoreError::CorruptData)?;
     receipt::insert(&tx, &command, workspace.project_id, revision, now, &history)?;
@@ -149,6 +150,11 @@ pub(super) fn stop_changed_mode_scope(
     principal_id: &str,
     workspace_id: &[u8; 16],
     stopped_at: i64,
+    current: Option<(
+        &StoreTransaction,
+        &ClosedRulesManagedIdentityV2,
+        &dyn runne_application::project_trust::ProjectTrustEffectLease,
+    )>,
 ) -> Result<(), runne_application::ports::EventStoreError> {
     use runne_application::ports::EventStoreError;
     let mut statement = tx
@@ -207,6 +213,13 @@ pub(super) fn stop_changed_mode_scope(
             runne_domain::task_run::TaskRunState::Running
                 | runne_domain::task_run::TaskRunState::Cancelling
         ) {
+            continue;
+        }
+        if let Some((store, closed, lease)) = current
+            && crate::store::taskrun_local_command::permission::can_retain_in_tx(
+                tx, store, taskrun_id, closed, lease,
+            )?
+        {
             continue;
         }
         let (version, event_id) =

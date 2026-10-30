@@ -75,7 +75,7 @@ pub fn dispatch_unknown(
     );
 }
 
-pub fn dispatch_unknown_with_remote_id(
+pub fn dispatch_unknown_with_remote_id_profile(
     database: &Database,
     credentials: &SqliteProviderCredentialLifecycleStore,
     execution: &Arc<runne_store::provider::SqliteProviderExecutionStore>,
@@ -83,6 +83,7 @@ pub fn dispatch_unknown_with_remote_id(
     identity: &TaskRunAssignmentIdentity,
     conversation_id: ConversationId,
     response_id: &str,
+    profile_id: &'static str,
 ) {
     dispatch_unknown_inner(
         database,
@@ -94,6 +95,7 @@ pub fn dispatch_unknown_with_remote_id(
         &PersistRequestThenMaybeDispatchWithRemoteId {
             execution: Arc::clone(execution),
             response_id: response_id.to_owned(),
+            profile_id,
         },
     );
 }

@@ -99,7 +99,13 @@ impl ProtectedBundledRuntimeProcess {
                     Err(ProtectedBundledRuntimeError::OwnershipMismatch)
                 };
             }
-            _ => return Err(ProtectedBundledRuntimeError::InvalidState),
+            ProtectedProcessActivation::V1 { .. } => {
+                return Err(ProtectedBundledRuntimeError::InvalidState);
+            }
+            #[cfg(feature = "test-support")]
+            ProtectedProcessActivation::Test { .. } => {
+                return Err(ProtectedBundledRuntimeError::InvalidState);
+            }
         };
         let sequence = self
             .root_control_sequence

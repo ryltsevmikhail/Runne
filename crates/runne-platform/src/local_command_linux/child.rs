@@ -1,4 +1,7 @@
+#[path = "child/helper_diagnostics.rs"]
+mod helper_diagnostics;
 use super::{GatedLinuxChild, LinuxCommandError, gate};
+pub(in crate::local_command_linux) use helper_diagnostics::record as helper_stage;
 #[path = "child/composite.rs"]
 pub(super) mod composite;
 #[path = "child/output.rs"]
@@ -212,6 +215,7 @@ pub(super) fn spawn<'a>(spec: SpawnSpec<'a, '_>) -> Result<GatedLinuxChild<'a>, 
     }
     let restored = signal_mask.restore().is_ok();
     if pid_raw < 0 || pidfd_raw < 0 {
+        helper_stage("child.clone");
         return Err(LinuxCommandError::Unavailable);
     }
     let pid = Pid::from_raw(pid_raw as i32).ok_or(LinuxCommandError::Unverified)?;
@@ -225,10 +229,12 @@ pub(super) fn spawn<'a>(spec: SpawnSpec<'a, '_>) -> Result<GatedLinuxChild<'a>, 
     if composite.is_some()
         && composite::map_child_identity(pid.as_raw_pid(), parent_socket.as_raw_fd()).is_err()
     {
+        helper_stage("child.map");
         supervision::kill_and_reap(pid, &pidfd);
         return Err(LinuxCommandError::Unavailable);
     }
     if supervision::read_ready(parent_socket.as_raw_fd()).is_err() {
+        helper_stage("child.ready");
         supervision::kill_and_reap(pid, &pidfd);
         return Err(LinuxCommandError::Unavailable);
     }
@@ -237,10 +243,12 @@ pub(super) fn spawn<'a>(spec: SpawnSpec<'a, '_>) -> Result<GatedLinuxChild<'a>, 
         return Err(LinuxCommandError::Unverified);
     }
     if let Err(error) = supervision::wait_stopped(pid) {
+        helper_stage("child.stop");
         supervision::kill_and_reap(pid, &pidfd);
         return Err(error);
     }
     if area.attach_gated_process(pid.as_raw_pid() as u32).is_err() {
+        helper_stage("child.area");
         supervision::kill_and_reap(pid, &pidfd);
         return Err(LinuxCommandError::Area);
     }

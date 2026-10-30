@@ -75,3 +75,14 @@ fn actual_effects_conversion_serializes_all_publication_and_accounting_variants(
         assert_eq!(serialized, expected);
     }
 }
+
+#[test]
+fn already_terminal_cancellation_serializes_without_claiming_provider_cancelled() {
+    let typed = validated_effects("withheld", "known");
+    let mut value = serde_json::to_value(task_run_effects_to_wire(&typed)).unwrap();
+    value["remote"]["cancellation"] = serde_json::json!("already_terminal");
+    let typed = runne_app_core::test_decode_task_run_effects_wire(value).unwrap();
+    let serialized = serde_json::to_value(task_run_effects_to_wire(&typed)).unwrap();
+    assert_eq!(serialized["remote"]["cancellation"], "already_terminal");
+    assert_eq!(serialized["remote"]["outcome"], "completed");
+}

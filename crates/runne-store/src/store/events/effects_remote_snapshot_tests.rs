@@ -67,6 +67,26 @@ mod projection_tests {
     }
 
     #[test]
+    fn proven_coding_closure_keeps_completed_and_reports_already_terminal() {
+        let mut saved = snapshot(Some(ProviderUsage::new(5, 3, 1, 1).unwrap()));
+        saved.local_disposition = ProviderRemoteLocalDisposition::AcceptedCancellationAfterTerminal;
+        let projected = project_remote_effect(Some(&saved), true, false);
+        assert_eq!(projected.outcome, RemoteOutcome::Completed);
+        assert_eq!(projected.cancellation, RemoteCancel::AlreadyTerminal);
+        assert_eq!(
+            projected.publication,
+            runne_api::RemotePublicationV1::Withheld
+        );
+        let no_cancel = project_remote_effect(Some(&saved), false, false);
+        assert_eq!(no_cancel.cancellation, RemoteCancel::NotRequested);
+        saved.local_disposition = ProviderRemoteLocalDisposition::Pending;
+        assert_eq!(
+            project_remote_effect(Some(&saved), true, false).cancellation,
+            RemoteCancel::Unconfirmed
+        );
+    }
+
+    #[test]
     fn missing_usage_is_separate_from_unknown_pricing() {
         let snapshot = snapshot(None);
         let projected = project_remote_effect(Some(&snapshot), false, false);

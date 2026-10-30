@@ -1,3 +1,5 @@
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+use runne_api::ProtectedOwnedLaunchV2;
 #[cfg(any(
     all(feature = "desktop-protected", target_os = "linux"),
     all(

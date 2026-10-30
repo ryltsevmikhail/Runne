@@ -30,6 +30,15 @@ mod successor;
 /// Optional metadata adapter for one transactionally-read TaskRun effects snapshot.
 /// Durable facts are read by the EventStore; this hook adds only selected adapter metadata.
 pub trait TaskRunEffectsEnricher: Send + Sync + 'static {
+    /// Reads and scans tool evidence through the daemon-owned key boundary.
+    fn tool_activity(
+        &self,
+        _principal: &runne_api::ApiPrincipalId,
+        _taskrun_id: runne_domain::id::TaskRunId,
+    ) -> Result<runne_api::TaskRunToolActivityV1, TaskRunHostError> {
+        Err(TaskRunHostError::Unavailable)
+    }
+
     /// Authenticates only the already-loaded sealed record within the EventStore read.
     fn remote_fact_authenticator(
         &self,

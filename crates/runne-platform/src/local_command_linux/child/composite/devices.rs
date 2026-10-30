@@ -6,7 +6,10 @@ use std::ffi::CString;
 use std::fs::File;
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
 
-pub(super) struct SafeDevices(Vec<(File, CString, CString)>);
+#[path = "devices_identity.rs"]
+mod device_identity;
+
+pub(super) struct SafeDevices(Vec<(File, CString)>);
 
 impl SafeDevices {
     pub(super) fn open() -> Result<Self, LinuxCommandError> {
@@ -24,9 +27,8 @@ impl SafeDevices {
             if stat.st_mode & libc::S_IFMT != libc::S_IFCHR || stat.st_rdev != makedev(1, minor) {
                 return Err(LinuxCommandError::CompositePolicyUnenforceable);
             }
-            let source = CString::new(format!("/dev/{name}")).unwrap();
-            let target = source.clone();
-            devices.push((file, target, source));
+            let target = CString::new(format!("/dev/{name}")).unwrap();
+            devices.push((file, target));
         }
         Ok(Self(devices))
     }
@@ -37,13 +39,15 @@ impl SafeDevices {
     ) -> Result<(Vec<CString>, Vec<CString>), LinuxCommandError> {
         let mut targets = Vec::with_capacity(self.0.len());
         let mut source_paths = Vec::with_capacity(self.0.len());
-        for (file, target, source) in &self.0 {
+        for (file, target) in &self.0 {
             targets.push(target.clone());
             let fd = unsafe { libc::fcntl(file.as_raw_fd(), libc::F_DUPFD_CLOEXEC, 3) };
             if fd < 0 {
                 return Err(LinuxCommandError::Unavailable);
             }
-            source_paths.push(source.clone());
+            // Retain the parent's verified identity for the child to compare
+            // against a clone opened through its own mount namespace.
+            source_paths.push(CString::new(format!("/proc/self/fd/{fd}")).unwrap());
             descriptors.push(unsafe { OwnedFd::from_raw_fd(fd) });
         }
         Ok((targets, source_paths))
@@ -54,56 +58,92 @@ pub(super) unsafe fn mount_private(
     targets: &[*const libc::c_char],
     source_paths: &[*const libc::c_char],
 ) -> i32 {
-    // Child-side helper of a multi-threaded parent: raw syscalls only. The
-    // loop is index-based so the debug build copies no iterator state: a
-    // memcpy here would be a lazy-PLT dependency inside the forked child.
-    if targets.len() != source_paths.len()
-        || unsafe {
-            libc::syscall(
-                libc::SYS_mount,
-                c"tmpfs".as_ptr(),
-                c"/dev".as_ptr(),
-                c"tmpfs".as_ptr(),
-                (libc::MS_NOSUID | libc::MS_NOEXEC) as usize,
-                c"mode=755".as_ptr(),
-            )
-        } != 0
-    {
+    // Fork child: only raw syscalls and scalar stack operations. All target
+    // paths are the fixed, parent-verified five-device inventory.
+    if targets.len() != 5 || targets.len() != source_paths.len() {
         return -1;
     }
+    let mut mounts = [-1_i32; 5];
     let mut index = 0;
-    while index < targets.len() {
-        let target = targets[index];
-        let source_path = source_paths[index];
+    while index < 5 {
+        // Clone a path in THIS mount namespace before hiding /dev. A held FD
+        // opened in the parent's namespace cannot be bound/cloned here.
+        let fd = unsafe {
+            libc::syscall(
+                libc::SYS_open_tree,
+                libc::AT_FDCWD,
+                targets[index],
+                1usize | libc::O_CLOEXEC as usize | libc::AT_SYMLINK_NOFOLLOW as usize,
+            ) as i32
+        };
+        if fd < 0 {
+            unsafe { close_mounts(&mounts) };
+            return -1;
+        }
+        mounts[index] = fd;
+        if !unsafe { device_identity::matches(source_paths[index], fd) } {
+            unsafe { close_mounts(&mounts) };
+            return -1;
+        }
+        index += 1;
+    }
+    if unsafe {
+        libc::syscall(
+            libc::SYS_mount,
+            c"tmpfs".as_ptr(),
+            c"/dev".as_ptr(),
+            c"tmpfs".as_ptr(),
+            (libc::MS_NOSUID | libc::MS_NOEXEC) as usize,
+            c"mode=755".as_ptr(),
+        )
+    } != 0
+    {
+        unsafe { close_mounts(&mounts) };
+        return -1;
+    }
+    index = 0;
+    while index < 5 {
         let placeholder = unsafe {
             libc::syscall(
                 libc::SYS_openat,
                 libc::AT_FDCWD,
-                target,
+                targets[index],
                 (libc::O_CREAT | libc::O_CLOEXEC | libc::O_RDWR) as usize,
                 0o600,
             ) as i32
         };
         if placeholder < 0 {
+            unsafe { close_mounts(&mounts) };
             return -1;
         }
         unsafe { libc::syscall(libc::SYS_close, placeholder) };
         if unsafe {
             libc::syscall(
-                libc::SYS_mount,
-                source_path,
-                target,
-                std::ptr::null::<libc::c_char>(),
-                libc::MS_BIND as usize,
-                std::ptr::null::<libc::c_void>(),
+                libc::SYS_move_mount,
+                mounts[index],
+                c"".as_ptr(),
+                libc::AT_FDCWD,
+                targets[index],
+                0x4usize,
             )
         } != 0
         {
+            unsafe { close_mounts(&mounts) };
             return -1;
         }
         index += 1;
     }
+    unsafe { close_mounts(&mounts) };
     0
+}
+unsafe fn close_mounts(mounts: &[i32; 5]) {
+    let mut index = 0;
+    while index < 5 {
+        if mounts[index] >= 0 {
+            unsafe { libc::syscall(libc::SYS_close, mounts[index]) };
+        }
+        index += 1;
+    }
 }
 
 const fn makedev(major: u32, minor: u32) -> u64 {
@@ -112,3 +152,7 @@ const fn makedev(major: u32, minor: u32) -> u64 {
         | ((minor as u64 & 0xffff_ff00) << 12)
         | ((major as u64 & 0xffff_f000) << 32)
 }
+
+#[cfg(test)]
+#[path = "devices_tests.rs"]
+mod tests;

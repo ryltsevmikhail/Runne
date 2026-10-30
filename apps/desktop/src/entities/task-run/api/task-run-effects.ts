@@ -5,7 +5,7 @@ export type LocalCommandStop = 'not_requested' | 'requested' | 'confirmed' | 'un
 export type RemoteEffectOutcome = 'not_applicable' | 'not_started' | 'running' | 'completed' | 'failed' | 'incomplete' | 'cancelled' | 'unknown'
 export type RemotePublication = 'not_applicable' | 'unknown' | 'allowed' | 'withheld'
 export type RemoteAccounting = 'not_applicable' | 'unknown' | 'known'
-export type RemoteCancellation = 'not_requested' | 'requested' | 'confirmed' | 'unconfirmed' | 'unknown'
+export type RemoteCancellation = 'already_terminal' | 'not_requested' | 'requested' | 'confirmed' | 'unconfirmed' | 'unknown'
 export type RemoteAvailability = 'available' | 'unavailable' | 'not_configured' | 'unknown'
 export type SuccessorEligibility = 'not_applicable' | 'blocked' | 'requires_duplicate_effect_acknowledgment' | 'eligible'
 
@@ -34,7 +34,7 @@ const localStops = ['not_requested', 'requested', 'confirmed', 'unconfirmed'] as
 const remoteOutcomes = ['not_applicable', 'not_started', 'running', 'completed', 'failed', 'incomplete', 'cancelled', 'unknown'] as const
 const publications = ['not_applicable', 'unknown', 'allowed', 'withheld'] as const
 const accounting = ['not_applicable', 'unknown', 'known'] as const
-const cancellations = ['not_requested', 'requested', 'confirmed', 'unconfirmed', 'unknown'] as const
+const cancellations = ['already_terminal', 'not_requested', 'requested', 'confirmed', 'unconfirmed', 'unknown'] as const
 const availabilities = ['available', 'unavailable', 'not_configured', 'unknown'] as const
 const successors = ['not_applicable', 'blocked', 'requires_duplicate_effect_acknowledgment', 'eligible'] as const
 
@@ -70,6 +70,7 @@ function isEffects(value: unknown, taskRunId: string): value is TaskRunEffects {
       || typeof remote.capabilities.statusCheck !== 'boolean'
       || typeof remote.capabilities.streamResume !== 'boolean'
       || typeof remote.capabilities.remoteCancel !== 'boolean') return false
+  if (remote.cancellation === 'already_terminal' && (!value.cancellationRequested || remote.outcome !== 'completed')) return false
   if (remote.cancellation === 'confirmed' && remote.outcome !== 'cancelled') return false
   if (remote.outcome === 'not_applicable'
       && (remote.publication !== 'not_applicable' || remote.accounting !== 'not_applicable')) return false

@@ -96,6 +96,11 @@ fn project_remote_effect(
     let remote_cancelled = matches!(fact.status(), Status::Cancelled { .. });
     let cancellation = if cancellation_requested && remote_cancelled {
         RemoteCancel::Confirmed
+    } else if cancellation_requested
+        && matches!(fact.status(), Status::Completed { .. })
+        && snapshot.local_disposition == Local::AcceptedCancellationAfterTerminal
+    {
+        RemoteCancel::AlreadyTerminal
     } else if cancellation_requested {
         RemoteCancel::Unconfirmed
     } else {

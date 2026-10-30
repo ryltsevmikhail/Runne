@@ -4,6 +4,8 @@ use runne_api::{ProviderCredentialEnrollmentHostError, ProviderCredentialOperati
 use runne_provider::ProviderCredentialEnrollmentStore;
 
 use super::DaemonProtectedCredentialEnrollmentSession;
+#[cfg(target_os = "macos")]
+use crate::application::provider_credential_enrollment::broker::CredentialBrokerChannel as _;
 use crate::application::provider_credential_enrollment::{
     CredentialEnrollmentRecoveryGateway, broker, effect_authority::map_store, operation_projection,
 };
@@ -49,7 +51,8 @@ impl DaemonProtectedCredentialEnrollmentSession {
         &mut self,
         measurements: runne_provider::CredentialMeasurementSnapshot,
         continuation: runne_provider::CredentialBindingDigest,
-        channel: &mut impl broker::CredentialBrokerChannel,
+        #[cfg(target_os = "macos")] channel: &mut broker::MacOsCredentialBrokerChannel,
+        #[cfg(not(target_os = "macos"))] channel: &mut impl broker::CredentialBrokerChannel,
     ) -> Result<PendingProtectedBrokerClaim, ProviderCredentialEnrollmentHostError> {
         #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
         return self.claim_writer_inner(measurements, continuation, channel, None);
@@ -62,7 +65,7 @@ impl DaemonProtectedCredentialEnrollmentSession {
         &mut self,
         measurements: runne_provider::CredentialMeasurementSnapshot,
         continuation: runne_provider::CredentialBindingDigest,
-        channel: &mut impl broker::CredentialBrokerChannel,
+        channel: &mut broker::MacOsCredentialBrokerChannel,
         service: &crate::protected_activation::CredentialServiceRuntimeGateway,
     ) -> Result<PendingProtectedBrokerClaim, ProviderCredentialEnrollmentHostError> {
         self.claim_writer_inner(measurements, continuation, channel, Some(service))
@@ -72,7 +75,8 @@ impl DaemonProtectedCredentialEnrollmentSession {
         &mut self,
         measurements: runne_provider::CredentialMeasurementSnapshot,
         continuation: runne_provider::CredentialBindingDigest,
-        channel: &mut impl broker::CredentialBrokerChannel,
+        #[cfg(target_os = "macos")] channel: &mut broker::MacOsCredentialBrokerChannel,
+        #[cfg(not(target_os = "macos"))] channel: &mut impl broker::CredentialBrokerChannel,
         #[cfg(all(target_os = "macos", target_arch = "aarch64"))] service: Option<
             &crate::protected_activation::CredentialServiceRuntimeGateway,
         >,

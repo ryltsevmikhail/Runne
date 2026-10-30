@@ -106,4 +106,29 @@ impl DaemonAutomaticTaskRuns {
         .map_err(|_| ())?;
         Ok(())
     }
+
+    /// Projects a terminal failure for a claimed coding run that never reached
+    /// provider delivery.
+    ///
+    /// The automatic worker only rescans queued candidates, so an error before
+    /// the first provider round leaves the claim without an owner: the run would
+    /// stay `running` forever and block a safe runtime exit. This path is
+    /// effect-free by construction (no dispatch attempt, no tool invocation), so
+    /// an exact cycle failure or a rejected generation is the closed outcome;
+    /// anything unprovable is left to restart recovery.
+    pub(in crate::application::exec_taskrun_worker::provider) fn fail_claimed_d2_before_dispatch(
+        &self,
+        job: &CanonicalProviderExecutionJob,
+        assignment: &TaskRunAssignmentIdentity,
+    ) {
+        let reason = runne_domain::conversation::GenerationFailureReason::ProviderExecutionRejected;
+        if let Ok(cycle_id) = self.current_cycle_id(assignment.taskrun_id)
+            && self
+                .fail_d2_cycle(job, assignment, cycle_id, reason)
+                .is_ok()
+        {
+            return;
+        }
+        let _ = self.finish_failure(&job.context, &job.original, &job.started, reason);
+    }
 }

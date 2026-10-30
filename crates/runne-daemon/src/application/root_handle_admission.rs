@@ -74,6 +74,7 @@ impl Drop for Lease {
     }
 }
 impl RootHandleAdmissionAuthority {
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn new(
         keys: &ProtectedActivationKeys,
         store: ProjectWorkspaceStore,

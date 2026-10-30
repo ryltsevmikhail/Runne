@@ -158,3 +158,91 @@ fn present_usage_with_unpriceable_settlement_is_not_misreported_as_missing_usage
         "unpriceable settlement preserves both reserves"
     );
 }
+
+#[test]
+fn runtime_owned_primary_text_claim_authenticates_complete_source_and_projection() {
+    let fixture = super::super::super::fixture::runtime_text(
+        "runtime-primary-text-source",
+        0x31,
+        "resp_runtime_primary",
+    );
+    let prepared = super::support::prepare_fixture(
+        fixture,
+        "resp_runtime_primary",
+        ProviderRemoteResponseStatus::Completed {
+            usage: Some(ProviderUsage::new(3, 4, 0, 0).unwrap()),
+        },
+        Some("synthetic retained text"),
+    );
+    assert_eq!(
+        commit(&prepared),
+        ProviderRemoteTerminalSourceOutcome::CurrentGeneration
+    );
+    let snapshot = read(&prepared);
+    assert_eq!(
+        snapshot.effects.remote.outcome,
+        runne_api::RemoteEffectOutcomeV1::Completed
+    );
+    assert_eq!(
+        snapshot.effects.remote.accounting,
+        runne_api::RemoteAccountingV1::Known
+    );
+}
+
+#[test]
+fn runtime_owned_primary_text_claim_rejects_wrong_actor_and_tool_budget() {
+    for wrong_actor in [true, false] {
+        let fixture = super::super::super::fixture::runtime_text_with_actor(
+            if wrong_actor {
+                "runtime-primary-wrong-actor"
+            } else {
+                "runtime-primary-tool-budget"
+            },
+            0x41,
+            "resp_runtime_negative",
+            if wrong_actor {
+                "forged-runtime"
+            } else {
+                "runne-runtime"
+            },
+        );
+        let prepared = super::support::prepare_fixture(
+            fixture,
+            "resp_runtime_negative",
+            ProviderRemoteResponseStatus::Completed {
+                usage: Some(ProviderUsage::new(3, 4, 0, 0).unwrap()),
+            },
+            Some("synthetic text"),
+        );
+        if !wrong_actor {
+            let identity = &prepared.fixture.claim_identity;
+            prepared
+                .fixture
+                .database
+                .connection()
+                .execute(
+                    "INSERT INTO taskrun_tool_budgets VALUES(?1,?2,?3,?4,?5,?6,?7,
+                 'd2-safe-tool-loop-budget-v1',2,2,0,0,1)",
+                    rusqlite::params![
+                        identity.taskrun_id.as_bytes(),
+                        identity.attempt_id.as_bytes(),
+                        identity.fence.0,
+                        identity.node_id.0,
+                        identity.node_epoch,
+                        [55u8; 16].as_slice(),
+                        [56u8; 32].as_slice()
+                    ],
+                )
+                .unwrap();
+        }
+        assert!(
+            prepared
+                .committer
+                .commit_authenticated_remote_terminal_source(
+                    prepared.recovery,
+                    &super::support::Price
+                )
+                .is_err()
+        );
+    }
+}

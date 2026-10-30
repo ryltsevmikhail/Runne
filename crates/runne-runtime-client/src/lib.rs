@@ -52,6 +52,7 @@ pub use canonical::{
 };
 pub use canonical::{CommandReconciliationDisposition, CommandReconciliationRequest};
 pub use canonical::{ConversationGenerationFailureReason, ConversationTextRejection};
+pub use canonical::{ConversationPage, ConversationSummary};
 pub use canonical::{
     LocalCommandEffect, LocalExecutionOutcome, LocalStopEvidence, RemoteAccountingDisposition,
     RemoteCancellationEvidence, RemoteEffect, RemoteEffectAvailability, RemoteEffectCapabilities,
@@ -63,6 +64,7 @@ pub use local_profile::{
     LocalProfileError, LocalRuntimeConnectError, LocalRuntimeProfile, default_local_profile_path,
 };
 pub use local_session::ProtectedBundledRuntimeProfile;
+pub use local_session::cleanup::with_local_session_cleanup;
 pub use replay::{
     CanonicalReplayEvent, CanonicalReplayPayload, ConversationReplayPayload, LiveDeliveryId,
     ReconnectDecision, ReconnectPolicy, ReconnectRuntime, ReplayAggregateKind,

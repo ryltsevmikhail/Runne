@@ -46,8 +46,7 @@ impl DaemonProviderCredentialEnrollmentControl {
             handles,
             rendezvous,
             #[cfg(any(
-                all(test, unix),
-                target_os = "linux",
+                any(test, unix),
                 all(
                     feature = "desktop-protected",
                     target_os = "macos",

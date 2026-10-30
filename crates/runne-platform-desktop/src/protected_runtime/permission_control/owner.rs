@@ -5,6 +5,13 @@ use super::{
 pub(super) type PermissionControlOwnerV1 = ([u8; 16], [u8; 16], [u8; 16], u64, u64, [u8; 16]);
 pub(super) type PermissionControlChannelOwnerV1 = ([u8; 16], [u8; 16], [u8; 16], u64, [u8; 16]);
 
+#[cfg_attr(
+    not(feature = "test-support"),
+    allow(
+        clippy::unnecessary_wraps,
+        reason = "test-support activation variants can fail this shared API"
+    )
+)]
 pub(super) const fn permission_owner_identity(
     activation: &ProtectedProcessActivation,
 ) -> Result<

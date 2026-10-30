@@ -1,13 +1,4 @@
-#[path = "tests_v2_binding.rs"]
-mod binding;
-#[path = "tests_v2_lifecycle.rs"]
-mod lifecycle;
-#[path = "tests_v2_managed_identity.rs"]
-mod managed_identity;
-#[path = "tests_v2_receipt_codec.rs"]
-mod receipt_codec_tests;
-#[path = "tests_v2_support.rs"]
-mod support;
+include!("tests_v2_modules.rs");
 use std::thread;
 use std::time::Duration;
 

@@ -15,6 +15,8 @@ fn v3_process(channel: UnixStream) -> (ProtectedBundledRuntimeProcess, Protected
     (
         ProtectedBundledRuntimeProcess {
             child,
+            #[cfg(unix)]
+            child_stderr: None,
             #[cfg(target_os = "linux")]
             linux_launch_image: None,
             channel,

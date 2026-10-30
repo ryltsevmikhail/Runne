@@ -1,0 +1,7 @@
+Usage: runne chat [--project PATH] [--resume [ID]] [--profile PATH]
+
+Open the full-screen terminal coding agent. With no arguments, runne opens chat.
+Enter sends; Alt+Enter inserts a newline; pasted newlines never send.
+F1 help, F2 session search, F3 actions/output, F4 diff, F5 approvals.
+Ctrl+C requests cancellation; Ctrl+Q requests exit after runtime confirms no active or uncertain task.
+Requires a terminal and an admitted project root. No provider call occurs on open.

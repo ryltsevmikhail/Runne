@@ -1,6 +1,14 @@
 use super::*;
 
 impl super::DaemonCanonicalProviderService {
+    pub(crate) fn tool_activity_content_allowed(&self, bytes: &[u8]) -> Result<bool, ()> {
+        use runne_application::prohibited_content::{CanonicalContentBoundary, ContentDisposition};
+        self.prohibited_content
+            .inspect(CanonicalContentBoundary::OutboundDelivery, bytes)
+            .map(|value| matches!(value, ContentDisposition::Allowed { .. }))
+            .map_err(|_| ())
+    }
+
     // These values are the authenticated AEAD associated-data tuple for stored tool payloads.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn seal_d2_tool_arguments(

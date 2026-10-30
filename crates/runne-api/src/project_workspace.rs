@@ -163,6 +163,16 @@ pub trait ProjectWorkspaceCommandHostPort: Send + Sync {
 }
 
 pub trait ProjectWorkspaceQueryHostPort: Send + Sync {
+    fn find_workspace_by_root(
+        &self,
+        _context: ProjectQueryContext,
+        _digest: [u8; 32],
+    ) -> impl std::future::Future<
+        Output = Result<Option<WorkspaceSnapshot>, ProjectWorkspaceHostError>,
+    > + Send {
+        async { Err(ProjectWorkspaceHostError::Unavailable) }
+    }
+
     fn list_projects(
         &self,
         context: ProjectQueryContext,

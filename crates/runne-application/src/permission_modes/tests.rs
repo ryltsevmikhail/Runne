@@ -29,3 +29,5 @@ impl NativeScopeAdmissionPort for MockAdmission {
 include!("tests_policy_cases.rs");
 include!("tests_scope_cases.rs");
 include!("tests_support.rs");
+
+include!("tests_workspace_process.rs");

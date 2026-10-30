@@ -5,7 +5,7 @@ use canonical_values::{canonical_values_map, compute_digest};
 impl ConfigurationSnapshot {
     /// Copy only the D2 finite-budget opt-in from a verified external snapshot.
     /// Protected startup uses this without importing external DB/provider settings.
-    #[cfg(all(feature = "desktop-protected", target_os = "linux"))]
+    #[cfg(feature = "desktop-protected")]
     pub(crate) fn with_d2_tool_budget_from(&self, external: &Self) -> Self {
         let mut snapshot = self.clone();
         snapshot.d2_safe_tool_loop_budget = external.d2_safe_tool_loop_budget;
@@ -16,7 +16,7 @@ impl ConfigurationSnapshot {
                 .provenance
                 .insert("d2_safe_tool_loop_budget".into(), source.clone());
         }
-        let values = canonical_values_map(
+        let mut values = canonical_values_map(
             snapshot.schema_version,
             &snapshot.db_path,
             &snapshot.http_bind,
@@ -27,6 +27,9 @@ impl ConfigurationSnapshot {
             Some(&snapshot.provider_activation_settings),
             snapshot.d2_safe_tool_loop_budget,
         );
+        if let Some(host) = &snapshot.linux_cli_credential_host {
+            values.insert("linux_cli_credential_host".into(), serde_json::json!(host));
+        }
         snapshot.digest = compute_digest(&values);
         snapshot
     }
@@ -64,6 +67,7 @@ impl ConfigurationSnapshot {
             shutdown_timeout_ms: defaults.shutdown_timeout_ms,
             provider_activation,
             provider_activation_settings: provider_settings,
+            linux_cli_credential_host: None,
             secondary_profile_catalog: None,
             d2_safe_tool_loop_budget: None,
             provenance,
@@ -130,6 +134,10 @@ impl ConfigurationSnapshot {
 
         let sys_src = system_source(system_path);
 
+        provenance.insert(
+            "linux_cli_credential_host".into(),
+            select_provenance(system.linux_cli_credential_host.is_some(), &sys_src),
+        );
         // db_path
         provenance.insert(
             "db_path".into(),
@@ -168,7 +176,7 @@ impl ConfigurationSnapshot {
             select_provenance(system.d2_safe_tool_loop_budget.is_some(), &sys_src),
         );
 
-        let values = canonical_values_map(
+        let mut values = canonical_values_map(
             schema_version,
             &db_path,
             &http_bind,
@@ -179,6 +187,14 @@ impl ConfigurationSnapshot {
             Some(&provider_settings),
             system.d2_safe_tool_loop_budget,
         );
+        if let Some(host) = &system.linux_cli_credential_host {
+            host.validate(provider_activation.binding().mode())?;
+            values.insert(
+                "linux_cli_credential_host".into(),
+                serde_json::to_value(host)
+                    .map_err(|_| DaemonError::Config("invalid CLI credential host".into()))?,
+            );
+        }
 
         Ok(Self {
             schema_version,
@@ -189,6 +205,7 @@ impl ConfigurationSnapshot {
             shutdown_timeout_ms,
             provider_activation,
             provider_activation_settings: provider_settings,
+            linux_cli_credential_host: system.linux_cli_credential_host.clone(),
             secondary_profile_catalog: system.secondary_profile_catalog.clone(),
             d2_safe_tool_loop_budget: system.d2_safe_tool_loop_budget,
             provenance,
@@ -247,3 +264,6 @@ pub fn load_config(
         _ => Ok(ConfigurationSnapshot::from_defaults(&defaults)),
     }
 }
+
+#[path = "helpers/installation_upgrade.rs"]
+mod installation_upgrade;

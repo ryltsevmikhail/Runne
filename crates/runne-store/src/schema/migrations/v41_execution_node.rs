@@ -3,6 +3,24 @@ CREATE TABLE execution_nodes (
     node_id BLOB PRIMARY KEY CHECK(length(node_id) = 16 AND node_id != zeroblob(16)),
     launch_generation INTEGER NOT NULL CHECK(launch_generation > 0),
     descriptor_version INTEGER NOT NULL CHECK(descriptor_version = 1),
+    platform TEXT NOT NULL CHECK(platform IN ('linux','darwin')),
+    executor_protocol TEXT NOT NULL CHECK(executor_protocol = 'runne-taskrun-v1'),
+    workspace_backend TEXT NOT NULL CHECK(workspace_backend = 'git-worktree-v1'),
+    capacity INTEGER NOT NULL CHECK(capacity > 0 AND capacity <= 4294967295),
+    heartbeat_at_ms INTEGER NOT NULL CHECK(heartbeat_at_ms > 0),
+    expires_at_ms INTEGER NOT NULL CHECK(expires_at_ms > heartbeat_at_ms)
+);
+"#;
+
+/// Historical v41 table shipped before the platform check was widened to
+/// include darwin. v72 repairs this shape in place on existing databases; the
+/// matcher must accept it so admission can reach the repair instead of
+/// rejecting the installation as malformed.
+const MIGRATION_V41_LEGACY: &str = r#"
+CREATE TABLE execution_nodes (
+    node_id BLOB PRIMARY KEY CHECK(length(node_id) = 16 AND node_id != zeroblob(16)),
+    launch_generation INTEGER NOT NULL CHECK(launch_generation > 0),
+    descriptor_version INTEGER NOT NULL CHECK(descriptor_version = 1),
     platform TEXT NOT NULL CHECK(platform = 'linux'),
     executor_protocol TEXT NOT NULL CHECK(executor_protocol = 'runne-taskrun-v1'),
     workspace_backend TEXT NOT NULL CHECK(workspace_backend = 'git-worktree-v1'),
@@ -77,9 +95,11 @@ fn execution_node_table_matches(connection: &Connection) -> SqliteResult<bool> {
         "SELECT sql FROM sqlite_master WHERE type='table' AND name='execution_nodes'",
         [], |row| row.get(0),
     ).optional()?;
-    let expected = MIGRATION_V41
-        .split(';')
+    let expected = [MIGRATION_V41, MIGRATION_V41_LEGACY, MIGRATION_V72]
+        .into_iter()
+        .flat_map(|migration| migration.split(';'))
         .map(str::trim)
-        .find(|statement| statement.starts_with("CREATE TABLE execution_nodes "));
-    Ok(actual.is_some_and(|actual| expected.is_some_and(|expected| normalize_ddl(&actual) == normalize_ddl(expected))))
+        .filter(|statement| statement.starts_with("CREATE TABLE execution_nodes "))
+        .any(|expected| actual.as_deref().is_some_and(|actual| normalize_ddl(actual) == normalize_ddl(expected)));
+    Ok(expected)
 }

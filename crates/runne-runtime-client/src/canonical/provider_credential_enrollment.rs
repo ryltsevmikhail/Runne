@@ -188,20 +188,18 @@ pub(super) fn require_status_capability(
     .ok_or_else(|| RuntimeApiError::new(RuntimeApiErrorKind::Incompatible))
 }
 
+#[cfg(target_os = "linux")]
 fn has_linux_v3_status_profile(client: &AuthenticatedRuntimeClient) -> bool {
-    #[cfg(target_os = "linux")]
-    {
-        client.has_native_v3_enrollment_attestation()
-            && client
-                .session_info()
-                .capabilities
-                .iter()
-                .map(String::as_str)
-                .eq(crate::PROTECTED_RUNTIME_CAPABILITIES.iter().copied())
-    }
-    #[cfg(not(target_os = "linux"))]
-    {
-        let _ = client.has_native_v3_enrollment_attestation();
-        false
-    }
+    client.has_native_v3_enrollment_attestation()
+        && client
+            .session_info()
+            .capabilities
+            .iter()
+            .map(String::as_str)
+            .eq(crate::PROTECTED_RUNTIME_CAPABILITIES.iter().copied())
+}
+
+#[cfg(not(target_os = "linux"))]
+const fn has_linux_v3_status_profile(_: &AuthenticatedRuntimeClient) -> bool {
+    false
 }

@@ -3,6 +3,7 @@ use super::taskrun_provider_binding::{
     load_binding, map_assignment_error, validate_prepared_request, verify_prepared_metadata,
 };
 use super::*;
+mod coding_batch;
 type ExistingRoundBinding = (
     i64,
     i64,
@@ -109,6 +110,17 @@ impl TaskRunProviderBindingPort for StoreTransaction {
             params![request.identity.taskrun_id.as_bytes(),request.identity.fence.0 as i64,request.round_index as i64], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?,r.get(6)?,r.get(7)?,r.get(8)?,r.get(9)?,r.get(10)?,r.get(11)?,r.get(12)?,r.get(13)?,r.get(14)?,r.get(15)?))).optional().map_err(|_|Error::CorruptData)?;
         if let Some(row) = existing {
             validate_d2_round(&tx, &request, true)?;
+            if request.previous_tool_result.is_some()
+                && coding_batch::is_coding(&tx, request.identity.taskrun_id)?
+            {
+                coding_batch::verify(
+                    &tx,
+                    &request,
+                    &self.runtime_authority_id.0,
+                    true,
+                    binding_now_ms(&tx)?,
+                )?;
+            }
             verify_prepared_metadata(
                 &tx,
                 &request.identity,
@@ -175,12 +187,19 @@ impl TaskRunProviderBindingPort for StoreTransaction {
             }
         }
         if let Some(previous) = prev {
-            let changed = tx.execute(
+            let coding = coding_batch::is_coding(&tx, request.identity.taskrun_id)?;
+            if coding {
+                let count =
+                    coding_batch::verify(&tx, &request, &self.runtime_authority_id.0, false, now)?;
+                coding_batch::mark(&tx, &request, now, count)?;
+            } else {
+                let changed = tx.execute(
                 "UPDATE taskrun_tool_invocations SET continuation_started=1,updated_at=?1 WHERE taskrun_id=?2 AND attempt_id=?3 AND cycle_id=?4 AND proposal_index=?5 AND semantic_digest=?6 AND result_digest=?7 AND state='result' AND result_truncated=0 AND local_stop_state=2 AND release_started=1 AND continuation_started=0 AND round_index=?8",
                 params![now,request.identity.taskrun_id.as_bytes(),previous.attempt_id.as_bytes(),previous.cycle_id.as_bytes(),previous.proposal_index as i64,previous.semantic_digest.as_bytes(),previous.result_digest.as_bytes(),(request.round_index-1) as i64],
             ).map_err(|_| Error::CorruptData)?;
-            if changed != 1 {
-                return Err(Error::IdempotencyConflict);
+                if changed != 1 {
+                    return Err(Error::IdempotencyConflict);
+                }
             }
             let consumed = tx.execute(
                 "UPDATE taskrun_tool_budgets SET continuations_used=continuations_used+1,updated_at=?1 WHERE taskrun_id=?2 AND attempt_id=?3 AND fence=?4 AND continuations_used=?5 AND continuations_used<continuations_limit",
@@ -212,6 +231,17 @@ impl TaskRunProviderBindingPort for StoreTransaction {
                 request.round_index,
                 previous,
                 &request.identity,
+                binding_now_ms(&tx)?,
+            )?;
+        }
+        if request.previous_tool_result.is_some()
+            && coding_batch::is_coding(&tx, request.identity.taskrun_id)?
+        {
+            coding_batch::verify(
+                &tx,
+                &request,
+                &self.runtime_authority_id.0,
+                true,
                 binding_now_ms(&tx)?,
             )?;
         }

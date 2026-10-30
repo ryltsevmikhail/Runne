@@ -118,6 +118,7 @@ pub(super) fn commit(
         command.scope.principal_id.as_str(),
         command.scope.workspace_id.as_bytes(),
         now,
+        Some((store, &closed_rules, authority.trust_lease)),
     )
     .map_err(|_| PermissionModeStoreError::CorruptData)?;
     let result = PermissionModeChangeReceipt {

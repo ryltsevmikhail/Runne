@@ -1,5 +1,4 @@
 // Help texts and version for the CLI.
-
 /// Top-level help text.
 pub const TOP_LEVEL_HELP: &str = "\
 Runne command-line interface.
@@ -15,6 +14,7 @@ Options:
   -V, --version    Show version information
 
 Commands:
+  chat             Open full-screen coding agent (default when no arguments)
   conversation     Manage conversations
   task             Inspect runtime task runs (read-only)
   exec             Submit one headless task run and stream events
@@ -110,21 +110,25 @@ Usage:
   runne provider credential <subcommand> [<args>]
 
 Subcommands:
-  status   Check credential status
+  login deepseek   Linux foreground-terminal enrollment (daemon must be stopped)
+  status           Check native credential status
 
-Legacy commands:
-  set      Unavailable direct credential enrollment
-  delete   Unavailable direct credential deletion
+Commands:
+  set      Read a key from the foreground terminal and store it in Keychain
+  delete   Remove the native credential
 
 Run 'runne help provider credential <subcommand>' for more information.";
 
 /// Help text for `provider credential set`.
 pub const PROVIDER_CREDENTIAL_SET_HELP: &str = "\
-Direct provider credential enrollment is unavailable.
+Store one provider credential in the login Keychain.
 
-The legacy stdin command is retained only for compatibility and always
-returns an unsupported credential-backend error. Credential material is
-not read from standard input.";
+Usage:
+  runne provider credential set --provider openai
+  runne provider credential set --provider deepseek
+
+The key is read without echo from the controlling terminal. Standard input,
+arguments, environment variables and files are never credential sources.";
 
 /// Help text for `provider credential status`.
 pub const PROVIDER_CREDENTIAL_STATUS_HELP: &str = "\
@@ -148,10 +152,14 @@ Examples:
 
 /// Help text for `provider credential delete`.
 pub const PROVIDER_CREDENTIAL_DELETE_HELP: &str = "\
-Direct provider credential deletion is unavailable.
+Remove one native provider credential.
 
-The legacy command is retained only for compatibility and always returns
-an unsupported credential-backend error.";
+Usage:
+  runne provider credential delete --provider openai
+  runne provider credential delete --provider deepseek
+
+A successful delete reports 'missing' only after the native store confirms
+the exact item is gone.";
 
 /// Help text for the `status` command.
 pub const STATUS_HELP: &str = "\
@@ -176,6 +184,7 @@ Examples:
 #[must_use]
 pub fn help_for(command_path: &[&str]) -> &'static str {
     match command_path {
+        ["chat"] => include_str!("../tui_backend/help.txt"),
         ["conversation"] => CONVERSATION_HELP,
         ["conversation", "create"] => CONVERSATION_CREATE_HELP,
         ["conversation", "send"] => CONVERSATION_SEND_HELP,
@@ -197,6 +206,7 @@ pub fn help_for(command_path: &[&str]) -> &'static str {
         ["permissions", "approvals", "list"] => PERMISSIONS_APPROVALS_LIST_HELP,
         ["permissions", "approvals", "respond"] => PERMISSIONS_APPROVALS_RESPOND_HELP,
         ["provider", "credential"] => PROVIDER_CREDENTIAL_HELP,
+        ["provider", "credential", "login"] => PROVIDER_CREDENTIAL_LOGIN_HELP,
         ["provider", "credential", "set"] => PROVIDER_CREDENTIAL_SET_HELP,
         ["provider", "credential", "status"] => PROVIDER_CREDENTIAL_STATUS_HELP,
         ["provider", "credential", "delete"] => PROVIDER_CREDENTIAL_DELETE_HELP,
@@ -292,3 +302,6 @@ Examples:
   runne completion zsh > ~/.zsh/completion/_runne
   runne completion fish > ~/.config/fish/completions/runne.fish
   runne completion powershell > $PROFILE";
+
+/// Help for standalone Linux owner-session `DeepSeek` enrollment.
+pub const PROVIDER_CREDENTIAL_LOGIN_HELP: &str = "Usage: runne provider credential login deepseek\n\nLinux only. Stop the runtime first. Requires explicitly configured CLI/daemon image pins.\nThe key is read without echo from the foreground terminal, never stdin, argv or environment.\nNo provider request is sent. Native backend/readback failures never mark the key ready.";

@@ -50,7 +50,14 @@ pub(super) fn verify(
         .map_err(|_| invalid())?
         .collect::<Result<_, _>>()
         .map_err(|_| invalid())?;
-    if rows.len() > 2 {
+    let limit = if rows.is_empty() {
+        2
+    } else {
+        crate::store::taskrun_tool_invocation::budget_policy::limits(connection, receipt.taskrun_id)
+            .map_err(|_| invalid())?
+            .0 as usize
+    };
+    if rows.len() > limit {
         return Err(invalid());
     }
     for (
@@ -82,10 +89,8 @@ pub(super) fn verify(
         let area_valid = match (stop, area.as_ref(), proof.as_ref(), semantic.as_ref()) {
             (0, None, None, _) => release == 0,
             (2, Some(a), Some(p), Some(d)) if a == p && d.len() == 32 => {
-                let identity =
-                    runne_platform::process_managed_area::ManagedAreaIdentity::from_bytes(a)
-                        .map_err(|_| invalid())?;
-                let bytes = identity.to_bytes();
+                let bytes = crate::store::taskrun_tool_invocation::canonical_area_identity(a)
+                    .ok_or_else(invalid)?;
                 let cycle: [u8; 16] = cycle.as_slice().try_into().map_err(|_| invalid())?;
                 let key = crate::store::taskrun_tool_invocation::ToolInvocationKey {
                     taskrun_id: receipt.taskrun_id,

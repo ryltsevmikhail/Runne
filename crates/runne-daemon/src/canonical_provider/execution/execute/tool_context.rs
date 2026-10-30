@@ -1,6 +1,6 @@
 use super::super::route::ExecutionRoute;
 use super::super::*;
-use runne_provider::{ProviderTerminalPricing, ProviderToolNameV1, ProviderToolResultV1};
+use runne_provider::{ProviderTerminalPricing, ProviderToolResultV1};
 use runne_runtime::provider_execution::{
     ProviderTerminalPersistence, RuntimeProviderExecution, TaskRunToolPayloadRole,
 };
@@ -66,8 +66,12 @@ pub(super) fn previous_results(
                 && record.binding.round_index < round.round_index
         })
         .collect::<Vec<_>>();
-    chain.sort_by_key(|record| record.binding.round_index);
-    if chain.len() != round.round_index as usize
+    chain.sort_by_key(|record| record.binding.key.proposal_index);
+    if chain.len() != previous.proposal_index as usize + 1
+        || chain
+            .iter()
+            .enumerate()
+            .any(|(i, r)| r.binding.key.proposal_index as usize != i)
         || chain.last().is_none_or(|record| record.binding.key != key)
         || chain.last().is_none_or(|record| {
             record.binding.semantic_digest != previous.semantic_digest
@@ -82,28 +86,40 @@ pub(super) fn previous_results(
         return Err(CanonicalProviderExecutionError::Uncertain);
     }
 
-    let matcher = ProhibitedContentCredentialMatcher::new(service.prohibited_content.as_ref());
-    let redaction = ProviderEventRedactionBoundary::new(
-        service.tail_store.as_ref(),
-        service.scanner_store.as_ref(),
-        &matcher,
-    );
-    let execution = RuntimeProviderExecution::new(
-        service.keyring.as_ref(),
-        service.runtime_store.as_ref(),
-        route.profile.as_ref(),
-        service.prohibited_content.as_ref(),
-        &redaction,
-    );
-    execution
-        .preflight_existing_active_key(service.runtime_authority_id, service.database_generation)
-        .map_err(super::super::super::projection::map_execution_error)?;
-    chain
-        .iter()
-        .map(|record| reconstruct_result(service, &execution, record))
-        .collect()
+    #[cfg(target_os = "linux")]
+    {
+        let matcher = ProhibitedContentCredentialMatcher::new(service.prohibited_content.as_ref());
+        let redaction = ProviderEventRedactionBoundary::new(
+            service.tail_store.as_ref(),
+            service.scanner_store.as_ref(),
+            &matcher,
+        );
+        let execution = RuntimeProviderExecution::new(
+            service.keyring.as_ref(),
+            service.runtime_store.as_ref(),
+            route.profile.as_ref(),
+            service.prohibited_content.as_ref(),
+            &redaction,
+        );
+        execution
+            .preflight_existing_active_key(
+                service.runtime_authority_id,
+                service.database_generation,
+            )
+            .map_err(super::super::super::projection::map_execution_error)?;
+        chain
+            .iter()
+            .map(|record| reconstruct_result(service, &execution, record))
+            .collect()
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = (&chain, route);
+        Err(CanonicalProviderExecutionError::Uncertain)
+    }
 }
 
+#[cfg(target_os = "linux")]
 fn reconstruct_result<K, S, P>(
     service: &DaemonCanonicalProviderService,
     execution: &RuntimeProviderExecution<'_, K, S, P>,
@@ -155,8 +171,11 @@ where
     {
         return Err(CanonicalProviderExecutionError::Uncertain);
     }
-    let (arguments_json, create_content) =
-        validate_arguments(&arguments, binding.tool_name.as_str())?;
+    let (arguments_json, create_content) = validate_arguments_for_mode(
+        &arguments,
+        binding.tool_name.as_str(),
+        binding.environment_id == crate::safe_tool_helper::coding_arguments::ENVIRONMENT,
+    )?;
     let mut authenticated_binding = binding.clone();
     authenticated_binding.canonical_arguments = arguments_json.as_bytes().to_vec();
     authenticated_binding.refresh_digests();
@@ -197,11 +216,16 @@ where
     #[cfg(feature = "test-support")]
     credential_companion_test_support::assert_receipt_and_content_clear(&receipt_bytes, &content);
     inspect_plain_bytes(service, &content)?;
-    let name = match binding.tool_name.as_str() {
-        "workspace.file.read" => ProviderToolNameV1::WorkspaceFileRead,
-        "workspace.file.create_new" => ProviderToolNameV1::WorkspaceFileCreateNew,
-        _ => return Err(CanonicalProviderExecutionError::Uncertain),
-    };
+    if binding.tool_name == "workspace.command.run" {
+        for output in validation::command_output_bytes(&content)? {
+            inspect_plain_bytes(service, &output)?;
+        }
+    }
+    let name = runne_provider::ProviderToolDeclarationV1::coding_agent_current_platform()
+        .into_iter()
+        .map(|d| d.name())
+        .find(|n| n.as_str() == binding.tool_name)
+        .ok_or(CanonicalProviderExecutionError::Uncertain)?;
     let output = serde_json::to_string(&serde_json::json!({
         "workspace": {
             "environment_id": binding.environment_id,
@@ -222,79 +246,16 @@ where
         .map_err(|_| CanonicalProviderExecutionError::Uncertain)
 }
 
-fn inspect_plain_bytes(
-    service: &DaemonCanonicalProviderService,
-    bytes: &[u8],
-) -> Result<(), CanonicalProviderExecutionError> {
-    if !matches!(
-        service.prohibited_content.inspect(
-            runne_application::prohibited_content::CanonicalContentBoundary::CanonicalMutation,
-            bytes,
-        ),
-        Ok(runne_application::prohibited_content::ContentDisposition::Allowed { .. })
-    ) {
-        return Err(CanonicalProviderExecutionError::PolicyDenied);
-    }
-    Ok(())
-}
-
-fn validate_arguments(
-    bytes: &[u8],
-    tool_name: &str,
-) -> Result<(String, Option<Vec<u8>>), CanonicalProviderExecutionError> {
-    if bytes.is_empty() || bytes.len() > 8 * 1024 {
-        return Err(CanonicalProviderExecutionError::Uncertain);
-    }
-    let value: serde_json::Value =
-        serde_json::from_slice(bytes).map_err(|_| CanonicalProviderExecutionError::Uncertain)?;
-    if serde_json::to_vec(&value).map_err(|_| CanonicalProviderExecutionError::Uncertain)? != bytes
-    {
-        return Err(CanonicalProviderExecutionError::Uncertain);
-    }
-    let object = value
-        .as_object()
-        .ok_or(CanonicalProviderExecutionError::Uncertain)?;
-    let path = object
-        .get("path")
-        .and_then(serde_json::Value::as_str)
-        .ok_or(CanonicalProviderExecutionError::Uncertain)?;
-    if path.is_empty()
-        || path.len() > 255
-        || path == "."
-        || path == ".."
-        || path.contains('/')
-        || path.contains('\\')
-        || path.as_bytes().contains(&0)
-    {
-        return Err(CanonicalProviderExecutionError::Uncertain);
-    }
-    let create_content = match (tool_name, object.len()) {
-        ("workspace.file.read", 1) => None,
-        ("workspace.file.create_new", 2) => {
-            let encoded = object
-                .get("content_base64")
-                .and_then(serde_json::Value::as_str)
-                .ok_or(CanonicalProviderExecutionError::Uncertain)?;
-            let content =
-                base64::Engine::decode(&base64::engine::general_purpose::STANDARD, encoded)
-                    .map_err(|_| CanonicalProviderExecutionError::Uncertain)?;
-            if content.len() > 8 * 1024 {
-                return Err(CanonicalProviderExecutionError::Uncertain);
-            }
-            Some(content)
-        }
-        _ => return Err(CanonicalProviderExecutionError::Uncertain),
-    };
-    Ok((
-        String::from_utf8(bytes.to_vec())
-            .map_err(|_| CanonicalProviderExecutionError::Uncertain)?,
-        create_content,
-    ))
-}
-
-#[cfg(feature = "test-support")]
+#[cfg(target_os = "linux")]
+#[path = "tool_context/validation.rs"]
+mod validation;
+#[cfg(all(test, target_os = "linux"))]
+use validation::validate_arguments;
+#[cfg(target_os = "linux")]
+use validation::{inspect_plain_bytes, validate_arguments_for_mode};
+#[cfg(all(feature = "test-support", target_os = "linux"))]
 #[path = "tool_context/credential_companion_test_support.rs"]
 mod credential_companion_test_support;
-#[cfg(test)]
+#[cfg(all(test, target_os = "linux"))]
 #[path = "tool_context/tests.rs"]
 mod tests;

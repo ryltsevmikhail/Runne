@@ -29,22 +29,23 @@ pub(crate) fn verify_bound_receipt(
     root.extend_from_slice(&receipt.root.device.to_be_bytes());
     root.extend_from_slice(&receipt.root.inode.to_be_bytes());
     let root_digest = Sha256::digest(&root);
-    let expected_operation = match binding.tool_name.as_str() {
-        "workspace.file.read" => "read",
-        "workspace.file.create_new" => "create_new",
-        _ => return Err(()),
+    let coding = binding.environment_id == super::coding_arguments::ENVIRONMENT;
+    let expected_operation = super::coding_arguments::operation(&binding.tool_name)?;
+    let schema = if coding {
+        runne_provider::ProviderToolDeclarationV1::coding_agent_current_platform()
+    } else {
+        vec![
+            runne_provider::ProviderToolDeclarationV1::for_name(
+                runne_provider::ProviderToolNameV1::WorkspaceFileRead,
+            ),
+            runne_provider::ProviderToolDeclarationV1::for_name(
+                runne_provider::ProviderToolNameV1::WorkspaceFileCreateNew,
+            ),
+        ]
     };
-    let schema = vec![
-        runne_provider::ProviderToolDeclarationV1::for_name(
-            runne_provider::ProviderToolNameV1::WorkspaceFileRead,
-        ),
-        runne_provider::ProviderToolDeclarationV1::for_name(
-            runne_provider::ProviderToolNameV1::WorkspaceFileCreateNew,
-        ),
-    ];
     if binding.tool_revision != "1"
-        || binding.environment_id != "linux-agent-tools-v1"
         || binding.environment_revision != "1"
+        || (!coding && binding.environment_id != "linux-agent-tools-v1")
         || binding.schema_digest.as_bytes()
             != Sha256::digest(serde_json::to_vec(&schema).map_err(|_| ())?).as_slice()
     {
@@ -57,27 +58,37 @@ pub(crate) fn verify_bound_receipt(
     let arguments: serde_json::Value =
         serde_json::from_slice(approved_arguments).map_err(|_| ())?;
     let object = arguments.as_object().ok_or(())?;
-    if object.get("path").and_then(serde_json::Value::as_str) != Some(binding.target_name.as_str())
+    let approved_content = if coding {
+        let parsed = super::coding_arguments::parse(&binding.tool_name, &arguments)?;
+        if parsed.path != binding.target_name {
+            return Err(());
+        }
+        parsed.content
+    } else {
+        if object.get("path").and_then(serde_json::Value::as_str)
+            != Some(binding.target_name.as_str())
+        {
+            return Err(());
+        }
+        match binding.tool_name.as_str() {
+            "workspace.file.read" if object.len() == 1 => vec![],
+            "workspace.file.create_new" if object.len() == 2 => base64::Engine::decode(
+                &base64::engine::general_purpose::STANDARD,
+                object["content_base64"].as_str().ok_or(())?,
+            )
+            .map_err(|_| ())?,
+            _ => return Err(()),
+        }
+    };
+    if matches!(
+        binding.tool_name.as_str(),
+        "workspace.file.create_new" | "workspace.file.replace"
+    ) && approved_content != content
     {
         return Err(());
     }
-    let approved_content = match binding.tool_name.as_str() {
-        "workspace.file.read" if object.len() == 1 => Vec::new(),
-        "workspace.file.create_new" if object.len() == 2 => {
-            let encoded = object
-                .get("content_base64")
-                .and_then(serde_json::Value::as_str)
-                .ok_or(())?;
-            base64::Engine::decode(&base64::engine::general_purpose::STANDARD, encoded)
-                .map_err(|_| ())?
-        }
-        _ => return Err(()),
-    };
-    if binding.tool_name == "workspace.file.create_new" && approved_content != content {
-        return Err(());
-    }
     if receipt.status != "success"
-        || receipt.version != 1
+        || receipt.version != if coding { 2 } else { 1 }
         || receipt.truncated
         || receipt.operation != expected_operation
         || receipt.path != binding.target_name
@@ -108,7 +119,7 @@ pub(crate) fn verify_bound_receipt(
         {
             return Err(());
         }
-    } else if binding.target_precondition.is_some() {
+    } else if !coding && binding.target_precondition.is_some() {
         return Err(());
     }
     Ok((receipt, content))

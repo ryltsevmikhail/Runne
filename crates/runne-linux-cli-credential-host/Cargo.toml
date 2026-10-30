@@ -1,0 +1,25 @@
+[package]
+name = "runne-linux-cli-credential-host"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "runne-credential-host"
+path = "src/main.rs"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+runne-daemon = { path = "../runne-daemon" }
+runne-domain = { path = "../runne-domain" }
+runne-provider = { path = "../runne-provider" }
+runne-secure-store = { path = "../runne-secure-store" }
+runne-store = { path = "../runne-store" }
+libc = "0.2"
+sha2.workspace = true
+zeroize.workspace = true
+uuid.workspace = true
+hex.workspace = true
+
+[dev-dependencies]
+tempfile = "3"

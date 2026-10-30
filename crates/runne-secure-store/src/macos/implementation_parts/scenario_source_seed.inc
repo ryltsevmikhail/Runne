@@ -6,7 +6,6 @@
 // item is created with the exact trusted-application set the authorized
 // import path verifies, under the scenario's explicit disposable keychain.
 #[cfg(feature = "test-support")]
-use crate::ProviderCredentialSourceRevision;
 
 /// Scenario-facing placement of one committed fixture slot: the physical
 /// slot (primary or alternate) and its committed generation.
@@ -153,5 +152,59 @@ pub fn seed_committed_source_slot_scenario(
             Some((_, item)) => runne_macos_keychain_acl::delete_item(&item).map_err(map_acl_error),
             None => Ok(()),
         })
+    }
+}
+
+/// Scenario-only seeding on the plain backend.
+///
+/// The plain backend has no generation/source-slot model, so the fixture
+/// delegates to the legacy exact-ACL store. This exists only to compile and
+/// drive the dormant legacy scenario harness; it is not a production
+/// migration path and does not make the plain item readable by the legacy
+/// store (or vice versa).
+#[cfg(feature = "test-support")]
+impl MacOsPlainProviderCredentialStore {
+    pub fn seed_generation_zero_source_scenario(
+        &self,
+        provider: ProviderCredentialId,
+        material: &ProviderCredentialMaterial,
+        access: &ProviderCredentialAccessPolicy,
+        exact: &runne_macos_keychain_acl::ExactKeychainAccess,
+        source_revision: ProviderCredentialSourceRevision,
+    ) -> Result<(), SecureStoreError> {
+        MacOsProviderCredentialStore::new().seed_generation_zero_source_scenario(
+            provider,
+            material,
+            access,
+            exact,
+            source_revision,
+        )
+    }
+
+    pub fn seed_committed_source_slot_scenario(
+        &self,
+        provider: ProviderCredentialId,
+        seed: &ScenarioSourceSlotSeed,
+        material: &ProviderCredentialMaterial,
+        access: &ProviderCredentialAccessPolicy,
+        exact: &runne_macos_keychain_acl::ExactKeychainAccess,
+        source_revision: ProviderCredentialSourceRevision,
+    ) -> Result<(), SecureStoreError> {
+        MacOsProviderCredentialStore::new().seed_committed_source_slot_scenario(
+            provider,
+            seed,
+            material,
+            access,
+            exact,
+            source_revision,
+        )
+    }
+
+    pub fn remove_source_slot_scenario(
+        &self,
+        provider: ProviderCredentialId,
+        alternate: bool,
+    ) -> Result<(), SecureStoreError> {
+        MacOsProviderCredentialStore::new().remove_source_slot_scenario(provider, alternate)
     }
 }

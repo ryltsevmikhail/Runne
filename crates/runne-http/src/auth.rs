@@ -184,7 +184,7 @@ where
         }
     }
 }
-fn extract_session_authority(headers: &HeaderMap) -> Option<[u8; 32]> {
+pub(crate) fn extract_session_authority(headers: &HeaderMap) -> Option<[u8; 32]> {
     let mut values = headers.get_all("authorization").iter();
     let value = values.next()?.to_str().ok()?;
     if values.next().is_some() {

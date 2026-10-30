@@ -24,9 +24,9 @@ pub use profile::{
     DEEPSEEK_RESPONSES_PROFILE_ID, DeepSeekProfileError, DeepSeekResponsesTextProfile,
 };
 pub use render::{DeepSeekRenderError, DeepSeekResponsesTextRenderer};
-pub use response_decode::decode_transport_response;
 #[cfg(feature = "qualification-diagnostics")]
 pub use response_decode::decode_transport_response_with_diagnostic;
+pub use response_decode::{decode_tool_transport_response, decode_transport_response};
 pub use sse::{DeepSeekSseDecoder, DeepSeekStreamError};
 pub use transport::{
     DEEPSEEK_MAX_DECODED_STREAM_BYTES, DEEPSEEK_MAX_NORMALIZED_TEXT_BYTES, DEEPSEEK_MAX_SSE_EVENTS,
@@ -78,3 +78,9 @@ impl runne_provider::TextProviderProfile for DeepSeekResponsesTextProfile {
         })
     }
 }
+
+mod tool_inputs;
+mod tool_profile;
+mod tool_render;
+pub use tool_profile::{DEEPSEEK_RESPONSES_TOOL_PROFILE_ID, DeepSeekResponsesToolProfile};
+pub use tool_render::{DeepSeekResponsesToolRenderer, DeepSeekToolRenderError};

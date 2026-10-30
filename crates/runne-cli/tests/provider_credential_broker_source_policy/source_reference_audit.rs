@@ -4,7 +4,11 @@ use syn::{Attribute, Expr, Lit, LitStr, Macro, Meta};
 
 const SOURCE_REFERENCE_MACROS: &[&str] = &["include", "include_str", "include_bytes"];
 
-pub fn path_attribute_violation(attribute: &Attribute) -> Option<String> {
+pub fn path_attribute_violation(
+    attribute: &Attribute,
+    root: &Path,
+    relative: &str,
+) -> Option<String> {
     if attribute.path().is_ident("cfg_attr") {
         let Meta::List(list) = &attribute.meta else {
             return None;
@@ -24,7 +28,54 @@ pub fn path_attribute_violation(attribute: &Attribute) -> Option<String> {
     let Lit::Str(path) = &expression.lit else {
         return Some("path attribute must contain one literal".to_owned());
     };
-    reference_violation("path attribute", &path.value(), &["rs"])
+    let value = path.value();
+    let bytes = value.as_bytes();
+    let windows_prefix = bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':';
+    if value.is_empty() || Path::new(&value).is_absolute() || value.contains('\\') || windows_prefix
+    {
+        return Some("path attribute escapes production source root".to_owned());
+    }
+    if !Path::new(&value)
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| extension == "rs")
+    {
+        return Some("path attribute has unsupported source extension".to_owned());
+    }
+    if path_attribute_escapes(root, relative, &value) {
+        return Some("path attribute escapes production source root".to_owned());
+    }
+    None
+}
+
+/// Resolves an in-tree `path` attribute lexically against its declaring module.
+///
+/// A parent component is allowed only while the target stays inside the scanned
+/// production root; anything above it remains an escape.
+fn path_attribute_escapes(root: &Path, relative: &str, value: &str) -> bool {
+    let mut depth = root.components().count();
+    for component in Path::new(relative)
+        .parent()
+        .into_iter()
+        .flat_map(Path::components)
+    {
+        match component {
+            Component::Normal(_) => depth += 1,
+            Component::ParentDir => depth = depth.saturating_sub(1),
+            Component::CurDir => {}
+            Component::RootDir | Component::Prefix(_) => return true,
+        }
+    }
+    for component in Path::new(value).components() {
+        match component {
+            Component::Normal(_) => depth += 1,
+            Component::ParentDir if depth <= root.components().count() => return true,
+            Component::ParentDir => depth -= 1,
+            Component::CurDir => {}
+            Component::RootDir | Component::Prefix(_) => return true,
+        }
+    }
+    false
 }
 
 pub fn include_reference_violation(node: &Macro) -> Option<String> {

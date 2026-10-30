@@ -4,6 +4,7 @@ pub(super) mod readback_v2;
 mod receipt;
 mod selection;
 mod selection_managed_identity;
+pub(in crate::store) use selection_managed_identity::current_on_connection;
 
 use runne_application::permission_modes::{
     PermissionModeChangeReceipt, PermissionModeHistoryProjection, SetPermissionModeCommand,

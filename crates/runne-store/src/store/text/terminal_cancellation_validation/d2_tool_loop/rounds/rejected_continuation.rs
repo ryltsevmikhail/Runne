@@ -56,7 +56,14 @@ pub(super) fn verify_if_present(
     if count == 0 {
         return Ok(());
     }
-    if count != 1 || !(1..=2).contains(&bound_count) {
+    if count != 1
+        || !(1..=crate::store::taskrun_tool_invocation::budget_policy::limits(
+            connection, taskrun_id,
+        )
+        .map_err(|_| integrity())?
+        .1 as usize)
+            .contains(&bound_count)
+    {
         return Err(integrity());
     }
     super::rejected_admission::verify_origin_claim(
@@ -164,7 +171,7 @@ fn previous_invocation(
         "SELECT cycle_id,proposal_index,semantic_digest,result_digest,round_index,
                 result_truncated,release_started,local_stop_state,managed_area_identity,empty_proof_identity,
                 continuation_started,state
-         FROM taskrun_tool_invocations WHERE taskrun_id=?1 AND attempt_id=?2 AND round_index=?3",
+         FROM taskrun_tool_invocations WHERE taskrun_id=?1 AND attempt_id=?2 AND round_index=?3 ORDER BY proposal_index",
         )
         .map_err(|_| integrity())?;
     let rows = statement
@@ -194,29 +201,39 @@ fn previous_invocation(
         .map_err(|_| integrity())?
         .collect::<Result<Vec<Invocation>, _>>()
         .map_err(|_| integrity())?;
-    let [row] = rows.as_slice() else {
-        return Err(integrity());
-    };
-    let area_matches =
-        matches!((&row.8, &row.9), (Some(area), Some(proof)) if !area.is_empty() && area == proof);
-    let claim: bool = connection.query_row(
-        "SELECT EXISTS(SELECT 1 FROM taskrun_tool_invocations WHERE taskrun_id=?1 AND attempt_id=?2 AND cycle_id=?3 AND proposal_index=?4 AND claim_fence=?5 AND claim_node_id=?6 AND claim_node_epoch=?7)",
-        params![taskrun_id.as_bytes(),attempt_id.as_bytes(),row.0,row.1,evidence.fence as i64,uuid::Uuid::from_bytes(evidence.node_id).to_string(),evidence.node_epoch as i64], |r| r.get(0),
-    ).map_err(|_| integrity())?;
-    if row.2.len() != 32
-        || row.3.len() != 32
-        || row.1 < 0
-        || row.4 != i64::from(round - 1)
-        || row.5 != 0
-        || row.6 != 1
-        || row.7 != 2
-        || row.10 != 0
-        || row.11 != "result"
-        || !area_matches
-        || !claim
+    let coding =
+        crate::store::taskrun_tool_invocation::budget_policy::coding_origin(connection, taskrun_id)
+            .map_err(|_| integrity())?;
+    if rows.is_empty()
+        || rows.len() > if coding { 16 } else { 1 }
+        || rows
+            .windows(2)
+            .any(|pair| pair[0].1.checked_add(1) != Some(pair[1].1))
     {
         return Err(integrity());
     }
+    for row in &rows {
+        let area_matches = matches!((&row.8, &row.9), (Some(area), Some(proof)) if !area.is_empty() && area == proof);
+        let claim: bool = connection.query_row(
+        "SELECT EXISTS(SELECT 1 FROM taskrun_tool_invocations WHERE taskrun_id=?1 AND attempt_id=?2 AND cycle_id=?3 AND proposal_index=?4 AND claim_fence=?5 AND claim_node_id=?6 AND claim_node_epoch=?7)",
+        params![taskrun_id.as_bytes(),attempt_id.as_bytes(),row.0,row.1,evidence.fence as i64,uuid::Uuid::from_bytes(evidence.node_id).to_string(),evidence.node_epoch as i64], |r| r.get(0),
+    ).map_err(|_| integrity())?;
+        if row.2.len() != 32
+            || row.3.len() != 32
+            || row.1 < 0
+            || row.4 != i64::from(round - 1)
+            || row.5 != 0
+            || row.6 != 1
+            || row.7 != 2
+            || row.10 != 0
+            || row.11 != "result"
+            || !area_matches
+            || !claim
+        {
+            return Err(integrity());
+        }
+    }
+    let row = rows.last().ok_or_else(integrity)?;
     Ok((
         row.0.clone(),
         row.1,
@@ -240,13 +257,16 @@ fn verify_budget(
     evidence: D2ToolLoopCancellationEvidence,
     round: u32,
 ) -> Result<(), CommitError> {
+    let limits =
+        crate::store::taskrun_tool_invocation::budget_policy::limits(connection, taskrun_id)
+            .map_err(|_| integrity())?;
     let valid: bool = connection.query_row(
         "SELECT EXISTS(SELECT 1 FROM taskrun_tool_budgets WHERE taskrun_id=?1 AND attempt_id=?2
-          AND fence=?3 AND node_id=?4 AND node_epoch=?5 AND policy_revision='d2-safe-tool-loop-budget-v1'
-          AND effects_limit=2 AND continuations_limit=2 AND effects_used=?6 AND continuations_used=?7)",
+          AND fence=?3 AND node_id=?4 AND node_epoch=?5
+          AND effects_limit=?8 AND continuations_limit=?8 AND effects_used=?6 AND continuations_used=?7)",
         params![taskrun_id.as_bytes(),attempt_id.as_bytes(),evidence.fence as i64,
             uuid::Uuid::from_bytes(evidence.node_id).to_string(),evidence.node_epoch as i64,
-            i64::from(round),i64::from(round-1)], |r| r.get(0),
+            i64::from(round),i64::from(round-1),i64::from(limits.0)], |r| r.get(0),
     ).map_err(|_| integrity())?;
     if valid { Ok(()) } else { Err(integrity()) }
 }

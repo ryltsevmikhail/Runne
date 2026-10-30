@@ -21,6 +21,7 @@ include!("provider_execution_parts/part_13_remote_recovery_load.rs");
 include!("provider_execution_parts/part_14_remote_terminal_artifact.rs");
 include!("provider_execution_parts/part_15_remote_terminal_codec.rs");
 include!("provider_execution_parts/part_16_remote_terminal_auth.rs");
+include!("provider_execution_parts/part_31_stream_settlement_auth.rs");
 include!("provider_execution_parts/part_17_remote_terminal_commit.rs");
 include!("provider_execution_parts/part_17_remote_terminal_settlement.rs");
 include!("provider_execution_parts/part_18_remote_terminal_digest.rs");

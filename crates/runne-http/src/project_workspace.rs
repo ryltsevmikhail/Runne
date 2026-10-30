@@ -51,6 +51,10 @@ where
 {
     Router::new()
         .route(
+            "/v1/workspace-root-identities/{digest}",
+            get(handlers::find_workspace_by_root::<H>),
+        )
+        .route(
             "/v1/projects",
             get(handlers::list_projects::<H>).post(handlers::create_project::<H>),
         )

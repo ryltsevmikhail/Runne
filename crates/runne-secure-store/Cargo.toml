@@ -7,6 +7,7 @@ rust-version.workspace = true
 
 [dependencies]
 ed25519-dalek = { workspace = true, optional = true }
+base64.workspace = true
 runne-api = { path = "../runne-api" }
 runne-provider = { path = "../runne-provider" }
 runne-provider-oauth = { path = "../runne-provider-oauth" }
@@ -49,6 +50,7 @@ num = "=0.4.3"
 keyring = { version = "=3.6.3", default-features = false, features = ["windows-native"] }
 
 [dev-dependencies]
+base64.workspace = true
 hex.workspace = true
 runne-provider = { path = "../runne-provider", features = ["test-support"] }
 serde.workspace = true

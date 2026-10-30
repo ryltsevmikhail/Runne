@@ -91,6 +91,8 @@ enum RemoteCancellationWire {
     Confirmed,
     Unconfirmed,
     Unknown,
+    /// Provider completed and canonical cancellation closure proves no pending rounds.
+    AlreadyTerminal,
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -132,6 +134,9 @@ impl TryFrom<TaskRunEffectsWire> for TaskRunEffectsV1 {
             })
             || (remote.cancellation == RemoteCancellationEvidence::Confirmed
                 && remote.outcome != RemoteEffectOutcome::Cancelled)
+            || (remote.cancellation == RemoteCancellationEvidence::AlreadyTerminal
+                && (!wire.cancellation_requested
+                    || remote.outcome != RemoteEffectOutcome::Completed))
             || (remote.outcome == RemoteEffectOutcome::NotApplicable
                 && (remote.publication != RemotePublicationDisposition::NotApplicable
                     || remote.accounting != RemoteAccountingDisposition::NotApplicable))
@@ -262,6 +267,7 @@ impl From<RemoteCancellationWire> for RemoteCancellationEvidence {
             RemoteCancellationWire::Confirmed => Self::Confirmed,
             RemoteCancellationWire::Unconfirmed => Self::Unconfirmed,
             RemoteCancellationWire::Unknown => Self::Unknown,
+            RemoteCancellationWire::AlreadyTerminal => Self::AlreadyTerminal,
         }
     }
 }

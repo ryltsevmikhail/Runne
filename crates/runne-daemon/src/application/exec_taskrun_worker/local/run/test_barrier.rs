@@ -63,7 +63,7 @@ pub(in crate::application::exec_taskrun_worker) fn pause_at(point: Point) -> Res
     )))]
     {
         let _ = point;
-        return Ok(());
+        Ok(())
     }
     #[cfg(all(
         feature = "test-support",

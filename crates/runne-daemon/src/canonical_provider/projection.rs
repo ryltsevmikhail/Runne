@@ -161,6 +161,23 @@ pub(super) const fn map_existing_state(
     }
 }
 
+/// Maps a pre-dispatch journal-key preflight failure.
+///
+/// The preflight runs before any delivery window opens, so a key or retention
+/// failure here is a closed rejection before any external effect: it must not
+/// be projected as an uncertain provider outcome.
+pub(super) const fn map_preflight_error(
+    error: RuntimeProviderExecutionError,
+) -> CanonicalProviderExecutionError {
+    match error {
+        RuntimeProviderExecutionError::JournalKeyUnavailable
+        | RuntimeProviderExecutionError::KeyRetentionUnsupported => {
+            CanonicalProviderExecutionError::RejectedBeforeEffect
+        }
+        other => map_execution_error(other),
+    }
+}
+
 pub(super) const fn map_execution_error(
     error: RuntimeProviderExecutionError,
 ) -> CanonicalProviderExecutionError {

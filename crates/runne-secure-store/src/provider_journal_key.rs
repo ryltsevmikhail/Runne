@@ -223,6 +223,26 @@ pub trait ProviderJournalKeyring: Send + Sync {
         key_ref: ProviderJournalKeyRef,
     ) -> Result<ProviderJournalKeyMaterial, SecureStoreError>;
 
+    /// Replaces unreadable material for the same durable binding.
+    ///
+    /// The caller must first prove the database holds no journal evidence for
+    /// any key: with no MACs to verify, regenerating the material under the same
+    /// non-secret binding preserves every invariant. Backends that cannot do
+    /// this safely keep failing closed.
+    ///
+    /// # Errors
+    ///
+    /// Returns a typed error when replacement is unsupported or cannot be
+    /// verified by reading the item back.
+    fn replace_provider_journal_key(
+        &self,
+        _key: &ProviderJournalKeyMaterial,
+    ) -> Result<(), SecureStoreError> {
+        Err(SecureStoreError::OperationFailed(
+            "provider journal key replacement is unsupported".into(),
+        ))
+    }
+
     /// Deletes retired material only with zero-reference and backup evidence.
     ///
     /// # Errors

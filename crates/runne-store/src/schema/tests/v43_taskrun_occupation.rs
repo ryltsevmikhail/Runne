@@ -11,24 +11,24 @@ fn v43_backfills_claims_as_active_unknown_across_reopen() {
     apply_migrations(&connection).unwrap();
     drop(connection);
     let reopened = Connection::open(path).unwrap();
-    assert!(v68_matches(&reopened, CURRENT_SCHEMA_VERSION).unwrap());
+    assert!(v71_matches(&reopened, CURRENT_SCHEMA_VERSION).unwrap());
     let state: (String, String) = reopened.query_row(
         "SELECT state,dispatch_intent FROM taskrun_assignment_occupations WHERE taskrun_id=?1 AND fence=1",
         [[1_u8;16].as_slice()], |row| Ok((row.get(0)?,row.get(1)?)),
     ).unwrap();
     assert_eq!(state, ("active".into(), "unknown".into()));
-    assert!(v68_matches(&reopened, CURRENT_SCHEMA_VERSION).unwrap());
+    assert!(v71_matches(&reopened, CURRENT_SCHEMA_VERSION).unwrap());
 }
 
 #[test]
 fn v43_admission_rejects_drift_inherited_from_v42() {
     let connection = Connection::open_in_memory().unwrap();
     apply_migrations(&connection).unwrap();
-    assert!(v68_matches(&connection, CURRENT_SCHEMA_VERSION).unwrap());
+    assert!(v71_matches(&connection, CURRENT_SCHEMA_VERSION).unwrap());
     connection
         .execute_batch("DROP TRIGGER taskrun_assignments_immutable;")
         .unwrap();
-    assert!(!v68_matches(&connection, CURRENT_SCHEMA_VERSION).unwrap());
+    assert!(!v71_matches(&connection, CURRENT_SCHEMA_VERSION).unwrap());
     assert!(classify_existing_connection(&connection).is_err());
 }
 
@@ -36,11 +36,11 @@ fn v43_admission_rejects_drift_inherited_from_v42() {
 fn v43_admission_requires_global_renewal_command_id_guards() {
     let connection = Connection::open_in_memory().unwrap();
     apply_migrations(&connection).unwrap();
-    assert!(v68_matches(&connection, CURRENT_SCHEMA_VERSION).unwrap());
+    assert!(v71_matches(&connection, CURRENT_SCHEMA_VERSION).unwrap());
     connection
         .execute_batch("DROP TRIGGER global_command_id_from_taskrun_claim_receipts_v43;")
         .unwrap();
-    assert!(!v68_matches(&connection, CURRENT_SCHEMA_VERSION).unwrap());
+    assert!(!v71_matches(&connection, CURRENT_SCHEMA_VERSION).unwrap());
     assert!(classify_existing_connection(&connection).is_err());
 }
 

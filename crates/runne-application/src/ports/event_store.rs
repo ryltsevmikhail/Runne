@@ -1,5 +1,17 @@
 /// Atomic persistence boundary for conversation streams and create receipts.
 pub trait ConversationRepository {
+    /// Lists an ordered bounded page owned by the exact principal and workspace.
+    /// The extra 101st item allows transport adapters to detect continuation.
+    fn list_conversations(
+        &self,
+        _principal: &PrincipalId,
+        _workspace: WorkspaceId,
+        _limit: u16,
+        _after: Option<ConversationId>,
+    ) -> Result<Vec<(ConversationId, ConversationLoadedStream)>, EventStoreError> {
+        Err(EventStoreError::Unavailable)
+    }
+
     /// Loads a committed conversation stream.
     fn load_conversation(
         &self,

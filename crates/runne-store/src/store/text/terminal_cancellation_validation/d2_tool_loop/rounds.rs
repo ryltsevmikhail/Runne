@@ -33,6 +33,8 @@ type RoundRow = (
 
 #[path = "rounds/continuation_identity.rs"]
 mod continuation_identity;
+#[path = "rounds/previous.rs"]
+mod previous;
 #[path = "rounds/rejected_admission.rs"]
 mod rejected_admission;
 #[path = "rounds/rejected_continuation.rs"]
@@ -132,7 +134,12 @@ pub(crate) fn verify_cancelled_provider_rounds(
             Ok(())
         };
     }
-    if rows.len() > 3 {
+    if rows.len()
+        > crate::store::taskrun_tool_invocation::budget_policy::limits(tx, taskrun_id)
+            .map_err(|_| integrity())?
+            .1 as usize
+            + 1
+    {
         return Err(integrity());
     }
     let dispatch_intent_matches: bool = tx
@@ -170,53 +177,7 @@ pub(crate) fn verify_cancelled_provider_rounds(
         {
             return Err(integrity());
         }
-        let previous = (
-            row.11.as_deref(),
-            row.12.as_deref(),
-            row.13,
-            row.14.as_deref(),
-            row.15.as_deref(),
-        );
-        if index == 0 {
-            if previous != (None, None, None, None, None) {
-                return Err(integrity());
-            }
-        } else {
-            let (
-                Some(prev_attempt),
-                Some(prev_cycle),
-                Some(prev_index),
-                Some(prev_semantic),
-                Some(prev_result),
-            ) = previous
-            else {
-                return Err(integrity());
-            };
-            if prev_attempt != attempt_id.as_bytes() || Some(prev_index) != index.checked_sub(1) {
-                return Err(integrity());
-            }
-            let linked: bool = tx
-                .query_row(
-                    "SELECT EXISTS(SELECT 1 FROM taskrun_tool_invocations
-                     WHERE taskrun_id=?1 AND attempt_id=?2 AND cycle_id=?3 AND proposal_index=?4
-                       AND semantic_digest=?5 AND state='result' AND result_digest=?6
-                       AND result_truncated=0 AND continuation_started=1
-                       AND local_stop_state=2 AND managed_area_identity=empty_proof_identity)",
-                    params![
-                        taskrun_id.as_bytes(),
-                        prev_attempt,
-                        prev_cycle,
-                        prev_index,
-                        prev_semantic,
-                        prev_result
-                    ],
-                    |result| result.get(0),
-                )
-                .map_err(|_| integrity())?;
-            if !linked {
-                return Err(integrity());
-            }
-        }
+        previous::verify(tx, taskrun_id, attempt_id, index, row)?;
         let has_admission = row.16.is_some();
         let admission_matches = match (
             row.16.as_deref(),
@@ -262,7 +223,7 @@ pub(crate) fn verify_cancelled_provider_rounds(
         let has_invocation: bool = tx
             .query_row(
                 "SELECT EXISTS(SELECT 1 FROM taskrun_tool_invocations
-                 WHERE taskrun_id=?1 AND attempt_id=?2 AND proposal_index=?3)",
+                 WHERE taskrun_id=?1 AND attempt_id=?2 AND round_index=?3)",
                 params![taskrun_id.as_bytes(), attempt_id.as_bytes(), index],
                 |result| result.get(0),
             )

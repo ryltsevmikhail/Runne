@@ -2,7 +2,8 @@ use super::Program;
 use crate::local_command_linux::policy::NativeFsProfile;
 
 pub(super) fn append(program: &mut Program, profile: NativeFsProfile) {
-    if !profile.write_allowed {
+    // Landlock does not mediate path metadata changes outside bounded roots.
+    if !profile.write_allowed || !profile.metadata_allowed {
         for syscall in write_and_metadata_syscalls() {
             program.deny_syscall(syscall);
         }

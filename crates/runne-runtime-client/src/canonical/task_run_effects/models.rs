@@ -54,6 +54,8 @@ pub enum RemoteCancellationEvidence {
     Confirmed,
     Unconfirmed,
     Unknown,
+    /// Provider completed and canonical cancellation closure proves no pending rounds.
+    AlreadyTerminal,
 }
 
 /// Current reconciliation availability, separate from adapter capabilities.

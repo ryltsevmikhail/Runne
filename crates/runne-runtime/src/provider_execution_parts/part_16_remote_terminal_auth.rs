@@ -152,6 +152,54 @@ where
         .transpose()
     }
 
+    fn verify_stream_settlement_digest(
+        &self,
+        snapshot: &ProviderRemoteAttemptRecord,
+        expected: &ProviderRecoveryAttemptIdentity,
+        candidate: runne_application::provider::ProviderRemoteTerminalSettlementDigestCandidate<'_>,
+        journal: &[ProviderJournalAppendRequest],
+        kind: ProviderTerminalApplicationKind,
+    ) -> Result<bool, ProviderRecoveryError> {
+        self.authenticate_stream_request(snapshot, expected)?;
+        verify_authenticated_stream_settlement(
+            self.keyring.as_ref(),
+            &snapshot.request.binding,
+            candidate,
+            journal,
+            kind,
+        )
+    }
+
+    fn authenticate_stream_terminal(
+        &self,
+        snapshot: &ProviderRemoteAttemptRecord,
+        expected: &ProviderRecoveryAttemptIdentity,
+        journal: &[ProviderJournalAppendRequest],
+        kind: ProviderTerminalApplicationKind,
+    ) -> Result<
+        Option<runne_application::provider::ProviderRemoteAuthenticatedTerminalFact>,
+        ProviderRecoveryError,
+    > {
+        self.authenticate_stream_request(snapshot, expected)?;
+        let assembled = authenticate_stream_journal(
+            self.keyring.as_ref(),
+            &snapshot.request.binding,
+            journal,
+            kind,
+        )?;
+        if assembled.disposition != ProviderTerminalDisposition::Completed {
+            return Ok(None);
+        }
+        runne_application::provider::ProviderRemoteAuthenticatedTerminalFact::new(
+            runne_provider::ProviderRemoteResponseStatus::Completed {
+                usage: assembled.usage.exact(),
+            },
+            runne_provider::ProviderRemotePublicationDisposition::Allowed,
+            Some(Sha256::digest(&assembled.output).into()),
+        )
+        .map(Some)
+    }
+
     fn verify_terminal_settlement_digest(
         &self,
         snapshot: &ProviderRemoteAttemptRecord,

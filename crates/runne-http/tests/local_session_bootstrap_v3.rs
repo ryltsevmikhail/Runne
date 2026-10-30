@@ -2,6 +2,9 @@ mod error {
     pub use runne_http::error::*;
 }
 
+#[path = "../src/auth.rs"]
+#[allow(dead_code)]
+mod auth;
 #[path = "../src/local_session.rs"]
 mod local_session;
 

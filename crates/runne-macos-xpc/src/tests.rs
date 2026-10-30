@@ -11,10 +11,6 @@ use crate::service_management::{
     LAUNCH_AGENT_PLIST, map_status_code, operation_error, validate_registration_version,
 };
 
-#[cfg(target_os = "macos")]
-#[path = "tests/secret_lifetime.rs"]
-mod secret_lifetime;
-
 const SERVICE_REQUIREMENT: &str = concat!(
     "identifier \"com.runne.credential-service\" and anchor apple generic and ",
     "certificate leaf[subject.OU] = \"758F9Z45SR\" and ",

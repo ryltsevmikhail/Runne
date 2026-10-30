@@ -10,9 +10,9 @@ fn only_legacy_source_cleanup_skips_the_credential_service_arm() {
         CredentialOperationAction::WriterIdentityMigrationEffect,
         CredentialOperationAction::WriterIdentityMigrationVerify,
     ] {
-        assert!(super::super::requires_service_arm(action));
+        assert!(super::requires_service_arm(action));
     }
-    assert!(!super::super::requires_service_arm(
+    assert!(!super::requires_service_arm(
         CredentialOperationAction::LegacySourceCleanup
     ));
 }

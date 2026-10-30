@@ -38,7 +38,12 @@ pub(super) fn is_active_cycle(
     let selected_d2 = snapshot
         .input()
         .and_then(|input| input.selected_profile())
-        .is_some_and(|profile| profile.profile_id() == "runne-linux-agent-tools-v1");
+        .is_some_and(|profile| {
+            matches!(
+                profile.profile_id(),
+                "runne-linux-agent-tools-v1" | "runne-deepseek-responses-tools/1"
+            )
+        });
     let Some(cycle) = snapshot.active_cycle() else {
         return Ok(false);
     };
@@ -65,10 +70,12 @@ pub(super) fn is_active_cycle(
         || origin.workspace_id != receipt.workspace_id
         || origin.principal_id != scope.principal_id
         || origin.input.prompt() != original.text.as_str()
-        || origin
-            .input
-            .selected_profile()
-            .is_none_or(|profile| profile.profile_id() != "runne-linux-agent-tools-v1")
+        || origin.input.selected_profile().is_none_or(|profile| {
+            !matches!(
+                profile.profile_id(),
+                "runne-linux-agent-tools-v1" | "runne-deepseek-responses-tools/1"
+            )
+        })
     {
         return Err(OrphanSettlementError::InvariantViolation);
     }

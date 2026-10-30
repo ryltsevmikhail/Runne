@@ -19,7 +19,8 @@ use crate::provider_credential::{
 };
 use crate::{
     NativeProviderCredentialVersionStore, ProviderCredentialAccessPolicy, ProviderCredentialId,
-    ProviderCredentialMaterial, ProviderCredentialSource, ProviderCredentialStatus,
+    ProviderCredentialMaterial, ProviderCredentialSource, ProviderCredentialSourceRevision,
+    ProviderCredentialStatus,
     ProviderCredentialStore, ProviderJournalKeyDeletionProof, ProviderJournalKeyMaterial,
     ProviderJournalKeyRef, ProviderJournalKeyStatus, ProviderJournalKeyring, SecureStore,
     SecureStoreError, SecurityAnchorV1, SecurityProfileLock, StoredSecurityAnchor,
@@ -32,14 +33,6 @@ use runne_provider::{
 use zeroize::Zeroizing;
 
 struct NativeSecurityLock { profile: [u8; 32], lock: runne_macos_keychain_acl::SecurityProfileProcessLock }
-
-impl crate::security_anchor::SecurityProfileLockBackend for NativeSecurityLock {
-    fn seal(&self, database: [u8; 32], generation: u64, transaction: [u8; 32], previous: [u8; 32]) -> Result<SealedTransactionTag, SecureStoreError> {
-        let seal = self.lock.seal(self.profile, database, generation, transaction, previous).map_err(|_| SecureStoreError::Unavailable)?;
-        SealedTransactionTag::from_storage(seal.as_bytes().to_vec())
-    }
-    fn verify(&self, database: [u8; 32], generation: u64, transaction: [u8; 32], previous: [u8; 32], seal: &[u8]) -> Result<(), SecureStoreError> { self.lock.verify(self.profile, database, generation, transaction, previous, seal).map_err(|_| SecureStoreError::InvalidSeal) }
-}
 
 const SERVICE_NAME: &str = "runne-ui";
 const ACCOUNT_PREFIX: &str = "db_generation";
@@ -203,7 +196,7 @@ impl MacOsKeychainStore {
         let encoded = encode_security_anchor(anchor);
         active_keychain().map_err(|()| SecureStoreError::Unavailable)?
             .set_generic_password(SERVICE_NAME, &self.account_name, &encoded)
-            .map_err(|_| SecureStoreError::OperationFailed("security anchor keychain write".into()))
+            .map_err(|error| SecureStoreError::OperationFailed(format!("security anchor keychain write (OSStatus {})", error.code())))
     }
 
     #[cfg(test)]

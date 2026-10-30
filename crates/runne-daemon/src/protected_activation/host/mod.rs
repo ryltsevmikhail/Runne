@@ -16,6 +16,15 @@ pub fn run_verified_protected_channel(
     #[cfg(feature = "desktop-protected")]
     {
         #[cfg(all(target_os = "linux", feature = "test-support", not(test)))]
+        if std::env::var_os("RUNNE_TEST_TERMINAL_AGENT_FIXTURE").as_deref()
+            == Some(std::ffi::OsStr::new("1"))
+        {
+            return run_verified_protected_channel_with_fixture(channel, |root| {
+                let root = root.to_path_buf();
+                async move { super::terminal_fixture::dependencies(&root).await }
+            });
+        }
+        #[cfg(all(target_os = "linux", feature = "test-support", not(test)))]
         if std::env::var_os("RUNNE_TEST_T1_TRUST_COMPOSITION").as_deref()
             == Some(std::ffi::OsStr::new("1"))
         {

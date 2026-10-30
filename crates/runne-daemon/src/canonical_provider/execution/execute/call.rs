@@ -43,14 +43,24 @@ pub(super) fn project(
     }
     let call = call
         .with_tool_context(
-            vec![
-                runne_provider::ProviderToolDeclarationV1::for_name(
-                    runne_provider::ProviderToolNameV1::WorkspaceFileRead,
-                ),
-                runne_provider::ProviderToolDeclarationV1::for_name(
-                    runne_provider::ProviderToolNameV1::WorkspaceFileCreateNew,
-                ),
-            ],
+            if route.profile.profile_id()
+                == runne_provider_deepseek::DEEPSEEK_RESPONSES_TOOL_PROFILE_ID
+            {
+                use runne_provider::ToolProviderProfile;
+                super::super::super::deepseek_profile::exact_tool_profile()
+                    .map_err(|_| CanonicalProviderExecutionError::RejectedBeforeEffect)?
+                    .tool_declarations()
+                    .to_vec()
+            } else {
+                vec![
+                    runne_provider::ProviderToolDeclarationV1::for_name(
+                        runne_provider::ProviderToolNameV1::WorkspaceFileRead,
+                    ),
+                    runne_provider::ProviderToolDeclarationV1::for_name(
+                        runne_provider::ProviderToolNameV1::WorkspaceFileCreateNew,
+                    ),
+                ]
+            },
             tool_results,
         )
         .map_err(|_| CanonicalProviderExecutionError::RejectedBeforeEffect)?;

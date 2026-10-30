@@ -132,27 +132,42 @@ impl crate::application::exec_taskrun_worker::DaemonAutomaticTaskRuns {
                 )
             })
             .collect::<Vec<_>>();
-        let declarations = vec![
-            runne_provider::ProviderToolDeclarationV1::for_name(
-                runne_provider::ProviderToolNameV1::WorkspaceFileRead,
-            ),
-            runne_provider::ProviderToolDeclarationV1::for_name(
-                runne_provider::ProviderToolNameV1::WorkspaceFileCreateNew,
-            ),
-        ];
+        let coding = self
+            .provider
+            .as_ref()
+            .is_some_and(|provider| provider.coding_agent_tools_enabled());
+        let declarations = if coding {
+            runne_provider::ProviderToolDeclarationV1::coding_agent_current_platform()
+        } else {
+            vec![
+                runne_provider::ProviderToolDeclarationV1::for_name(
+                    runne_provider::ProviderToolNameV1::WorkspaceFileRead,
+                ),
+                runne_provider::ProviderToolDeclarationV1::for_name(
+                    runne_provider::ProviderToolNameV1::WorkspaceFileCreateNew,
+                ),
+            ]
+        };
         let schema_digest = digest(
             Sha256::digest(serde_json::to_vec(&declarations).map_err(|_| E::Unavailable)?).into(),
         );
-        let budget = self
-            .store
-            .ensure_taskrun_tool_loop_budget(
+        let budget = if coding {
+            self.store.ensure_taskrun_coding_tool_loop_budget(
                 assignment.taskrun_id,
                 stream.current_version,
                 assignment,
                 now_millis(),
             )
-            .map_err(|_| E::Uncertain)?;
-        let (manifest, plan) = references(
+        } else {
+            self.store.ensure_taskrun_tool_loop_budget(
+                assignment.taskrun_id,
+                stream.current_version,
+                assignment,
+                now_millis(),
+            )
+        }
+        .map_err(|_| E::Uncertain)?;
+        let (manifest, mut plan) = references(
             assignment.taskrun_id,
             assignment.attempt_id,
             cycle.cycle_id,
@@ -170,6 +185,9 @@ impl crate::application::exec_taskrun_worker::DaemonAutomaticTaskRuns {
             schema_digest,
             budget,
         );
+        if coding {
+            super::coding::initialize(&mut plan);
+        }
         let mut version = stream.current_version;
         if cycle.context_manifest_ref.is_none() {
             d2_test_stage("commit_context");
@@ -228,7 +246,7 @@ impl crate::application::exec_taskrun_worker::DaemonAutomaticTaskRuns {
                         plan_revision_ref: plan.clone(),
                         input_digest: manifest.integrity_digest,
                         output_digest: plan.integrity_digest,
-                        expected_proposal_indexes: vec![0, 1],
+                        expected_proposal_indexes: plan.expected_proposal_indexes.clone(),
                     },
                 )
                 .map_err(|error| {
@@ -245,6 +263,17 @@ impl crate::application::exec_taskrun_worker::DaemonAutomaticTaskRuns {
                 .load_task_run(assignment.taskrun_id)
                 .map_err(|_| E::Unavailable)?
                 .current_version;
+        } else if coding {
+            let existing = cycle.plan_revision_ref.as_ref().ok_or(E::Uncertain)?;
+            if existing.plan_id != plan.plan_id
+                || existing.context_manifest_ref != plan.context_manifest_ref
+                || existing.planning_policy_ref != plan.planning_policy_ref
+                || existing.planning_budget_ref != plan.planning_budget_ref
+                || existing.expected_proposal_indexes.len() > 32
+            {
+                return Err(E::Uncertain);
+            }
+            plan = existing.clone();
         } else if cycle.plan_revision_ref.as_ref() != Some(&plan) {
             return Err(E::Uncertain);
         }

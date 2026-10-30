@@ -68,4 +68,17 @@ impl<R: ProjectWorkspaceRepository, C: CurrentRootAdmissionContext, V: RootAdmis
             .map_err(map_error)
             .map(workspace_snapshot)
     }
+    pub fn find_workspace_by_root(
+        &self,
+        context: ProjectQueryContext,
+        digest: [u8; 32],
+    ) -> Result<Option<WorkspaceSnapshot>, ProjectWorkspaceServiceError> {
+        if digest == [0; 32] {
+            return Err(ProjectWorkspaceServiceError::Forbidden);
+        }
+        self.repository
+            .find_workspace_by_root(context.principal.as_str(), digest)
+            .map_err(map_error)
+            .map(|workspace| workspace.map(workspace_snapshot))
+    }
 }

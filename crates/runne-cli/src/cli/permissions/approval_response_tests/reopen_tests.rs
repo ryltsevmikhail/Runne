@@ -21,7 +21,7 @@ async fn linux_record_reopen_recovers_fake_lost_ack_without_prompt_or_resend() {
             .join(&scope)
             .join(format!("{}.json", intent.command_id)),
     );
-    let index = LinuxPermissionRecoveryIndex::new(state_dir.clone());
+    let index = DurablePermissionRecoveryIndex::new(state_dir.clone());
     let consent = MockConsent::allowed(events.clone());
 
     assert!(
@@ -66,10 +66,24 @@ async fn linux_record_reopen_recovers_fake_lost_ack_without_prompt_or_resend() {
     assert_eq!(record.decision, StoredApprovalDecision::Deny);
     drop(index);
 
+    // Finder metadata in the user-visible state root must not hide records.
+    std::fs::write(
+        state_dir.join("runne/cli/permission-intents/.DS_Store"),
+        b"finder bookkeeping",
+    )
+    .unwrap();
+    let reopened = DurablePermissionRecoveryIndex::new(state_dir);
+    assert!(
+        reopened
+            .read_existing(&scope, intent.command_id)
+            .unwrap()
+            .is_some(),
+        "stray Finder metadata must not hide a durable record"
+    );
+
     // Reopen the real filesystem index and rebuild only the fake client adapter;
     // the simulated canonical server receipt survives independently of both.
     events.lock().unwrap().clear();
-    let reopened = LinuxPermissionRecoveryIndex::new(state_dir);
     let restarted = FakeApprovalRuntime::with_server(approval(), events.clone(), server.clone());
     let no_prompt = MockConsent::unavailable(events.clone());
     assert!(

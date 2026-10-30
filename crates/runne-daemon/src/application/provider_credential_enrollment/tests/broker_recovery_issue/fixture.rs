@@ -49,6 +49,10 @@ fn unix_now_seconds() -> i64 {
         .as_secs() as i64
 }
 
+pub(crate) fn completed_pair_fixture() -> Fixture {
+    completed_pair_fixture_at(None)
+}
+
 fn completed_pair_fixture_at(store_now: Option<i64>) -> Fixture {
     let f = match store_now {
         Some(now) => fixture_with_action_at(

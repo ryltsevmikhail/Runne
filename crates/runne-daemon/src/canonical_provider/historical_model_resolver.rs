@@ -14,6 +14,7 @@ impl HistoricalProviderModelResolver for CompiledHistoricalProviderModelResolver
         identity: &HistoricalProviderProfileIdentity,
     ) -> Result<ModelRef, HistoricalProviderModelError> {
         let providers = [
+            deepseek_tools_profile(),
             fixed_profile(
                 "openai",
                 runne_provider_openai::OPENAI_RESPONSES_PROFILE_ID,
@@ -110,6 +111,17 @@ fn fixed_profile(
             })
         }
     }
+}
+
+fn deepseek_tools_profile() -> Option<PinnedProfile> {
+    let profile = super::deepseek_profile::exact_tool_profile().ok()?;
+    Some(PinnedProfile {
+        provider: "deepseek",
+        id: runne_provider_deepseek::DEEPSEEK_RESPONSES_TOOL_PROFILE_ID,
+        digest: profile.profile_digest(),
+        model: profile.text_profile().model_id().to_owned(),
+        revision: profile.text_profile().model_revision().to_owned(),
+    })
 }
 
 fn zai_profile() -> PinnedProfile {
@@ -257,3 +269,7 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "historical_tool_model_tests.rs"]
+mod tool_model_tests;

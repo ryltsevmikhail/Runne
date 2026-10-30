@@ -4,21 +4,21 @@
 // keeps every file in this module under the 300-line source limit.
 
 use super::super::live_session;
-#[cfg(all(target_os = "linux", feature = "desktop-protected"))]
+#[cfg(unix)]
 use std::sync::Arc;
 
 pub(crate) struct V3EnrollmentRuntime {
     #[cfg(target_os = "macos")]
-    pub(super) deferred_control: Option<zeroize::Zeroizing<Vec<u8>>>,
+    pub(in crate::protected_activation::control_v3) deferred_control: Option<zeroize::Zeroizing<Vec<u8>>>,
     #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-    pub(super) round: Option<super::round::RoundContext>,
+    pub(in crate::protected_activation::control_v3) round: Option<super::super::round::RoundContext>,
     #[cfg_attr(
         not(all(target_os = "macos", target_arch = "aarch64")),
         allow(dead_code)
     )]
     pub(crate) live: Option<live_session::LiveEnrollmentSession>,
     #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-    pub(super) broker: Option<crate::protected_activation::broker_handoff::BrokerHandoffDispatch>,
+    pub(in crate::protected_activation::control_v3) broker: Option<crate::protected_activation::broker_handoff::BrokerHandoffDispatch>,
     #[cfg(any(
         target_os = "linux",
         all(target_os = "macos", target_arch = "aarch64")
@@ -41,19 +41,19 @@ pub(crate) struct V3EnrollmentRuntime {
     >>,
     pub(crate) terminal: bool,
     #[cfg(target_os = "macos")]
-    pub(super) claim_measurements: Option<(
+    pub(in crate::protected_activation::control_v3) claim_measurements: Option<(
         runne_provider::CredentialMeasurementSnapshot,
         runne_provider::CredentialBindingDigest,
     )>,
     #[cfg(target_os = "macos")]
-    pub(super) channel: Option<
+    pub(in crate::protected_activation::control_v3) channel: Option<
         crate::application::provider_credential_enrollment::broker::MacOsCredentialBrokerChannel,
     >,
     #[cfg(target_os = "macos")]
-    pub(super) credential_service:
+    pub(in crate::protected_activation::control_v3) credential_service:
         Option<Arc<crate::protected_activation::CredentialServiceRuntimeGateway>>,
     #[cfg(target_os = "macos")]
-    pub(super) credential_service_configuration:
+    pub(in crate::protected_activation::control_v3) credential_service_configuration:
         Option<runne_macos_xpc::CredentialServiceEndpointConfiguration>,
 }
 
@@ -95,7 +95,7 @@ impl V3EnrollmentRuntime {
     }
 
     #[cfg(target_os = "macos")]
-    pub(super) fn terminate_retained_writer(&mut self) {
+    pub(in crate::protected_activation::control_v3) fn terminate_retained_writer(&mut self) {
         if let Some(channel) = self.channel.take() {
             channel.terminate_exact_writer();
         }
@@ -115,7 +115,7 @@ impl V3EnrollmentRuntime {
     }
 
     #[cfg(target_os = "macos")]
-    pub(super) fn drive_credential_service_rejoin(
+    pub(in crate::protected_activation::control_v3) fn drive_credential_service_rejoin(
         &mut self,
         protected: &mut crate::protected_activation::ProtectedActivationChannel,
         keys: &runne_api::ProtectedActivationKeys,
@@ -167,7 +167,7 @@ impl V3EnrollmentRuntime {
     }
 
     #[cfg(target_os = "macos")]
-    pub(super) fn yield_for_credential_service_rejoin(
+    pub(in crate::protected_activation::control_v3) fn yield_for_credential_service_rejoin(
         &mut self,
         protected: &mut crate::protected_activation::ProtectedActivationChannel,
         keys: &runne_api::ProtectedActivationKeys,

@@ -50,7 +50,12 @@ pub(super) fn validate(
         .snapshot_v1()
         .input()
         .and_then(|input| input.selected_profile())
-        .is_some_and(|profile| profile.profile_id() == "runne-linux-agent-tools-v1");
+        .is_some_and(|profile| {
+            matches!(
+                profile.profile_id(),
+                "runne-linux-agent-tools-v1" | "runne-deepseek-responses-tools/1"
+            )
+        });
     if !recognition::is_d2_cancellation(connection, receipt.taskrun_id, is_d2, has_d2_cycle)? {
         return Ok(false);
     }

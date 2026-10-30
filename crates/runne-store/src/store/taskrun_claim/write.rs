@@ -52,7 +52,7 @@ pub(super) fn ensure_live_node(
     };
     if epoch <= 0
         || version != 1
-        || platform != "linux"
+        || platform != current_node_platform()
         || protocol != "runne-taskrun-v1"
         || workspace != "git-worktree-v1"
         || capacity <= 0
@@ -147,4 +147,20 @@ pub(super) fn append_claim_events(
         return Err(ClaimError::CorruptData);
     }
     Ok(())
+}
+
+/// Platform recorded by the local execution node.
+const fn current_node_platform() -> &'static str {
+    #[cfg(target_os = "linux")]
+    {
+        "linux"
+    }
+    #[cfg(target_os = "macos")]
+    {
+        "darwin"
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    {
+        "unsupported"
+    }
 }

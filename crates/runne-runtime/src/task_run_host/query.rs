@@ -76,6 +76,20 @@ where
         .map_err(|_| TaskRunHostError::Unavailable)?
     }
 
+    async fn get_task_run_tool_activity(
+        &self,
+        principal: runne_api::ApiPrincipalId,
+        taskrun_id: runne_domain::id::TaskRunId,
+    ) -> Result<runne_api::TaskRunToolActivityV1, TaskRunHostError> {
+        let enricher = self
+            .effects_enricher
+            .clone()
+            .ok_or(TaskRunHostError::Unavailable)?;
+        tokio::task::spawn_blocking(move || enricher.tool_activity(&principal, taskrun_id))
+            .await
+            .map_err(|_| TaskRunHostError::Unavailable)?
+    }
+
     async fn get_task_run_effects(
         &self,
         taskrun_id: runne_domain::id::TaskRunId,

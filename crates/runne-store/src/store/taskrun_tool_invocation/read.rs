@@ -50,6 +50,9 @@ pub(super) fn load_budget_ref(
         [taskrun_id.as_bytes()],
         |r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?)),
     ).optional().map_err(|_|ToolInvocationStoreError::CorruptData)?;
+    if row.is_some() {
+        budget_policy::limits(&reader, taskrun_id)?;
+    }
     row.map(|(id, digest_bytes, attempt, _fence)| {
         Ok(runne_domain::reference::BudgetReservationRef {
             reservation_id: runne_domain::id::BudgetReservationId::from_bytes(fixed::<16>(id)?),

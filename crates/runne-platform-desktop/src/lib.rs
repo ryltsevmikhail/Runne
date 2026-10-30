@@ -19,6 +19,9 @@ pub use protected_runtime::linux_activation_approval::{
 };
 #[cfg(target_os = "linux")]
 pub use protected_runtime::require_linux_cli_baseline_root;
+/// Platform-neutral owner-private runtime-root baseline.
+#[cfg(unix)]
+pub use protected_runtime::require_terminal_baseline_root;
 /// Platform-validated writer-process handoff for protected credential enrollment.
 pub mod provider_credential_broker;
 mod provider_credential_prompt;
@@ -142,8 +145,6 @@ pub use updater_journal::{UpdateInstallRecord, UpdateJournal, UpdateJournalError
 #[cfg(all(feature = "test-support", target_os = "macos", target_arch = "aarch64"))]
 #[doc(hidden)]
 pub use updater_metadata::prepare_local_native_enrollment;
-#[cfg(target_os = "macos")]
-pub use updater_metadata::produce_staged_native_enrollment_tuple_v3;
 #[cfg(all(feature = "dev-loopback-updater", debug_assertions))]
 pub use updater_metadata::verify_update_v2_dev_loopback;
 pub use updater_metadata::{
@@ -177,6 +178,10 @@ pub use updater_metadata::{
 #[cfg(target_os = "linux")]
 pub use updater_metadata::{
     VerifiedInstalledLinuxEnrollmentMeasurementFacts, VerifiedInstalledLinuxWriterCapability,
+};
+#[cfg(target_os = "macos")]
+pub use updater_metadata::{
+    produce_staged_native_enrollment_tuple_v3, produce_staged_native_enrollment_tuple_v3_qualified,
 };
 pub use updater_trust::{UpdateTrustError, UpdateTrustJournal, UpdateTrustState};
 
@@ -222,3 +227,14 @@ mod tests {
 pub mod local_model_source;
 #[cfg(unix)]
 pub use provider_credential_broker::UnixRetainedWriterProcess;
+
+#[cfg(unix)]
+pub use protected_runtime::terminal_adoption::{
+    publish_terminal_adoption_anchor, terminal_adoption_anchor_matches,
+};
+
+#[cfg(unix)]
+pub use protected_runtime::terminal_installation::{
+    publish_terminal_installation_source, repin_terminal_configuration,
+    upgrade_terminal_installation_source, verify_terminal_installation_source,
+};

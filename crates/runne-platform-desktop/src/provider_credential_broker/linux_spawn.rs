@@ -87,7 +87,11 @@ fn opted_in_fixture_root() -> Result<Option<std::path::PathBuf>, BrokerHandoffEr
     feature = "test-support",
     feature = "linux-native-enrollment-qualification"
 )))]
-fn opted_in_fixture_root() -> Result<Option<std::path::PathBuf>, BrokerHandoffError> {
+#[allow(
+    clippy::unnecessary_wraps,
+    reason = "qualified fixture implementation of this API is fallible"
+)]
+const fn opted_in_fixture_root() -> Result<Option<std::path::PathBuf>, BrokerHandoffError> {
     Ok(None)
 }
 

@@ -5,6 +5,7 @@
 //! derivation dispatch and their tests. The channel/launch plumbing stays in
 //! `host/mod.rs`.
 
+#[cfg(target_os = "linux")]
 use super::profile_directory;
 use crate::application::provider_credential_enrollment::DaemonProviderCredentialEnrollmentControl;
 use crate::error::DaemonError;

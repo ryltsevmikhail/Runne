@@ -23,7 +23,7 @@ pub(super) fn apply_v44_migration(connection: &Connection) -> SqliteResult<()> {
 }
 
 pub(super) fn v44_matches(connection: &Connection, version: i64) -> SqliteResult<bool> {
-    if !matches!(version, 44..=68) {
+    if !matches!(version, 44..=71) {
         return Ok(false);
     }
     if !v43_matches(connection, version)? {
@@ -82,6 +82,12 @@ pub(super) fn v44_matches(connection: &Connection, version: i64) -> SqliteResult
             | (67, 1, 67, 2278)
             | (68, 1, 67, 2327)
             | (68, 1, 68, 2346)
+            | (69, 1, 68, 2396)
+            | (69, 1, 69, 2415)
+            | (70, 1, 69, 2466)
+            | (70, 1, 70, 2485)
+            | (71, 1, 70, 2537)
+            | (71, 1, 71, 2556)
     ) {
         return Ok(false);
     }

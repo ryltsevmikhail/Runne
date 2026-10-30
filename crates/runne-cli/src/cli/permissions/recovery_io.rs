@@ -1,18 +1,21 @@
 use std::fs::File;
 use std::io::Write;
-use std::os::fd::AsRawFd;
 use std::path::Component;
 
-use rustix::fs::{FileType, FlockOperation, Mode, OFlags, flock, fstat, fsync, mkdirat, openat};
+use rustix::fs::{FileType, FlockOperation, Mode, OFlags, flock, fstat, fsync, openat};
 use rustix::process::{geteuid, getuid};
 
-struct LinuxPermissionRecoveryIndex {
+struct DurablePermissionRecoveryIndex {
     state_dir: PathBuf,
 }
 
-impl LinuxPermissionRecoveryIndex {
+impl DurablePermissionRecoveryIndex {
     const fn new(state_dir: PathBuf) -> Self {
         Self { state_dir }
+    }
+
+    fn intents_path(&self) -> PathBuf {
+        self.state_dir.join("runne/cli/permission-intents")
     }
 
     fn open_intents_root(
@@ -54,7 +57,7 @@ impl LinuxPermissionRecoveryIndex {
     }
 }
 
-impl PermissionRecoveryIndex for LinuxPermissionRecoveryIndex {
+impl PermissionRecoveryIndex for DurablePermissionRecoveryIndex {
     fn read_existing(
         &self,
         expected_scope: &str,
@@ -64,7 +67,7 @@ impl PermissionRecoveryIndex for LinuxPermissionRecoveryIndex {
         let Some(root) = self.open_intents_root(false)? else {
             return Ok(None);
         };
-        find_command_record(&root, command_id)
+        find_command_record(&root, &self.intents_path(), command_id)
     }
 
     fn create_exclusive(
@@ -79,7 +82,7 @@ impl PermissionRecoveryIndex for LinuxPermissionRecoveryIndex {
         }
         let root = self.open_intents_root(true)?.ok_or(RecoveryError::Io)?;
         flock(&root, FlockOperation::LockExclusive).map_err(|_| RecoveryError::Io)?;
-        if let Some(existing) = find_command_record(&root, command_id)? {
+        if let Some(existing) = find_command_record(&root, &self.intents_path(), command_id)? {
             return Ok(RecordCreateResult::Existing(existing));
         }
         let scope = open_directory(&root, scope_digest, true, true)?.ok_or(RecoveryError::Io)?;
@@ -114,10 +117,10 @@ impl PermissionRecoveryIndex for LinuxPermissionRecoveryIndex {
 
 fn find_command_record(
     root: &rustix::fd::OwnedFd,
+    path: &Path,
     command_id: CanonicalId,
 ) -> Result<Option<Vec<u8>>, RecoveryError> {
-    let path = format!("/proc/self/fd/{}", root.as_raw_fd());
-    let entries = std::fs::read_dir(path).map_err(|_| RecoveryError::Io)?;
+    let entries = crate::directory_scope::entry_names(path).map_err(|_| RecoveryError::Io)?;
     let file_name = format!("{command_id}.json");
     let mut found = None;
     let mut scanned = 0;
@@ -126,10 +129,14 @@ fn find_command_record(
         if scanned > 4096 {
             return Err(RecoveryError::Io);
         }
-        let entry = entry.map_err(|_| RecoveryError::Io)?;
-        let name = entry.file_name();
-        let name = name.to_str().ok_or(RecoveryError::Corrupt)?;
-        canonical_digest(name).map_err(|_| RecoveryError::Corrupt)?;
+        let name = entry.to_str().ok_or(RecoveryError::Corrupt)?;
+        // Finder and other tools drop bookkeeping files such as `.DS_Store`
+        // into user-visible state roots. Scope directory names are canonical
+        // digests, so anything else is only an unusable listing hint, not a
+        // reason to declare the whole recovery directory corrupt.
+        if canonical_digest(name).is_err() {
+            continue;
+        }
         let scope = openat(
             root,
             name,
@@ -212,52 +219,20 @@ fn open_directory_with_sync(
     private: bool,
     sync_parent: impl FnOnce(&rustix::fd::OwnedFd) -> Result<(), RecoveryError>,
 ) -> Result<Option<rustix::fd::OwnedFd>, RecoveryError> {
-    let flags = OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC;
-    let fd = match openat(parent, name, flags, Mode::empty()) {
-        Ok(fd) => fd,
-        Err(error) if error == rustix::io::Errno::NOENT && !create => return Ok(None),
-        Err(error) if error == rustix::io::Errno::NOENT => {
-            match mkdirat(parent, name, Mode::from(0o700)) {
-                Ok(()) => {}
-                Err(error) if error == rustix::io::Errno::EXIST => {}
-                Err(_) => return Err(RecoveryError::Io),
-            }
-            openat(parent, name, flags, Mode::empty()).map_err(|_| RecoveryError::Io)?
-        }
-        Err(_) => return Err(RecoveryError::Io),
-    };
-    if private {
-        validate_private_directory(&fd)?;
-    } else {
-        validate_ancestor_directory(&fd)?;
-    }
+    let fd = crate::directory_scope::open_directory(parent, name, create, private)
+        .map_err(|_| RecoveryError::Io)?;
     if create {
         sync_parent(parent)?;
     }
-    Ok(Some(fd))
+    Ok(fd)
 }
 
 fn validate_ancestor_directory(fd: &rustix::fd::OwnedFd) -> Result<(), RecoveryError> {
-    let stat = fstat(fd).map_err(|_| RecoveryError::Io)?;
-    let owner = geteuid().as_raw();
-    if FileType::from_raw_mode(stat.st_mode) != FileType::Directory
-        || (stat.st_uid != 0 && stat.st_uid != owner)
-        || stat.st_mode & 0o022 != 0
-    {
-        return Err(RecoveryError::Io);
-    }
-    Ok(())
+    crate::directory_scope::validate_ancestor_directory(fd).map_err(|_| RecoveryError::Io)
 }
 
 fn validate_private_directory(fd: &rustix::fd::OwnedFd) -> Result<(), RecoveryError> {
-    let stat = fstat(fd).map_err(|_| RecoveryError::Io)?;
-    if FileType::from_raw_mode(stat.st_mode) != FileType::Directory
-        || stat.st_uid != geteuid().as_raw()
-        || stat.st_mode & 0o7777 != 0o700
-    {
-        return Err(RecoveryError::Io);
-    }
-    Ok(())
+    crate::directory_scope::validate_private_directory(fd).map_err(|_| RecoveryError::Io)
 }
 
 fn validate_record_file(fd: &rustix::fd::OwnedFd) -> Result<(), RecoveryError> {

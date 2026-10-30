@@ -89,7 +89,10 @@ impl DeepSeekResponsesTextRenderer {
         {
             return Err(DeepSeekRenderError::ProfileBindingMismatch);
         }
-        if call.required_capabilities() != [ProviderCapability::Streaming] {
+        if call.required_capabilities() != [ProviderCapability::Streaming]
+            || !call.tool_declarations().is_empty()
+            || !call.tool_results().is_empty()
+        {
             return Err(DeepSeekRenderError::UnsupportedCapability);
         }
         validate_extension(call.extension(), &self.profile)?;

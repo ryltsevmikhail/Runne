@@ -29,6 +29,15 @@ impl ProtectedBundledRuntimeSupervisor {
         self.process.is_some()
     }
 
+    /// Returns the owned child's bounded, redacted stderr tail, if any.
+    #[cfg(unix)]
+    #[must_use]
+    pub fn child_stderr_tail(&self) -> Option<String> {
+        self.process
+            .as_ref()
+            .and_then(ProtectedBundledRuntimeProcess::child_stderr_tail)
+    }
+
     /// Starts one fresh protected activation. No external fallback exists.
     ///
     /// # Errors

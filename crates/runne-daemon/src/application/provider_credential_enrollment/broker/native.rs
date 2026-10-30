@@ -44,6 +44,14 @@ pub(crate) trait CredentialBrokerChannel {
     /// Receives the one writer response admitted by the surrounding exchange.
     fn receive(&mut self) -> Result<Zeroizing<Vec<u8>>, ProviderCredentialEnrollmentHostError>;
 
+    /// Sends the credential-service handoff frame on the macOS service path.
+    fn send_service_handoff(
+        &mut self,
+        _frame: runne_provider::CredentialWriterBrokerHandoffFrame,
+    ) -> Result<(), ProviderCredentialEnrollmentHostError> {
+        Err(ProviderCredentialEnrollmentHostError::Unavailable)
+    }
+
     /// Consumes the channel-owned signer for exactly one inert publication.
     fn sign_publication(
         &mut self,

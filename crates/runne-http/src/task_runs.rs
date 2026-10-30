@@ -189,6 +189,7 @@ struct TaskRunListWire {
 
 include!("task_runs/handlers.rs");
 include!("task_runs/effects.rs");
+include!("task_runs/tool_activity.rs");
 include!("task_runs/list.rs");
 include!("task_runs/submit.rs");
 include!("task_runs/submit_guard.rs");

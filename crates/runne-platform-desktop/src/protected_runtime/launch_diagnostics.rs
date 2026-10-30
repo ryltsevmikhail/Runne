@@ -2,6 +2,8 @@
 #[cfg(unix)]
 struct ProtectedLaunchDiagnostic {
     phase: &'static str,
+    child: Option<String>,
+    stderr_tail: Option<String>,
 }
 
 #[cfg(unix)]
@@ -9,6 +11,8 @@ impl ProtectedLaunchDiagnostic {
     const fn new() -> Self {
         Self {
             phase: "before_spawn",
+            child: None,
+            stderr_tail: None,
         }
     }
 
@@ -16,13 +20,41 @@ impl ProtectedLaunchDiagnostic {
         self.phase = phase;
     }
 
+    /// Records the exited child's status and the already-sanitized stderr tail.
+    fn record_child(&mut self, status: std::process::ExitStatus, stderr: Option<String>) {
+        self.child = Some(describe_exit_status(status));
+        self.stderr_tail = stderr;
+    }
+
     fn report(&self, error: ProtectedBundledRuntimeError) {
-        eprintln!(
+        let mut line = format!(
             "runne-protected-startup phase={} reason={}",
             self.phase,
             protected_launch_failure_code(error)
         );
+        if let Some(child) = &self.child {
+            line.push_str(" child=");
+            line.push_str(child);
+        }
+        eprintln!("{line}");
+        if let Some(tail) = &self.stderr_tail {
+            eprintln!("runne-protected-startup-child-stderr-begin");
+            eprint!("{tail}");
+            eprintln!("runne-protected-startup-child-stderr-end");
+        }
     }
+}
+
+#[cfg(unix)]
+fn describe_exit_status(status: std::process::ExitStatus) -> String {
+    use std::os::unix::process::ExitStatusExt as _;
+    if let Some(code) = status.code() {
+        return format!("code:{code}");
+    }
+    if let Some(signal) = status.signal() {
+        return format!("signal:{signal}");
+    }
+    "unknown".to_owned()
 }
 
 /// Maps native launch failures to a fixed vocabulary without formatting error data.

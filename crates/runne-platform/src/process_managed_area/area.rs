@@ -181,6 +181,12 @@ impl LinuxManagedArea {
     }
 }
 
+// Private creation rollback check; caller retains and validates the directory identity.
+pub(super) fn require_empty_directory(directory: &File) -> Result<(), ManagedAreaError> {
+    if members::is_populated(directory)? { Err(ManagedAreaError::Conflict) }
+    else { Ok(()) }
+}
+
 /// Non-forgeable safe-code evidence that one exact managed area was empty.
 ///
 /// The private field and constructor keep callers from turning an identity

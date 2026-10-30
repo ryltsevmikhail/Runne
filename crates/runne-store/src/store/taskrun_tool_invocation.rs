@@ -1,3 +1,4 @@
+pub(crate) mod budget_policy;
 mod model;
 mod read;
 mod recovery;
@@ -12,6 +13,22 @@ pub(crate) use write::permission_is_current_on_connection;
 use super::StoreTransaction;
 use runne_application::ports::TaskRunAssignmentIdentity;
 use runne_domain::{id::TaskRunId, reference::BudgetReservationRef};
+
+/// Canonicalises a durable 100-byte managed-area identity for cross-platform validators.
+///
+/// Managed areas are a Linux-native containment primitive. Other platforms have no
+/// producer for these rows and fail closed instead of guessing at the encoding.
+#[cfg(target_os = "linux")]
+pub(crate) fn canonical_area_identity(bytes: &[u8]) -> Option<[u8; 100]> {
+    runne_platform::process_managed_area::ManagedAreaIdentity::from_bytes(bytes)
+        .ok()
+        .map(|identity| identity.to_bytes())
+}
+
+#[cfg(not(target_os = "linux"))]
+pub(crate) fn canonical_area_identity(_bytes: &[u8]) -> Option<[u8; 100]> {
+    None
+}
 
 impl StoreTransaction {
     pub fn observe_taskrun_tool_permission(
@@ -30,7 +47,32 @@ impl StoreTransaction {
         assignment: &TaskRunAssignmentIdentity,
         now_unix_ms: i64,
     ) -> Result<BudgetReservationRef, ToolInvocationStoreError> {
-        write::ensure_budget(self, taskrun_id, expected_version, assignment, now_unix_ms)
+        write::ensure_budget(
+            self,
+            taskrun_id,
+            expected_version,
+            assignment,
+            now_unix_ms,
+            false,
+        )
+    }
+
+    /// Reserves the separately bound 32-effect coding policy for an authenticated coding submit.
+    pub fn ensure_taskrun_coding_tool_loop_budget(
+        &self,
+        taskrun_id: TaskRunId,
+        expected_version: u64,
+        assignment: &TaskRunAssignmentIdentity,
+        now_unix_ms: i64,
+    ) -> Result<BudgetReservationRef, ToolInvocationStoreError> {
+        write::ensure_budget(
+            self,
+            taskrun_id,
+            expected_version,
+            assignment,
+            now_unix_ms,
+            true,
+        )
     }
 
     pub fn load_taskrun_tool_loop_budget_ref(
@@ -136,6 +178,7 @@ impl StoreTransaction {
         write::record_audit_payload(self, receipt, now_unix_ms)
     }
 
+    #[cfg(target_os = "linux")]
     pub fn record_taskrun_tool_area_launch(
         &self,
         key: ToolInvocationKey,
@@ -154,6 +197,7 @@ impl StoreTransaction {
         )
     }
 
+    #[cfg(target_os = "linux")]
     pub fn record_taskrun_tool_area_stopped(
         &self,
         key: ToolInvocationKey,
@@ -230,3 +274,5 @@ impl ToolInvocationBindingV1 {
         self.semantic_digest = validate::semantic_digest(self);
     }
 }
+
+pub(in crate::store) use validate::decode_sources;

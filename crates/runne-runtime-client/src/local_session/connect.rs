@@ -1,4 +1,3 @@
-
 fn session_peer_from_ready(
     ready: &ProtectedReadyV1,
     request: &ProtectedLaunchRequestV1,
@@ -86,7 +85,7 @@ pub async fn connect(
     } = profile;
     connect_with_peer(
         SessionPeer {
-        expected_authorization_epoch: 0,
+            expected_authorization_epoch: 0,
             endpoint,
             origin,
             certificate_der,
@@ -145,6 +144,9 @@ async fn connect_with_peer(
     let (credential, issued_session_id) =
         authenticate_bootstrap(&client, &profile, bootstrap_secret).await?;
 
+    if transport_kind == RuntimeTransportKind::ExternalLocal {
+        cleanup::register(&client, &profile.origin, &credential);
+    }
     let profile_response = client
         .get(format!("{}/v1/runtime/profile", profile.origin))
         .header(ACCEPT, "application/json")

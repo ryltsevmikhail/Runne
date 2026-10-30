@@ -240,4 +240,29 @@ pub trait ProviderRemoteFactAuthenticator: Send + Sync {
     ) -> Result<bool, runne_provider::ProviderRecoveryError> {
         Ok(false)
     }
+    /// Verifies a streamed settlement from the caller's same-snapshot encrypted
+    /// journal. Remote-artifact settlement digests use a separate domain.
+    fn verify_stream_settlement_digest(
+        &self,
+        _snapshot: &ProviderRemoteAttemptRecord,
+        _expected: &runne_provider::ProviderRecoveryAttemptIdentity,
+        _candidate: ProviderRemoteTerminalSettlementDigestCandidate<'_>,
+        _journal: &[ProviderJournalAppendRequest],
+        _kind: ProviderTerminalApplicationKind,
+    ) -> Result<bool, runne_provider::ProviderRecoveryError> {
+        Ok(false)
+    }
+    /// Authenticates a completed streamed fact from the same durable snapshot.
+    fn authenticate_stream_terminal(
+        &self,
+        _snapshot: &ProviderRemoteAttemptRecord,
+        _expected: &runne_provider::ProviderRecoveryAttemptIdentity,
+        _journal: &[ProviderJournalAppendRequest],
+        _kind: ProviderTerminalApplicationKind,
+    ) -> Result<
+        Option<ProviderRemoteAuthenticatedTerminalFact>,
+        runne_provider::ProviderRecoveryError,
+    > {
+        Ok(None)
+    }
 }

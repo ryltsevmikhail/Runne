@@ -7,7 +7,7 @@ impl ProtectedBundledRuntimeSupervisor {
     ///
     /// # Errors
     /// Returns an error unless one pending profile is owned during handshaking.
-    #[cfg(target_os = "linux")]
+    #[cfg_attr(not(any(target_os = "linux", target_os = "macos")), allow(dead_code))]
     pub fn pending_profile_is_v3(&self) -> Result<bool, ProtectedBundledRuntimeError> {
         if self.state != BundledRuntimeLifecycleState::Handshaking {
             return Err(ProtectedBundledRuntimeError::InvalidState);
@@ -153,9 +153,7 @@ impl ProtectedBundledRuntimeProcess {
                 .compatibility_owned_launch()
                 .executable()
                 .executable_sha256(),
-            ProtectedProcessActivation::V3 { owned, .. } => {
-                *owned.executable().executable_sha256()
-            }
+            ProtectedProcessActivation::V3 { owned, .. } => *owned.executable().executable_sha256(),
             _ => return Err(ProtectedBundledRuntimeError::InvalidState),
         };
         if !prepared.matches_protected_daemon_digest(digest) {
@@ -223,7 +221,9 @@ impl ProtectedBundledRuntimeProcess {
         use sha2::{Digest as _, Sha256};
 
         let pid = self.child.id();
-        let launch_image = self.linux_launch_image.as_ref()
+        let launch_image = self
+            .linux_launch_image
+            .as_ref()
             .ok_or(ProtectedBundledRuntimeError::OwnershipMismatch)?;
         let credentials = rustix::net::sockopt::socket_peercred(&self.channel)
             .map_err(|_| ProtectedBundledRuntimeError::OwnershipMismatch)?;
@@ -236,7 +236,10 @@ impl ProtectedBundledRuntimeProcess {
         }
         let before = linux_process_start_ticks(pid)?;
         prepared.confirm_linux_daemon_image(
-            pid, before, &launch_image.executable, &launch_image.runtime_root,
+            pid,
+            before,
+            &launch_image.executable,
+            &launch_image.runtime_root,
         )?;
         let peer = self.linux_enrollment_peer_facts()?;
         let after = linux_process_start_ticks(pid)?;
@@ -276,9 +279,13 @@ impl ProtectedBundledRuntimeProcess {
                 daemon: *owned.daemon_instance_id(),
                 generation: owned.launch_generation(),
             }),
-            ProtectedProcessActivation::V1 { .. } => Err(ProtectedBundledRuntimeError::InvalidState),
+            ProtectedProcessActivation::V1 { .. } => {
+                Err(ProtectedBundledRuntimeError::InvalidState)
+            }
             #[cfg(feature = "test-support")]
-            ProtectedProcessActivation::Test { .. } => Err(ProtectedBundledRuntimeError::InvalidState),
+            ProtectedProcessActivation::Test { .. } => {
+                Err(ProtectedBundledRuntimeError::InvalidState)
+            }
         }
     }
 }

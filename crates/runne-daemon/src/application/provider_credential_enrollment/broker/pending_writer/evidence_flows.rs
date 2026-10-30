@@ -24,9 +24,9 @@ use runne_platform_ports::provider_credential_broker::BrokerHandoffError;
 use runne_provider::CredentialOperationSnapshot;
 
 use super::super::pending::PendingBrokerRendezvousBinding;
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-use super::VerifiedMacOsWriterKillReady;
 use super::{AwaitingVerifiedWriter, VerifiedWriterAwaitingDaemonKillCapability};
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+use super::{VerifiedMacOsWriterKillReady, VerifiedMacOsWriterWithDaemonKillCapability};
 
 #[cfg(any(
     test,
@@ -174,7 +174,9 @@ impl VerifiedMacOsWriterKillReady {
 }
 
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-const fn map_handoff(error: BrokerHandoffError) -> ProviderCredentialEnrollmentHostError {
+pub(super) const fn map_handoff(
+    error: BrokerHandoffError,
+) -> ProviderCredentialEnrollmentHostError {
     match error {
         BrokerHandoffError::Rejected => ProviderCredentialEnrollmentHostError::AccessDenied,
         BrokerHandoffError::Unavailable => ProviderCredentialEnrollmentHostError::Unavailable,

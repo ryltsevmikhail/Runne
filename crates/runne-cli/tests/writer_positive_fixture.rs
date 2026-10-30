@@ -1,3 +1,5 @@
+#![cfg(target_os = "linux")]
+
 //! Positive/denial e2e through the explicitly TEST-ONLY fixture writer
 //! example (same production trust path; FAKE in-memory provider store via
 //! the established test-support seam — never a real Secret Service).

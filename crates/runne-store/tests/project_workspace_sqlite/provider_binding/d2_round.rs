@@ -159,6 +159,11 @@ fn d2_round_pre_effect_verification_matches_complete_binding() {
         )
         .unwrap();
     drop(connection);
+    fixture
+        .database
+        .store
+        .ensure_taskrun_tool_loop_budget(taskrun_id, stream.current_version, &fixture.identity, 1)
+        .unwrap();
     let request = BindPreparedTaskRunProviderRoundEffect {
         identity: fixture.identity.clone(),
         original_claim_version: u64::try_from(claim_version).unwrap(),

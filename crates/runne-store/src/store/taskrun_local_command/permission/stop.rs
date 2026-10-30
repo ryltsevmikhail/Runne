@@ -6,7 +6,9 @@ use runne_application::{
 use runne_domain::task_run::{TaskRunEvent, TaskRunState};
 use rusqlite::{OptionalExtension, Transaction, params};
 
+#[cfg(target_os = "linux")]
 mod duplicate_event;
+#[cfg(target_os = "linux")]
 pub(crate) use duplicate_event::verify_duplicate_event;
 
 type StopRow = (Vec<u8>, i64, i64, Vec<u8>);

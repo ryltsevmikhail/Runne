@@ -135,3 +135,23 @@ const fn diagnostic(
 #[cfg(all(test, feature = "qualification-diagnostics"))]
 #[path = "response_decode_tests.rs"]
 mod tests;
+
+/// Decodes bounded tool-profile transport evidence; ordinary text remains strict.
+/// # Errors
+/// Rejects incomplete, uncorrelated, unknown or over-limit wire evidence.
+pub fn decode_tool_transport_response(
+    response: &DeepSeekTransportResponse,
+    profile: &crate::DeepSeekResponsesToolProfile,
+) -> Result<Vec<ProviderStreamEvent>, DeepSeekStreamError> {
+    if response.status() != 200 || response.content_type() != "text/event-stream" {
+        return decode_transport_response(response);
+    }
+    if response.chunks().len() > DEEPSEEK_MAX_TRANSPORT_CHUNKS {
+        return Err(DeepSeekStreamError::StreamLimitExceeded);
+    }
+    let mut decoder = DeepSeekSseDecoder::for_tool_profile(profile);
+    for chunk in response.chunks() {
+        decoder.push(chunk)?;
+    }
+    decoder.finish()
+}

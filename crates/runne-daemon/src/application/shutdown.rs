@@ -9,7 +9,7 @@ impl DaemonApplication {
     {
         let Self {
             bootstrap,
-            #[cfg(target_os = "linux")]
+            #[cfg(any(target_os = "linux", target_os = "macos"))]
             execution_node,
             store,
             http_host,

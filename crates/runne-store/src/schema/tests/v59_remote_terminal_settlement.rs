@@ -177,7 +177,7 @@ fn v59_validated_reopen_after_managed_v58_upgrade() {
     let reopened =
         reopen_managed_connection_validated(&path, ConnectionMode::ValidatedReopen, |connection| {
             assert_eq!(schema_marker(connection), CURRENT_SCHEMA_VERSION);
-            assert!(v65_matches(connection, CURRENT_SCHEMA_VERSION)?);
+            assert!(v71_matches(connection, CURRENT_SCHEMA_VERSION)?);
             Ok(())
         })
         .unwrap();

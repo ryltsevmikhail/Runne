@@ -16,6 +16,18 @@ pub enum ProviderToolNameV1 {
     /// Create a workspace file only when it does not already exist.
     #[serde(rename = "workspace.file.create_new")]
     WorkspaceFileCreateNew,
+    /// List bounded paths under the admitted workspace root.
+    #[serde(rename = "workspace.files.list")]
+    WorkspaceFilesList,
+    /// Search literal text in bounded workspace files.
+    #[serde(rename = "workspace.files.search")]
+    WorkspaceFilesSearch,
+    /// Replace a bounded file only against its approved content digest.
+    #[serde(rename = "workspace.file.replace")]
+    WorkspaceFileReplace,
+    /// Execute approved structured argv within the admitted workspace.
+    #[serde(rename = "workspace.command.run")]
+    WorkspaceCommandRun,
 }
 
 impl ProviderToolNameV1 {
@@ -24,6 +36,10 @@ impl ProviderToolNameV1 {
         match self {
             Self::WorkspaceFileRead => "workspace.file.read",
             Self::WorkspaceFileCreateNew => "workspace.file.create_new",
+            Self::WorkspaceFilesList => "workspace.files.list",
+            Self::WorkspaceFilesSearch => "workspace.files.search",
+            Self::WorkspaceFileReplace => "workspace.file.replace",
+            Self::WorkspaceCommandRun => "workspace.command.run",
         }
     }
 
@@ -32,6 +48,10 @@ impl ProviderToolNameV1 {
         match self {
             Self::WorkspaceFileRead => "workspace_file_read",
             Self::WorkspaceFileCreateNew => "workspace_file_create_new",
+            Self::WorkspaceFilesList => "workspace_files_list",
+            Self::WorkspaceFilesSearch => "workspace_files_search",
+            Self::WorkspaceFileReplace => "workspace_file_replace",
+            Self::WorkspaceCommandRun => "workspace_command_run",
         }
     }
 
@@ -40,6 +60,10 @@ impl ProviderToolNameV1 {
         match name {
             "workspace_file_read" => Some(Self::WorkspaceFileRead),
             "workspace_file_create_new" => Some(Self::WorkspaceFileCreateNew),
+            "workspace_files_list" => Some(Self::WorkspaceFilesList),
+            "workspace_files_search" => Some(Self::WorkspaceFilesSearch),
+            "workspace_file_replace" => Some(Self::WorkspaceFileReplace),
+            "workspace_command_run" => Some(Self::WorkspaceCommandRun),
             _ => None,
         }
     }
@@ -47,6 +71,10 @@ impl ProviderToolNameV1 {
     /// Returns the immutable JSON schema for this function's arguments.
     pub fn parameters(self) -> Value {
         match self {
+            Self::WorkspaceFilesList
+            | Self::WorkspaceFilesSearch
+            | Self::WorkspaceFileReplace
+            | Self::WorkspaceCommandRun => coding_tool_parameters(self),
             Self::WorkspaceFileRead => serde_json::json!({
                 "type": "object",
                 "properties": {"path": {"type": "string", "maxLength": 255}},

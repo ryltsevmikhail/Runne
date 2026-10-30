@@ -18,6 +18,16 @@ pub trait TaskRunQueryHostPort: Send + Sync {
         async { Err(TaskRunHostError::Unavailable) }
     }
 
+    /// Reads bounded tool activity only after principal/workspace authorization.
+    fn get_task_run_tool_activity(
+        &self,
+        _principal: crate::ApiPrincipalId,
+        _taskrun_id: TaskRunId,
+    ) -> impl std::future::Future<Output = Result<super::TaskRunToolActivityV1, TaskRunHostError>> + Send
+    {
+        async { Err(TaskRunHostError::Unavailable) }
+    }
+
     /// Reads factual local/remote effect evidence in one consistent store view.
     /// Hosts without the versioned effect projection fail closed.
     fn get_task_run_effects(

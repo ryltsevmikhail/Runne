@@ -53,7 +53,7 @@ impl ProviderCall {
         declarations: Vec<ProviderToolDeclarationV1>,
         results: Vec<ProviderToolResultV1>,
     ) -> Result<Self, ProviderCallError> {
-        if declarations.len() > 2 || results.len() > 32 {
+        if declarations.len() > 6 || results.len() > 32 {
             return Err(ProviderCallError::InvalidToolContext);
         }
         let mut seen = std::collections::BTreeSet::new();

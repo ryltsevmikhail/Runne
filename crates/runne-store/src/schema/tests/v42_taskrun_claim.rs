@@ -8,11 +8,11 @@ fn taskrun_claim_migration_from_v41_survives_close_and_reopen() {
 
     apply_migrations(&connection).unwrap();
     assert_eq!(schema_marker(&connection), CURRENT_SCHEMA_VERSION);
-    assert!(v65_matches(&connection, CURRENT_SCHEMA_VERSION).unwrap());
+    assert!(v71_matches(&connection, CURRENT_SCHEMA_VERSION).unwrap());
     drop(connection);
 
     let reopened = Connection::open(&path).unwrap();
-    assert!(v65_matches(&reopened, CURRENT_SCHEMA_VERSION).unwrap());
+    assert!(v71_matches(&reopened, CURRENT_SCHEMA_VERSION).unwrap());
     assert_eq!(schema_marker(&reopened), CURRENT_SCHEMA_VERSION);
 }
 

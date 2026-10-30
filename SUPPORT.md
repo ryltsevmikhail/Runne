@@ -9,4 +9,4 @@ Runne is an actively developed open-source project. Community support is provide
 - **Security:** follow the [private reporting instructions](SECURITY.md). Do not use public issues.
 - **Conduct:** follow the [Code of conduct](CODE_OF_CONDUCT.md).
 
-Do not share credentials, private project content, or unredacted runtime logs. Linux is the only active execution-node target; other platform code does not establish execution support. Provider accounts, billing, and credential revocation are handled by the relevant provider, not by this project.
+Do not share credentials, private project content, or unredacted runtime logs. Linux is the active execution-node target; macOS (Apple Silicon) is under active qualification, and other platform code does not establish execution support. Provider accounts, billing, and credential revocation are handled by the relevant provider, not by this project.

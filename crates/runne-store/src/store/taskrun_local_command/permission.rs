@@ -1,10 +1,18 @@
+mod admission_checks;
+#[cfg(target_os = "linux")]
 mod approval;
+#[cfg(target_os = "linux")]
 mod burn;
+#[cfg(target_os = "linux")]
+mod burn_guard;
 #[cfg(target_os = "linux")]
 mod cancel_before_release;
 #[cfg(target_os = "linux")]
 mod cancel_event;
+#[cfg(target_os = "linux")]
 mod capture;
+#[cfg(target_os = "linux")]
+mod capture_checks;
 pub(crate) mod codec;
 #[cfg(target_os = "linux")]
 mod exit_record;
@@ -15,9 +23,25 @@ mod no_effect_capture;
 mod no_effect_policy_stop;
 mod no_effect_precapture;
 mod observation;
+mod original_approval_facts;
 mod owner;
 mod read;
+mod retained_fanout;
+mod retained_policy;
+mod retained_policy_rows;
+pub(in crate::store) use retained_fanout::can_retain_in_tx;
+#[cfg(target_os = "linux")]
 mod release;
+#[cfg(target_os = "linux")]
+mod release_guard;
+pub(crate) mod retained_context;
+pub(crate) mod retained_context_codec;
+mod retained_context_correlation;
+mod retained_context_cursor;
+mod retained_context_policy_wire;
+mod retained_context_scope_wire;
+#[cfg(all(test, target_os = "linux"))]
+pub(crate) mod retained_context_tests;
 pub(crate) mod stop;
 pub use read::LocalCommandPermissionCaptureV1;
 #[cfg(target_os = "linux")]
@@ -64,86 +88,7 @@ pub enum LocalCommandPermissionRoute {
     CurrentPermission,
 }
 
-impl super::super::StoreTransaction {
-    /// Persists the first stop reason for a captured V68 command.
-    pub fn record_local_command_permission_stop(
-        &self,
-        identity: &runne_application::ports::TaskRunAssignmentIdentity,
-        binding: &runne_application::permission_modes::LocalCommandPermissionBindingV1,
-        reason: u8,
-    ) -> Result<u8, runne_application::ports::EventStoreError> {
-        use runne_application::ports::EventStoreError;
-        if identity != binding.assignment() || !(1..=6).contains(&reason) {
-            return Err(EventStoreError::CorruptData);
-        }
-        let mut writer = self
-            .inner
-            .writer
-            .lock()
-            .map_err(|_| EventStoreError::Unavailable)?;
-        let tx = writer
-            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
-            .map_err(|_| EventStoreError::Unavailable)?;
-        let (digest, _) = stop::read_binding(&tx, identity, binding)?;
-        let stream = super::super::taskrun_claim::stream_validate::verify_stream(
-            &tx,
-            identity.taskrun_id,
-            None,
-        )
-        .map_err(|_| EventStoreError::CorruptData)?;
-        if !matches!(
-            stream.state,
-            runne_domain::task_run::TaskRunState::Running
-                | runne_domain::task_run::TaskRunState::Cancelling
-        ) {
-            return Err(EventStoreError::CorruptData);
-        }
-        let (version, event_id) = stop::stop_anchor(&stream, reason)?;
-        stop::record_stop(
-            &tx,
-            identity.taskrun_id.as_bytes(),
-            identity.attempt_id.as_bytes(),
-            &digest,
-            reason,
-            version,
-            &event_id,
-            model::now_ms(),
-        )?;
-        let saved = stop::read_stop(
-            &tx,
-            identity.taskrun_id.as_bytes(),
-            identity.attempt_id.as_bytes(),
-            &digest,
-        )?
-        .ok_or(EventStoreError::CorruptData)?;
-        tx.commit().map_err(|_| EventStoreError::Unavailable)?;
-        Ok(saved)
-    }
-
-    /// Reads the first persisted stop reason for this exact captured binding.
-    pub fn local_command_permission_stop_reason(
-        &self,
-        identity: &runne_application::ports::TaskRunAssignmentIdentity,
-        binding: &runne_application::permission_modes::LocalCommandPermissionBindingV1,
-    ) -> Result<Option<u8>, runne_application::ports::EventStoreError> {
-        use runne_application::ports::EventStoreError;
-        if identity != binding.assignment() {
-            return Err(EventStoreError::CorruptData);
-        }
-        let reader = self
-            .inner
-            .reader
-            .lock()
-            .map_err(|_| EventStoreError::Unavailable)?;
-        let (digest, _) = stop::read_binding(&reader, identity, binding)?;
-        stop::read_stop(
-            &reader,
-            identity.taskrun_id.as_bytes(),
-            identity.attempt_id.as_bytes(),
-            &digest,
-        )
-    }
-}
+mod stop_entry;
 
 pub(crate) fn record_cancellation_stops(
     tx: &Transaction<'_>,
@@ -283,3 +228,6 @@ pub(super) fn terminal_matches_exit(
 pub use owner::{
     PermissionRootFenceGuardV1, PermissionRootFenceOwnerV1, PermissionRootFenceRequestV1,
 };
+
+#[cfg(all(test, target_os = "linux"))]
+mod tests_release_guard;

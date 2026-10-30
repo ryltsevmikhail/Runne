@@ -101,11 +101,21 @@ pub(super) fn daemon_error_reason(error: &DaemonError) -> String {
 }
 
 fn enabled() -> bool {
-    #[cfg(target_os = "linux")]
+    #[cfg(all(target_os = "linux", feature = "test-support"))]
     {
-        std::env::var_os("RUNNE_TEST_T1_TRUST_COMPOSITION").as_deref()
+        std::env::var_os("RUNNE_TEST_TERMINAL_AGENT_FIXTURE").as_deref()
             == Some(std::ffi::OsStr::new("1"))
+            || std::env::var_os("RUNNE_TEST_T1_TRUST_COMPOSITION").as_deref()
+                == Some(std::ffi::OsStr::new("1"))
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(not(all(target_os = "linux", feature = "test-support")))]
     false
+}
+
+#[cfg(all(test, not(feature = "test-support")))]
+mod tests {
+    #[test]
+    fn production_startup_diagnostics_ignore_fixture_environment() {
+        assert!(!super::enabled());
+    }
 }

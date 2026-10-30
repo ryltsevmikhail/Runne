@@ -1,6 +1,6 @@
 use super::*;
 
-#[cfg(all(feature = "desktop-protected", target_os = "linux"))]
+#[cfg(all(feature = "desktop-protected", unix))]
 pub(crate) fn encode_request(
     binding: BindingV1,
     path: String,

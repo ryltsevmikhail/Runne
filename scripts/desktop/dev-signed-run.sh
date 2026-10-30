@@ -184,7 +184,28 @@ if [[ "$credential_service" -eq 1 ]]; then
   mkdir -p "$bundle/Contents/Library/LaunchAgents" "$bundle/Contents/Resources/native-enrollment"
   install -m 0644 apps/desktop/src-tauri/macos/com.runne.credential-service.plist "$bundle/Contents/Library/LaunchAgents/com.runne.credential-service.plist"
   install -m 0644 apps/desktop/src-tauri/macos/native-enrollment/staged/xpc-protocol-v1.json "$bundle/Contents/Resources/native-enrollment/xpc-protocol-v1.json"
-  install -m 0644 apps/desktop/src-tauri/macos/native-enrollment/staged/release-candidate-binding.json "$bundle/Contents/Resources/native-enrollment/release-candidate-binding.json"
+  # Bind the staged release candidate to this exact commit. The tuple producer
+  # requires the binding bytes to equal canonical JSON, so write them from the
+  # staged policy with only the candidate digest replaced.
+  source_commit="$(git rev-parse --verify HEAD^{commit})"
+  if ! git diff --quiet HEAD -- || [[ -n "$(git status --porcelain --untracked-files=all -- . ':(exclude).tmp-tools')" ]]; then
+    echo "warning: assembling from a tree with uncommitted changes; macOS qualification will refuse this bundle" >&2
+  fi
+  python3 - "$source_commit" <<'PYBINDING'
+import hashlib, json, pathlib, sys
+source_commit = sys.argv[1]
+staged = pathlib.Path(
+    "apps/desktop/src-tauri/macos/native-enrollment/staged/release-candidate-binding.json"
+)
+binding = json.loads(staged.read_text(encoding="utf-8"))
+binding["releaseCandidateSha256"] = hashlib.sha256(source_commit.encode("ascii")).hexdigest()
+path = pathlib.Path(
+    "target/dev-bundle/Runne.app/Contents/Resources/native-enrollment/release-candidate-binding.json"
+)
+path.write_bytes(json.dumps(binding, separators=(",", ":")).encode("utf-8"))
+PYBINDING
+  chmod 0644 "$bundle/Contents/Resources/native-enrollment/release-candidate-binding.json"
+  echo "Release candidate: sha256($source_commit)"
   install -m 0644 apps/desktop/src-tauri/macos/credential-service.entitlements "$bundle/Contents/Resources/native-enrollment/credential-service.entitlements.plist"
 fi
 

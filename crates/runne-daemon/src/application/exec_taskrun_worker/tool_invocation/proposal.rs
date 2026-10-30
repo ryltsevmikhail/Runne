@@ -8,6 +8,10 @@ use runne_store::store::taskrun_tool_invocation::{
 };
 #[path = "proposal/approval.rs"]
 mod approval;
+#[path = "proposal/preview.rs"]
+mod preview;
+#[path = "proposal/store_error.rs"]
+mod store_error;
 
 const ENVIRONMENT_ID: &str = "linux-agent-tools-v1";
 const ENVIRONMENT_REVISION: &str = "1";
@@ -20,6 +24,7 @@ impl super::super::DaemonAutomaticTaskRuns {
         context: &runne_application::ports::ApplicationCommandContext,
         assignment: &TaskRunAssignmentIdentity,
         round_index: u32,
+        proposal_index: u32,
         current_version: u64,
         call: runne_runtime::provider_tool::RuntimeToolCall,
         sources: Vec<ToolSourceRef>,
@@ -27,7 +32,16 @@ impl super::super::DaemonAutomaticTaskRuns {
         principal: ApiPrincipalId,
     ) -> Result<(), ()> {
         super::super::provider::d2_stage("proposal_validating");
-        let (path, content) = parse_fixed_arguments(&call).map_err(|_| {
+        let coding = self
+            .provider
+            .as_ref()
+            .is_some_and(|p| p.coding_agent_tools_enabled());
+        let environment_id = if coding {
+            crate::safe_tool_helper::coding_arguments::ENVIRONMENT
+        } else {
+            ENVIRONMENT_ID
+        };
+        let (path, content) = parse_arguments(&call, coding).map_err(|_| {
             super::super::provider::d2_stage("proposal_error_arguments");
         })?;
         if sources.len() != 2
@@ -55,16 +69,16 @@ impl super::super::DaemonAutomaticTaskRuns {
             return Err(());
         }
         let (schema_digest, canonical_arguments, arguments_digest) =
-            permission::canonical_tool_arguments(&call)?;
+            permission::canonical_arguments_for_mode(&call, coding)?;
         let key = ToolInvocationKey {
             taskrun_id: assignment.taskrun_id,
             attempt_id: assignment.attempt_id,
             cycle_id: cycle.cycle_id,
-            proposal_index: round_index,
+            proposal_index,
         };
         self.root_admission
-            .admit_d2_tool_target(workspace_id, &path)
-            .map_err(|_| ())?;
+            .admit_coding_tool_target(workspace_id, &call.tool_name, &path)
+            .map_err(|_| super::super::provider::d2_stage("proposal_error_root_admission"))?;
         let permission_build::ProposalRootCapture {
             files,
             workspace_version,
@@ -80,6 +94,7 @@ impl super::super::DaemonAutomaticTaskRuns {
             workspace_id,
             &call.tool_name,
             &path,
+            coding,
         )
         .map_err(|_| {
             super::super::provider::d2_stage("proposal_error_target_capture");
@@ -90,7 +105,8 @@ impl super::super::DaemonAutomaticTaskRuns {
             workspace_id,
             trust,
             project_id,
-        )?;
+        )
+        .map_err(|_| super::super::provider::d2_stage("proposal_error_managed_policy"))?;
         let saved = self
             .store
             .load_taskrun_tool_invocation(key)
@@ -112,22 +128,26 @@ impl super::super::DaemonAutomaticTaskRuns {
                 assignment.taskrun_id.as_bytes().as_slice(),
                 assignment.attempt_id.as_bytes().as_slice(),
                 cycle.cycle_id.as_bytes().as_slice(),
-                &round_index.to_be_bytes(),
+                &proposal_index.to_be_bytes(),
                 call.call_id.as_bytes(),
             ]
             .concat(),
         );
         let resource = format!("workspace:{}:{}", workspace_id, path);
+        let helper_digest = super::permission_identity::command_helper_digest(
+            self.permission_admission.as_ref().ok_or(())?,
+            &call.tool_name,
+        )?;
         let approval_digest = IntegrityDigest::from_bytes(approval_digest(
             assignment.taskrun_id,
             assignment.attempt_id,
             cycle.cycle_id,
-            round_index,
+            proposal_index,
             current_version,
             &call.call_id,
             &call.tool_name,
             ENVIRONMENT_REVISION,
-            ENVIRONMENT_ID,
+            environment_id,
             &principal_text,
             schema_digest.as_bytes(),
             &canonical_arguments,
@@ -138,6 +158,7 @@ impl super::super::DaemonAutomaticTaskRuns {
             trust.instance_epoch,
             trust.revision,
             expires_at,
+            helper_digest.as_ref().map(IntegrityDigest::as_bytes),
         ));
         let mut binding = ToolInvocationBindingV1 {
             key,
@@ -150,7 +171,7 @@ impl super::super::DaemonAutomaticTaskRuns {
             arguments_digest,
             semantic_digest: IntegrityDigest::from_bytes([0; 32]),
             sources,
-            environment_id: ENVIRONMENT_ID.into(),
+            environment_id: environment_id.into(),
             environment_revision: ENVIRONMENT_REVISION.into(),
             root_identity: root_digest,
             root_revision,
@@ -168,7 +189,9 @@ impl super::super::DaemonAutomaticTaskRuns {
         };
         binding.refresh_digests();
         let semantic_digest = binding.semantic_digest;
-        let native = self.permission_admission.as_ref().ok_or(())?;
+        let native = self.permission_admission.as_ref().ok_or_else(|| {
+            super::super::provider::d2_stage("proposal_error_permission_prepare");
+        })?;
         let prepared = permission::prepare_from_store(
             &self.store,
             &permission_scope,
@@ -180,7 +203,8 @@ impl super::super::DaemonAutomaticTaskRuns {
             &binding,
             native,
             now_millis(),
-        )?;
+        )
+        .map_err(|_| super::super::provider::d2_stage("proposal_error_permission_prepare"))?;
         permission_build::prepare_tool_helper(
             &self.store,
             &prepared,
@@ -190,14 +214,15 @@ impl super::super::DaemonAutomaticTaskRuns {
             target_version,
             &content,
             files,
-        )?;
+        )
+        .map_err(|_| super::super::provider::d2_stage("proposal_error_helper_prepare"))?;
         let provider = self.provider.as_ref().ok_or(())?;
         let encrypted: EncryptedToolPayloadV1 = provider
             .seal_d2_tool_arguments(
                 assignment.taskrun_id,
                 assignment.attempt_id,
                 cycle.cycle_id,
-                round_index,
+                proposal_index,
                 semantic_digest,
                 &binding.canonical_arguments,
             )
@@ -213,35 +238,7 @@ impl super::super::DaemonAutomaticTaskRuns {
                 assignment,
                 now_millis(),
             )
-            .map_err(|error| {
-                use runne_store::store::taskrun_tool_invocation::ToolInvocationStoreError as E;
-                super::super::provider::d2_stage(match error {
-                    E::ProposalConflict(kind) => match kind {
-                        runne_store::store::taskrun_tool_invocation::ProposalConflictKind::Binding => "proposal_store_binding_conflict",
-                        runne_store::store::taskrun_tool_invocation::ProposalConflictKind::Sources => "proposal_store_sources_conflict",
-                        runne_store::store::taskrun_tool_invocation::ProposalConflictKind::DuplicateEffect => "proposal_store_duplicate_effect",
-                        runne_store::store::taskrun_tool_invocation::ProposalConflictKind::EffectDigestToolMismatch => "proposal_store_effect_digest_tool_mismatch",
-                        runne_store::store::taskrun_tool_invocation::ProposalConflictKind::EffectDigestArgumentsMismatch => "proposal_store_effect_digest_arguments_mismatch",
-                        runne_store::store::taskrun_tool_invocation::ProposalConflictKind::EffectDigestTargetMismatch => "proposal_store_effect_digest_target_mismatch",
-                        runne_store::store::taskrun_tool_invocation::ProposalConflictKind::EffectDigestRootMismatch => "proposal_store_effect_digest_root_mismatch",
-                        runne_store::store::taskrun_tool_invocation::ProposalConflictKind::PayloadNonce => "proposal_store_payload_nonce",
-                        runne_store::store::taskrun_tool_invocation::ProposalConflictKind::InsertUnique => "proposal_store_insert_unique",
-                        runne_store::store::taskrun_tool_invocation::ProposalConflictKind::InsertCheck => "proposal_store_insert_check",
-                        runne_store::store::taskrun_tool_invocation::ProposalConflictKind::InsertForeignKey => "proposal_store_insert_foreign_key",
-                        runne_store::store::taskrun_tool_invocation::ProposalConflictKind::InsertOther => "proposal_store_insert_other",
-                    },
-                    E::Conflict => "proposal_store_conflict",
-                    E::StaleVersion => "proposal_store_stale",
-                    E::InvalidState => "proposal_store_invalid_state",
-                    E::ApprovalDenied => "proposal_store_approval_denied",
-                    E::ApprovalExpired => "proposal_store_approval_expired",
-                    E::BudgetExhausted => "proposal_store_budget_exhausted",
-                    E::Cancelled => "proposal_store_cancelled",
-                    E::Uncertain => "proposal_store_uncertain",
-                    E::CorruptData => "proposal_store_corrupt",
-                    E::Unavailable => "proposal_store_unavailable",
-                });
-            })?;
+            .map_err(store_error::record)?;
         super::super::provider::d2_stage("proposal_durable");
         if !prepared.requires_human
             && saved.as_ref().map(|record| record.receipt.state)

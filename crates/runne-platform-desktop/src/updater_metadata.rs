@@ -102,11 +102,17 @@ pub use enrollment_admission::NativeEnrollmentTupleAdmission;
 #[path = "updater_metadata/enrollment_tuple/tuple_v3_producer.rs"]
 mod enrollment_tuple_v3_producer;
 #[cfg(target_os = "macos")]
-pub use enrollment_tuple_v3_producer::produce_staged_native_enrollment_tuple_v3;
+pub use enrollment_tuple_v3_producer::{
+    produce_staged_native_enrollment_tuple_v3, produce_staged_native_enrollment_tuple_v3_qualified,
+};
 
 #[cfg(all(test, unix))]
 #[path = "updater_metadata/enrollment_tuple/tuple_v3_producer_tests.rs"]
 mod enrollment_tuple_v3_producer_tests;
+
+#[cfg(all(test, unix))]
+#[path = "updater_metadata/enrollment_tuple/tuple_v3_producer/qualification_receipt_tests.rs"]
+mod qualification_receipt_tests;
 
 #[cfg(all(feature = "test-support", target_os = "macos", target_arch = "aarch64"))]
 #[path = "updater_metadata/local_enrollment_fixture.rs"]

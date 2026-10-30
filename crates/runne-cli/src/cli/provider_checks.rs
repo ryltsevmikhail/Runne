@@ -189,3 +189,27 @@ mod provider_checks_tests {
         assert!(!lines.contains("sk-"));
     }
 }
+
+/// Formats only the selected provider projection authenticated by the runtime.
+fn format_authenticated_provider_statuses(
+    statuses: &[runne_api::ProviderStatusSnapshotV1],
+) -> Option<String> {
+    let status = statuses.iter().find(|status| status.selected())?;
+    let readiness = match status.readiness() {
+        runne_api::ProviderReadinessStatusV1::Ready => "ready",
+        runne_api::ProviderReadinessStatusV1::CredentialMissing => "credential_missing",
+        runne_api::ProviderReadinessStatusV1::CredentialAccessDenied => "credential_access_denied",
+        runne_api::ProviderReadinessStatusV1::CredentialIdentityMismatch => {
+            "credential_identity_mismatch"
+        }
+        runne_api::ProviderReadinessStatusV1::SecureStoreUnavailable => "secure_store_unavailable",
+        runne_api::ProviderReadinessStatusV1::NotSelected => "not_selected",
+    };
+    Some(format!(
+        "provider: {} ({})\nprofile: {}\nreadiness: {} (source: authenticated runtime)",
+        status.provider_id(),
+        status.mode(),
+        status.profile_id(),
+        readiness
+    ))
+}

@@ -214,6 +214,12 @@ impl RootHandleAdmissionAuthority {
     /// baseline — the workspace is not pre-read at bind time, and diffs stay
     /// denied instead of fabricating a plausible empty-baseline diff. Only an
     /// approved capture (admission of the FilesList channel) reads content.
+    ///
+    /// An approved root that cannot be captured inside the bounded inventory
+    /// (a checkout with more entries than the change listing limit) also keeps
+    /// `Unverified`: the recorded diff stays denied for that workspace, but
+    /// binding the exact root — required by every root-gated runtime path — must
+    /// not fail merely because the tree is larger than the diff bound.
     pub(super) fn trust_gated_baseline(
         &self,
         workspace_id: WorkspaceId,
@@ -225,7 +231,7 @@ impl RootHandleAdmissionAuthority {
         {
             return Ok(WorkspaceBaseline::unverified());
         }
-        WorkspaceBaseline::capture(root).map_err(|_| ProjectWorkspaceRepositoryError::Unavailable)
+        Ok(WorkspaceBaseline::capture(root).unwrap_or_else(|_| WorkspaceBaseline::unverified()))
     }
 }
 
@@ -242,6 +248,30 @@ impl RootAdmissionGateway {
         }
         self.admit_workspace_source(workspace_id, SourceChannel::FilesRead, Some(path))
             .map(|_| ())
+    }
+
+    pub(in crate::application) fn admit_coding_tool_target(
+        &self,
+        workspace_id: WorkspaceId,
+        tool: &str,
+        path: &str,
+    ) -> Result<(), TrustSourceError> {
+        if matches!(
+            tool,
+            "workspace.files.list" | "workspace.files.search" | "workspace.command.run"
+        ) {
+            if path != "." && super::diff_baseline::sensitive_path(path) {
+                return Err(TrustSourceError::Denied);
+            }
+            self.admit_workspace_source(
+                workspace_id,
+                SourceChannel::FilesList,
+                (path != ".").then_some(path),
+            )
+            .map(|_| ())
+        } else {
+            self.admit_d2_tool_target(workspace_id, path)
+        }
     }
 
     /// Stage-1 pre-read admission; must run before any root access.

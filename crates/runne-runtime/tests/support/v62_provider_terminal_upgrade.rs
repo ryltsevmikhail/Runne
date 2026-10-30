@@ -1,8 +1,25 @@
 use rusqlite::Connection;
 
-/// Rewinds v68 through v63 extensions on a lawful current provider database
+/// Rewinds current through v63 extensions on a lawful current provider database
 /// while preserving every pre-v63 row needed to verify the historical upgrade.
 pub fn remove_v63_for_v62_upgrade(connection: &Connection, omit_v19_marker: bool) {
+    // V71 rebuilt the tool tables dropped by the V64 rewind below.
+    // V70 is additive and must contain no rows in this historical fixture.
+    let roots: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM workspace_root_identities",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(roots, 0, "historical fixture cannot discard root bindings");
+    drop_triggers_on(connection, "'workspace_root_identities'");
+    connection
+        .execute_batch(
+            "DROP TABLE workspace_root_identities;
+         DELETE FROM schema_version WHERE version IN (69,70,71);",
+        )
+        .unwrap();
     // v66..=v68 owned structures must be empty: dropping rows here would
     // silently discard evidence the caller's before/after snapshot compares.
     for table in [

@@ -23,7 +23,7 @@ use sha2::{Digest, Sha256};
 use std::io::Read;
 
 /// Current schema version. Increment when adding new DDL migrations.
-pub const CURRENT_SCHEMA_VERSION: i64 = 68;
+pub const CURRENT_SCHEMA_VERSION: i64 = 71;
 
 /// Fail-closed reason returned before a file-backed database is made writable.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -161,139 +161,7 @@ include!("schema/migrations/v60_remote_artifact_cancel_closure.rs");
 include!("schema/migrations/v61_remote_terminal_application.rs");
 include!("schema/migrations/v62_remote_terminal_audit.rs");
 include!("schema/migrations/v63_provider_terminal_unknown.rs");
-include!("schema/migrations/v64_taskrun_tool_invocation.rs");
-include!("schema/migrations/v65_permission_modes.rs");
-include!("schema/migrations/v66_permission_confirmation.rs");
-include!("schema/migrations/v67_permission_managed_identity.rs");
-include!("schema/migrations/v68_taskrun_permission.rs");
-include!("schema/migrations/v68_terminal_reopen_match.rs");
-include!("schema/taskrun_permission.rs");
+include!("schema/recent_migrations.rs");
+
 #[cfg(feature = "test-support")]
-include!("schema/test_support_matcher_diagnosis.rs");
-mod project_workspace_backfill;
-mod project_workspace_schema;
-#[cfg(test)]
-pub(crate) mod project_workspace_test_helpers;
-#[cfg(test)]
-pub(crate) use project_workspace_schema::restore_v18_project_workspace_receipt_for_test;
-#[cfg(test)]
-pub(crate) use project_workspace_test_helpers::restore_v18_taskrun_lineage_for_test;
-pub(crate) mod provider_schema;
-pub mod recovery_diagnosis;
-mod replay_promotion_snapshot_schema;
-mod replay_snapshot_schema;
-include!("schema/open.rs");
-include!("schema/authority_identity.rs");
-include!("schema/authority_launch.rs");
-include!("schema/replay.rs");
-
-#[cfg(test)]
-pub(crate) fn restore_v25_credential_triggers_for_test(
-    connection: &Connection,
-) -> SqliteResult<()> {
-    let ticket_trigger = V24_TRIGGERS
-        .iter()
-        .find(|(name, _)| *name == "provider_credential_ticket_insert_issued")
-        .expect("V24 ticket trigger exists")
-        .1;
-    connection.execute_batch(&v25_trigger(
-        "provider_credential_ticket_insert_issued",
-        ticket_trigger,
-    ))?;
-    let insert_trigger = V24_TRIGGERS
-        .iter()
-        .find(|(name, _)| *name == "provider_credential_operation_insert_prepared")
-        .expect("V24 insert trigger exists")
-        .1;
-    connection.execute_batch(&v25_trigger(
-        "provider_credential_operation_insert_prepared",
-        insert_trigger,
-    ))?;
-    connection.execute_batch(v24_head_active_lifecycle_trigger())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use rusqlite::params;
-    #[cfg(unix)]
-    use std::os::unix::fs::PermissionsExt as _;
-
-    const TEST_ID: [u8; 16] = [0x42; 16];
-
-    fn initialize_v1(conn: &Connection) {
-        conn.execute_batch(
-            "CREATE TABLE schema_version (
-                version INTEGER PRIMARY KEY,
-                applied_at TEXT NOT NULL DEFAULT (datetime('now'))
-            );",
-        )
-        .unwrap();
-        conn.execute_batch(MIGRATION_V1).unwrap();
-        conn.execute("INSERT INTO schema_version (version) VALUES (1)", [])
-            .unwrap();
-    }
-
-    include!("schema/tests/admission.rs");
-    include!("schema/tests/actual_handle_identity.rs");
-    include!("schema/tests/linux_wal_identity_locks.rs");
-    include!("schema/tests/windows_live_wal.rs");
-    include!("schema/tests/dacl_isolation_windows.rs");
-    include!("schema/tests/windows_v39_v40_live_wal.rs");
-    include!("schema/tests/windows_post_v40_scope_admission.rs");
-    include!("schema/tests/migrations.rs");
-    include!("schema/tests/released.rs");
-    include!("schema/tests/v42_taskrun_claim.rs");
-    include!("schema/tests/v43_taskrun_occupation.rs");
-    include!("schema/tests/v44_taskrun_dispatch_intent.rs");
-    include!("schema/tests/v45_taskrun_no_effect_release.rs");
-    include!("schema/tests/v46_taskrun_provider_binding.rs");
-    include!("schema/tests/v47_text_only_taskrun_lineage.rs");
-    include!("schema/tests/v49_taskrun_terminal_settlement.rs");
-    include!("schema/tests/v50_provider_terminal_disposition.rs");
-    include!("schema/tests/v51_taskrun_local_command.rs");
-    include!("schema/tests/v52_secondary_profile_grants.rs");
-    include!("schema/tests/v53_taskrun_local_stop_receipt.rs");
-    include!("schema/tests/v54_provider_remote_response_binding.rs");
-    include!("schema/tests/v55_provider_remote_terminal_artifact.rs");
-    include!("schema/tests/v56_provider_cancel_fence.rs");
-    include!("schema/tests/v57_taskrun_unknown_successor.rs");
-    include!("schema/tests/v58_provider_remote_operation_proof.rs");
-    include!("schema/tests/v59_remote_terminal_settlement.rs");
-    include!("schema/tests/v60_remote_artifact_cancel_closure.rs");
-    include!("schema/tests/v61_remote_terminal_application.rs");
-    include!("schema/tests/v64_tool_invocation.rs");
-    include!("schema/tests/v65_permission_modes.rs");
-    include!("schema/tests/v66_permission_confirmation.rs");
-    #[path = "v67_permission_managed_identity.rs"]
-    mod v67_permission_managed_identity;
-    include!("schema/tests/v68_taskrun_permission.rs");
-    include!("schema/tests/v68_permission_terminal_reopen.rs");
-    include!("schema/tests/recovery_compatibility.rs");
-    include!("schema/tests/recovery_compatibility_v24.rs");
-    include!("schema/tests/credential_v24.rs");
-    include!("schema/tests/credential_v24_invariants.rs");
-    include!("schema/tests/credential_v24_observation_invariants.rs");
-    include!("schema/tests/credential_v24_legacy_corruption.rs");
-    include!("schema/tests/credential_v24_active_invariants.rs");
-    include!("schema/tests/credential_v24_target_invariants.rs");
-    include!("schema/tests/credential_v24_shape_invariants.rs");
-    include!("schema/tests/credential_v24_owner_invariants.rs");
-    include!("schema/tests/credential_v24_verification_ref_invariants.rs");
-    include!("schema/tests/credential_v25.rs");
-    include!("schema/tests/credential_v26.rs");
-    include!("schema/tests/credential_v27.rs");
-    include!("schema/tests/credential_v28.rs");
-    include!("schema/tests/credential_v29.rs");
-    include!("schema/tests/credential_v30.rs");
-    include!("schema/tests/credential_v32.rs");
-    include!("schema/tests/credential_v33.rs");
-    include!("schema/tests/credential_v35.rs");
-    include!("schema/tests/credential_v35_adversarial.rs");
-    include!("schema/tests/credential_v36.rs");
-    include!("schema/tests/project_workspace_v36.rs");
-    include!("schema/tests/project_workspace_v39.rs");
-    include!("schema/tests/conversation_context_scope_v40.rs");
-    include!("schema/tests/frozen_migrations.rs");
-    include!("schema/tests/provider_accounting_v37.rs");
-}
+include!("schema/terminal_adoption_fixture.rs");

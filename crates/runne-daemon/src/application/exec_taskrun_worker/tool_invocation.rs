@@ -12,6 +12,8 @@ mod effect;
 mod permission;
 #[path = "tool_invocation/permission_build.rs"]
 mod permission_build;
+#[path = "tool_invocation/permission_identity.rs"]
+mod permission_identity;
 #[path = "tool_invocation/proposal.rs"]
 mod proposal;
 #[path = "tool_invocation/target_snapshot.rs"]
@@ -72,6 +74,21 @@ pub(super) fn parse_fixed_arguments(
     Ok((path.to_owned(), content))
 }
 
+pub(super) fn parse_arguments(
+    call: &runne_runtime::provider_tool::RuntimeToolCall,
+    coding: bool,
+) -> Result<(String, Vec<u8>), ()> {
+    if !coding {
+        return parse_fixed_arguments(call);
+    }
+    if call.arguments_json.len() > 8192 || call.call_id.is_empty() || call.call_id.len() > 128 {
+        return Err(());
+    }
+    let value = serde_json::from_str(&call.arguments_json).map_err(|_| ())?;
+    let args = crate::safe_tool_helper::coding_arguments::parse(&call.tool_name, &value)?;
+    Ok((args.path, args.content))
+}
+
 // Each independent approval authority and precondition is committed into this digest.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn approval_digest(
@@ -94,6 +111,7 @@ pub(super) fn approval_digest(
     trust_epoch: u64,
     trust_revision: u64,
     expires_at: i64,
+    helper_executable: Option<&[u8; 32]>,
 ) -> [u8; 32] {
     let mut hash = Sha256::new();
     hash.update(b"RUNNE_D2_HUMAN_TOOL_APPROVAL_V1\0");
@@ -116,6 +134,10 @@ pub(super) fn approval_digest(
     hash.update(trust_epoch.to_be_bytes());
     hash.update(trust_revision.to_be_bytes());
     hash.update(expires_at.to_be_bytes());
+    if let Some(image) = helper_executable {
+        hash.update(b"RUNNE_CODING_PROCESS_HELPER_V1\0");
+        hash.update(image);
+    }
     hash.finalize().into()
 }
 
@@ -238,3 +260,7 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "tool_invocation/image_approval_tests.rs"]
+mod image_approval_tests;

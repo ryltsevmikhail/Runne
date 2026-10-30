@@ -19,15 +19,17 @@ pub(super) fn apply_v64_migration(connection: &Connection) -> SqliteResult<()> {
 }
 
 pub(super) fn v64_matches(connection: &Connection, version: i64) -> SqliteResult<bool> {
+    let coding_ddl = v71_schema_ddl();
+    let schema_ddl = if version >= 71 {
+        coding_ddl.as_str()
+    } else {
+        MIGRATION_V64
+    };
     if version < 64
         || !v63_matches(connection, version)?
-        || !table_sql_matches_migration(connection, "taskrun_tool_invocations", MIGRATION_V64)?
-        || !table_sql_matches_migration(connection, "taskrun_tool_budgets", MIGRATION_V64)?
-        || !table_sql_matches_migration(
-            connection,
-            "taskrun_provider_round_bindings",
-            MIGRATION_V64,
-        )?
+        || !table_sql_matches_migration(connection, "taskrun_tool_invocations", schema_ddl)?
+        || !table_sql_matches_migration(connection, "taskrun_tool_budgets", schema_ddl)?
+        || !table_sql_matches_migration(connection, "taskrun_provider_round_bindings", schema_ddl)?
         || !table_sql_matches_migration(
             connection,
             "provider_terminal_application_kinds",

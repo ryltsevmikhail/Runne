@@ -229,6 +229,18 @@ pub trait ConversationCommandHostPort: Send + Sync {
 
 /// Runtime host boundary for canonical Conversation queries.
 pub trait ConversationQueryHostPort: Send + Sync {
+    /// Lists durable conversations owned by this principal in one workspace.
+    fn list_conversations(
+        &self,
+        _principal: ApiPrincipalId,
+        _workspace: WorkspaceId,
+        _limit: u16,
+        _after: Option<ConversationId>,
+    ) -> impl std::future::Future<Output = Result<ConversationListPage, ConversationHostError>> + Send
+    {
+        async { Err(ConversationHostError::Unavailable) }
+    }
+
     /// Reconstructs the ordered message timeline from committed events.
     fn list_messages(
         &self,
@@ -264,3 +276,5 @@ mod tests {
         );
     }
 }
+
+include!("conversation_list.rs");

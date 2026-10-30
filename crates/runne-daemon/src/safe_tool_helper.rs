@@ -2,11 +2,22 @@
 
 use base64::{Engine, engine::general_purpose::STANDARD};
 use sha2::{Digest, Sha256};
-use std::ffi::CString;
+use std::ffi::{CStr, CString};
 use std::fs::File;
 use std::io::{Read, Write};
 use std::os::fd::AsRawFd;
 
+mod coding;
+pub(crate) mod coding_arguments;
+#[cfg(not(target_os = "macos"))]
+mod coding_command;
+#[cfg(target_os = "macos")]
+mod coding_command_sandbox;
+pub(crate) mod coding_fs;
+mod coding_listing;
+mod coding_process;
+#[cfg(all(test, target_os = "linux"))]
+mod coding_tests;
 #[cfg(feature = "test-support")]
 pub(crate) mod credential_companion_test_support;
 mod output;
@@ -19,12 +30,12 @@ mod request;
 ))]
 #[path = "safe_tool_helper/target_race_fixture.rs"]
 mod target_race_fixture;
-#[cfg(all(feature = "desktop-protected", target_os = "linux"))]
+#[cfg(all(feature = "desktop-protected", unix))]
 pub(crate) use request::encode_request;
 pub use request::{HelperProcessError, run};
 mod validate;
 mod verification;
-#[cfg(all(feature = "desktop-protected", target_os = "linux"))]
+#[cfg(all(feature = "desktop-protected", unix))]
 pub(crate) use output::OutputError;
 pub(crate) use output::parse_output;
 use protocol::ErrorV1;
@@ -42,6 +53,20 @@ fn execute(root: &File, input: &[u8]) -> Result<ReceiptV1, &'static str> {
     let request: RequestV1 = serde_json::from_slice(input).map_err(|_| "invalid_request")?;
     let root_identity = identity(root)?;
     match request {
+        RequestV1::Coding {
+            binding,
+            tool_name,
+            arguments,
+            root: expected_root,
+            expected,
+        } => coding::execute(
+            root,
+            binding,
+            &tool_name,
+            &arguments,
+            expected_root,
+            expected,
+        ),
         RequestV1::Read {
             binding,
             path,
@@ -54,7 +79,7 @@ fn execute(root: &File, input: &[u8]) -> Result<ReceiptV1, &'static str> {
                 return Err("root_changed");
             }
             let pinned =
-                openat(root, &path, libc::O_PATH | libc::O_NOFOLLOW).map_err(|_| "read_denied")?;
+                openat(root, &path, O_PATH | libc::O_NOFOLLOW).map_err(|_| "read_denied")?;
             let before = version(&pinned)?;
             if before != expected || before.size as usize > MAX_CONTENT || !regular_single(&pinned)?
             {
@@ -76,7 +101,7 @@ fn execute(root: &File, input: &[u8]) -> Result<ReceiptV1, &'static str> {
             {
                 return Err("effect_started_target_changed");
             }
-            let named = openat(root, &path, libc::O_PATH | libc::O_NOFOLLOW)
+            let named = openat(root, &path, O_PATH | libc::O_NOFOLLOW)
                 .map_err(|_| "effect_started_target_changed")?;
             if version(&named).map_err(effect_error)? != before
                 || !regular_single(&named).map_err(effect_error)?
@@ -132,7 +157,7 @@ fn execute(root: &File, input: &[u8]) -> Result<ReceiptV1, &'static str> {
             if actual != bytes || identity(root).map_err(effect_error)? != root_identity {
                 return Err("effect_started_target_changed");
             }
-            let named = openat(root, &path, libc::O_PATH | libc::O_NOFOLLOW)
+            let named = openat(root, &path, O_PATH | libc::O_NOFOLLOW)
                 .map_err(|_| "effect_started_target_changed")?;
             if version(&named).map_err(effect_error)? != target
                 || !regular_single(&named).map_err(effect_error)?
@@ -148,102 +173,10 @@ fn execute(root: &File, input: &[u8]) -> Result<ReceiptV1, &'static str> {
     }
 }
 
-fn openat(root: &File, path: &CString, flags: i32) -> Result<File, ()> {
-    let fd = unsafe {
-        libc::openat(
-            root.as_raw_fd(),
-            path.as_ptr(),
-            flags | libc::O_CLOEXEC,
-            0o600,
-        )
-    };
-    if fd < 0 {
-        return Err(());
-    }
-    Ok(unsafe { File::from_raw_fd(fd) })
-}
-
-fn reopen_pinned_read(pinned: &File) -> Result<File, &'static str> {
-    let proc_path =
-        CString::new(format!("/proc/self/fd/{}", pinned.as_raw_fd())).map_err(|_| "read_denied")?;
-    let fd = unsafe {
-        libc::open(
-            proc_path.as_ptr(),
-            libc::O_RDONLY | libc::O_NONBLOCK | libc::O_CLOEXEC,
-        )
-    };
-    if fd < 0 {
-        return Err("read_denied");
-    }
-    Ok(unsafe { File::from_raw_fd(fd) })
-}
-
-fn identity(file: &File) -> Result<IdentityV1, &'static str> {
-    let stat = stat(file)?;
-    if stat.st_mode & libc::S_IFMT != libc::S_IFDIR {
-        return Err("root_invalid");
-    }
-    Ok(IdentityV1 {
-        device: stat.st_dev,
-        inode: stat.st_ino,
-    })
-}
-
-fn version(file: &File) -> Result<VersionV1, &'static str> {
-    let stat = stat(file)?;
-    Ok(VersionV1 {
-        device: stat.st_dev,
-        inode: stat.st_ino,
-        size: u64::try_from(stat.st_size).map_err(|_| "target_invalid")?,
-        mtime_sec: stat.st_mtime,
-        mtime_nsec: stat.st_mtime_nsec,
-        ctime_sec: stat.st_ctime,
-        ctime_nsec: stat.st_ctime_nsec,
-    })
-}
-
-fn stat(file: &File) -> Result<libc::stat, &'static str> {
-    let mut stat = unsafe { std::mem::zeroed::<libc::stat>() };
-    if unsafe { libc::fstat(file.as_raw_fd(), &mut stat) } != 0 {
-        return Err("stat_failed");
-    }
-    Ok(stat)
-}
-
-fn regular_single(file: &File) -> Result<bool, &'static str> {
-    let stat = stat(file)?;
-    Ok(stat.st_mode & libc::S_IFMT == libc::S_IFREG && stat.st_nlink == 1)
-}
-
-fn read_bounded(file: &File, length: usize) -> Result<Vec<u8>, &'static str> {
-    if length > MAX_CONTENT {
-        return Err("content_bound");
-    }
-    let mut bytes = vec![0; length];
-    let read = unsafe { libc::pread(file.as_raw_fd(), bytes.as_mut_ptr().cast(), length, 0) };
-    if read < 0 || read as usize != length {
-        return Err("read_failed");
-    }
-    Ok(bytes)
-}
-
-fn write_all(file: &File, bytes: &[u8]) -> Result<(), &'static str> {
-    let mut offset = 0;
-    while offset < bytes.len() {
-        let count = unsafe {
-            libc::write(
-                file.as_raw_fd(),
-                bytes[offset..].as_ptr().cast(),
-                bytes.len() - offset,
-            )
-        };
-        if count <= 0 {
-            return Err("write_failed");
-        }
-        offset += count as usize;
-    }
-    Ok(())
-}
+use unix_io::*;
+mod platform;
+mod unix_io;
+use platform::O_PATH;
 
 fn receipt(
     operation: &'static str,
@@ -277,6 +210,10 @@ fn effect_error(_: &'static str) -> &'static str {
 
 use std::os::fd::FromRawFd;
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "linux"))]
 #[path = "safe_tool_helper/tests.rs"]
 mod tests;
+
+#[cfg(all(test, target_os = "macos"))]
+#[path = "safe_tool_helper/tests_macos.rs"]
+mod tests_macos;

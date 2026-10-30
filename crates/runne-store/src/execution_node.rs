@@ -2,6 +2,22 @@ use rusqlite::{Connection, OptionalExtension, Transaction, TransactionBehavior};
 type PersistedNodeRegistration = (i64, i64, String, String, String, i64, i64, i64);
 const MAX_NODE_TTL_MS: i64 = 300_000;
 
+/// Execution-node platform recorded by this local runtime.
+const fn current_platform() -> &'static str {
+    #[cfg(target_os = "linux")]
+    {
+        "linux"
+    }
+    #[cfg(target_os = "macos")]
+    {
+        "darwin"
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    {
+        "unsupported"
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LinuxNodeDescriptor {
     pub capacity: u32,
@@ -56,9 +72,9 @@ pub fn register_local_linux_node(
     transaction
         .execute(
             "INSERT INTO execution_nodes (node_id,launch_generation,descriptor_version,platform,executor_protocol,workspace_backend,capacity,heartbeat_at_ms,expires_at_ms)
-             VALUES (?1,?2,1,'linux','runne-taskrun-v1','git-worktree-v1',?3,?4,?5)
-             ON CONFLICT(node_id) DO UPDATE SET launch_generation=excluded.launch_generation,descriptor_version=1,platform='linux',executor_protocol='runne-taskrun-v1',workspace_backend='git-worktree-v1',capacity=excluded.capacity,heartbeat_at_ms=excluded.heartbeat_at_ms,expires_at_ms=excluded.expires_at_ms",
-            rusqlite::params![node_id.as_slice(), launch_generation, descriptor.capacity, now, now + i64::from(ttl_seconds) * 1000],
+             VALUES (?1,?2,1,?3,'runne-taskrun-v1','git-worktree-v1',?4,?5,?6)
+             ON CONFLICT(node_id) DO UPDATE SET launch_generation=excluded.launch_generation,descriptor_version=1,platform=excluded.platform,executor_protocol='runne-taskrun-v1',workspace_backend='git-worktree-v1',capacity=excluded.capacity,heartbeat_at_ms=excluded.heartbeat_at_ms,expires_at_ms=excluded.expires_at_ms",
+            rusqlite::params![node_id.as_slice(), launch_generation, current_platform(), descriptor.capacity, now, now + i64::from(ttl_seconds) * 1000],
         )
         .map_err(|_| NodeRegistryError::Storage)?;
     transaction
@@ -167,7 +183,7 @@ fn validate_registration(
 ) -> Result<(), NodeRegistryError> {
     let (_, version, platform, protocol, workspace, capacity, heartbeat, expiry) = registration;
     if *version != 1
-        || platform != "linux"
+        || platform != current_platform()
         || protocol != "runne-taskrun-v1"
         || workspace != "git-worktree-v1"
         || *capacity <= 0

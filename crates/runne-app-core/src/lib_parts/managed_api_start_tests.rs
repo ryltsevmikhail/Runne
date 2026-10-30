@@ -1,3 +1,14 @@
+fn expected_draft_policy() -> ManagedTaskDraftPolicy {
+    #[cfg(target_os = "linux")]
+    {
+        ManagedTaskDraftPolicy::ProtectedRestart
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        ManagedTaskDraftPolicy::MemoryOnly
+    }
+}
+
 #[tokio::test]
 async fn managed_public_prepare_start_and_duplicate_return_one_canonical_task_run() {
     let submissions = Arc::new(AtomicUsize::new(0));
@@ -35,10 +46,7 @@ async fn managed_public_prepare_start_and_duplicate_return_one_canonical_task_ru
     assert_eq!(prepared.authority.provider.status, "unavailable");
     assert_eq!(prepared.authority.model.status, "unavailable");
     assert_eq!(prepared.authority.policy.status, "unavailable");
-    assert_eq!(
-        prepared.draft_policy,
-        ManagedTaskDraftPolicy::ProtectedRestart
-    );
+    assert_eq!(prepared.draft_policy, expected_draft_policy());
     let token = prepared
         .recovery_token
         .clone()
@@ -196,10 +204,7 @@ async fn managed_preflight_with_missing_submit_capability_stays_unavailable() {
         preflight.start_unavailable_reason,
         Some("submit_capability_missing")
     );
-    assert_eq!(
-        preflight.draft_policy,
-        ManagedTaskDraftPolicy::ProtectedRestart
-    );
+    assert_eq!(preflight.draft_policy, expected_draft_policy());
     assert!(preflight.recovery_token.is_none());
     assert_eq!(submissions.load(Ordering::SeqCst), 0);
 }

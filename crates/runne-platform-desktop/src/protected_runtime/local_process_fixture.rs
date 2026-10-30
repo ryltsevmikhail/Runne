@@ -26,6 +26,10 @@ fn select_launch_artifact(
         }
         return Ok((source.to_path_buf(), measured));
     }
+    #[cfg(target_os = "linux")]
+    if let Some(selected) = terminal_installation::select(state, source, trusted, provider_bound)? {
+        return Ok(selected);
+    }
     let selected = state.stage_trusted_executable(source, trusted)?;
     if provider_bound {
         state.stage_provider_writer(source)?;
@@ -71,6 +75,13 @@ fn preserve_linux_fixture_environment(
     command: &mut Command,
     runtime_root: &Path,
 ) -> Result<(), ProtectedBundledRuntimeError> {
+    if std::env::var_os("RUNNE_TEST_TERMINAL_AGENT_FIXTURE").as_deref()
+        == Some(std::ffi::OsStr::new("1"))
+    {
+        command.env("RUNNE_TEST_TERMINAL_AGENT_FIXTURE", "1");
+        command.env("XDG_CONFIG_HOME", runtime_root.join("fixture-config"));
+        command.env("RUNNE_TEST_PROTECTED_RUNTIME_ROOT", runtime_root);
+    }
     if std::env::var_os("RUNNE_TEST_T1_TRUST_COMPOSITION").as_deref()
         != Some(std::ffi::OsStr::new("1"))
     {

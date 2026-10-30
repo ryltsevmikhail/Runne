@@ -83,7 +83,7 @@ impl ProviderEffectPort for PersistRequestThenMaybeDispatch {
                 .into_any()
                 .downcast::<Ready>()
                 .map_err(|_| DispatchError::AttemptConflict)?;
-            persist_request(&execution, &ready.0).await?;
+            persist_request(&execution, &ready.0, "fixture-profile-v1").await?;
             Err(DispatchError::MaybeDispatched)
         })
     }
@@ -92,6 +92,7 @@ impl ProviderEffectPort for PersistRequestThenMaybeDispatch {
 pub(super) struct PersistRequestThenMaybeDispatchWithRemoteId {
     pub execution: Arc<SqliteProviderExecutionStore>,
     pub response_id: String,
+    pub profile_id: &'static str,
 }
 impl ProviderEffectPort for PersistRequestThenMaybeDispatchWithRemoteId {
     fn stage_effect(
@@ -108,13 +109,14 @@ impl ProviderEffectPort for PersistRequestThenMaybeDispatchWithRemoteId {
     ) -> ProviderFuture<'_, Result<ProviderStreamId, DispatchError>> {
         let execution = Arc::clone(&self.execution);
         let response_id = self.response_id.clone();
+        let profile_id = self.profile_id;
         Box::pin(async move {
             let ready = ready
                 .into_any()
                 .downcast::<Ready>()
                 .map_err(|_| DispatchError::AttemptConflict)?;
-            persist_request(&execution, &ready.0).await?;
-            persist_response_id(&execution, &ready.0, &response_id).await?;
+            persist_request(&execution, &ready.0, profile_id).await?;
+            persist_response_id(&execution, &ready.0, &response_id, profile_id).await?;
             Err(DispatchError::MaybeDispatched)
         })
     }
@@ -123,11 +125,12 @@ impl ProviderEffectPort for PersistRequestThenMaybeDispatchWithRemoteId {
 async fn persist_request(
     execution: &Arc<SqliteProviderExecutionStore>,
     request: &DispatchRequest,
+    profile_id: &str,
 ) -> Result<(), DispatchError> {
     let provider = runne_provider::ProviderId::new("fixture-provider")
         .map_err(|_| DispatchError::AttemptConflict)?;
     let binding = execution
-        .resolve_remote_attempt_binding(request.claim(), &provider, &provider, "fixture-profile-v1")
+        .resolve_remote_attempt_binding(request.claim(), &provider, &provider, profile_id)
         .map_err(|_| DispatchError::AttemptConflict)?;
     if let Some(saved) = execution
         .load_remote_attempt(binding.dispatch_attempt_id)
@@ -178,11 +181,12 @@ async fn persist_response_id(
     execution: &Arc<SqliteProviderExecutionStore>,
     request: &DispatchRequest,
     response_id: &str,
+    profile_id: &str,
 ) -> Result<(), DispatchError> {
     let provider = runne_provider::ProviderId::new("fixture-provider")
         .map_err(|_| DispatchError::AttemptConflict)?;
     let binding = execution
-        .resolve_remote_attempt_binding(request.claim(), &provider, &provider, "fixture-profile-v1")
+        .resolve_remote_attempt_binding(request.claim(), &provider, &provider, profile_id)
         .map_err(|_| DispatchError::AttemptConflict)?;
     let recovery = ProviderRecoveryBinding::new(
         binding.taskrun_id,

@@ -17,6 +17,7 @@ enum CliError {
     Runtime,
     Api(RuntimeApiError),
     CredentialOperation,
+    CredentialRequiresTerminal,
     UnsupportedCredentialBackend,
     HealthNonHealthy(CommandOutput),
     DoctorNonHealthy(CommandOutput),
@@ -72,7 +73,9 @@ impl CliError {
             Self::Help(_) | Self::Version(_) => 0,
             Self::Usage | Self::UnknownCommand(_) | Self::AuthorityUsage => 2,
             Self::Profile | Self::ProfileIncompatible => 3,
-            Self::CredentialOperation | Self::UnsupportedCredentialBackend => 4,
+            Self::CredentialOperation
+            | Self::CredentialRequiresTerminal
+            | Self::UnsupportedCredentialBackend => 4,
             Self::TaskUncertain(_) | Self::CancelPending(_) | Self::PermissionCommandUnknown(_) => {
                 5
             }
@@ -95,7 +98,9 @@ impl CliError {
             Self::Runtime | Self::HealthNonHealthy(_) | Self::DoctorNonHealthy(_) => {
                 Some(ErrorCode::RuntimeUnavailable)
             }
-            Self::CredentialOperation => Some(ErrorCode::CredentialOperationFailed),
+            Self::CredentialOperation | Self::CredentialRequiresTerminal => {
+                Some(ErrorCode::CredentialOperationFailed)
+            }
             Self::UnsupportedCredentialBackend => Some(ErrorCode::CredentialBackendUnsupported),
             Self::TaskUncertain(_) => Some(ErrorCode::TaskUncertain),
             Self::CancelPending(_) => Some(ErrorCode::CancelPending),
@@ -162,6 +167,8 @@ impl fmt::Display for CliError {
             Self::CredentialOperation => {
                 formatter.write_str("provider credential operation failed")
             }
+            Self::CredentialRequiresTerminal => formatter
+                .write_str("provider credential enrollment requires a foreground terminal"),
             Self::UnsupportedCredentialBackend => {
                 formatter.write_str("provider credential backend is unsupported")
             }

@@ -22,24 +22,26 @@ impl TerminalUsageEvidence {
 fn assemble_terminal_stream(
     events: &[ProviderStreamEvent],
 ) -> Result<AssembledTerminal, RuntimeProviderExecutionError> {
-    assemble_terminal_stream_mode(events, false)
+    assemble_terminal_stream_mode(events, false, 0)
 }
 
 fn assemble_tool_terminal_stream(
     events: &[ProviderStreamEvent],
 ) -> Result<AssembledTerminal, RuntimeProviderExecutionError> {
-    assemble_terminal_stream_mode(events, true)
+    assemble_terminal_stream_mode(events, true, 1)
 }
 
 fn assemble_terminal_stream_mode(
     events: &[ProviderStreamEvent],
     allow_tool_call: bool,
+    max_calls: usize,
 ) -> Result<AssembledTerminal, RuntimeProviderExecutionError> {
     let mut validator = ProviderStreamValidator::default();
     let mut output = Zeroizing::new(Vec::new());
     let mut usage = None;
     let mut terminal = None;
     let mut tool_call_seen = false;
+    let mut calls = Vec::new();
     for event in events {
         validator
             .accept(event)
@@ -68,18 +70,22 @@ fn assemble_terminal_stream_mode(
                 arguments_json,
             } => {
                 if !allow_tool_call
-                    || tool_call_seen
-                    || !output.is_empty()
+                    || (max_calls == 1 && (tool_call_seen || !output.is_empty()))
+                    || calls.len() >= max_calls
+                    || calls.iter().any(|(id, _, _)| *id == call_id)
                     || call_id.len() > 128
                     || tool_name.len() > 128
                     || arguments_json.len() > 8 * 1024
                 {
                     return Err(RuntimeProviderExecutionError::TerminalRejected);
                 }
-                output.extend_from_slice(
-                    &serde_json::to_vec(&(call_id, tool_name, arguments_json))
-                        .map_err(|_| RuntimeProviderExecutionError::TerminalRejected)?,
-                );
+                calls.push((call_id, tool_name, arguments_json));
+                if max_calls == 1 {
+                    output.extend_from_slice(
+                        &serde_json::to_vec(&(call_id, tool_name, arguments_json))
+                            .map_err(|_| RuntimeProviderExecutionError::TerminalRejected)?,
+                    );
+                }
                 tool_call_seen = true;
             }
             ProviderStreamEventKind::Finished {
@@ -106,6 +112,16 @@ fn assemble_terminal_stream_mode(
         terminal.ok_or(RuntimeProviderExecutionError::TerminalRejected)?;
     if events.last().map(ProviderStreamEvent::sequence) != Some(terminal_sequence) {
         return Err(RuntimeProviderExecutionError::TerminalRejected);
+    }
+    if max_calls > 1 && !calls.is_empty() {
+        let bytes = serde_json::to_vec(
+            &serde_json::json!({"calls":calls,"text":String::from_utf8_lossy(&output)}),
+        )
+        .map_err(|_| RuntimeProviderExecutionError::TerminalRejected)?;
+        if bytes.len() > MAX_PROVIDER_ASSEMBLED_OUTPUT_BYTES {
+            return Err(RuntimeProviderExecutionError::TerminalRejected);
+        }
+        output = Zeroizing::new(bytes);
     }
     let usage = usage.ok_or(RuntimeProviderExecutionError::TerminalRejected)?;
     let valid_terminal = match (disposition, &reason, usage) {
@@ -180,13 +196,38 @@ fn settlement_digest(
     charge_micros: u64,
     currency: &str,
 ) -> [u8; 32] {
+    stream_settlement_digest(
+        context,
+        pricing.pricing_revision_digest(),
+        terminal_sequence,
+        output,
+        usage,
+        usage_unavailable,
+        disposition,
+        charge_micros,
+        currency,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn stream_settlement_digest(
+    context: &ProviderEventJournalContext,
+    pricing_digest: &[u8; 32],
+    terminal_sequence: u64,
+    output: &[u8],
+    usage: ProviderUsage,
+    usage_unavailable: bool,
+    disposition: ProviderTerminalDisposition,
+    charge_micros: u64,
+    currency: &str,
+) -> [u8; 32] {
     let mut hasher = Sha256::new();
     hasher.update(PROVIDER_SETTLEMENT_V2);
     hasher.update(context.attempt_id.as_bytes());
     hasher.update(context.fencing_token.to_be_bytes());
     hasher.update(context.runtime_generation.to_be_bytes());
     hasher.update(context.profile_digest);
-    hasher.update(pricing.pricing_revision_digest());
+    hasher.update(pricing_digest);
     hasher.update(terminal_sequence.to_be_bytes());
     hasher.update(Sha256::digest(output));
     hasher.update(usage.input_tokens().to_be_bytes());

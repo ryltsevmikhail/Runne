@@ -3,9 +3,7 @@ use super::{
     model::{now_ms, proof_digest, verify_approval},
     owner::PermissionRootFenceRequestV1,
 };
-use crate::store::{
-    ManagedIdentityMetadata, PermissionModeAuthorityContext, StoreTransaction, taskrun_claim,
-};
+use crate::store::{StoreTransaction, taskrun_claim};
 use runne_application::{
     permission_modes::{
         ManagedDisposition, ManagedPolicyEvaluation, NativeScopeAdmissionReceipt, PermissionAction,
@@ -38,32 +36,7 @@ impl StoreTransaction {
         let lease = owner
             .acquire_effect_lease(&self.runtime_authority_id, project)
             .map_err(|_| EventStoreError::Unavailable)?;
-        let trust = lease.snapshot().map_err(|_| EventStoreError::Unavailable)?;
         let scope = binding.selection().scope.clone();
-        let authority =
-            PermissionModeAuthorityContext::new(&scope.principal_id, project, lease.as_ref(), None);
-        let current = self
-            .load_permission_mode_selection_with_managed_identity(
-                &scope,
-                &scope.principal_id,
-                &authority,
-            )
-            .map_err(|_| EventStoreError::CorruptData)?;
-        let managed = match current.identity {
-            ManagedIdentityMetadata::ClosedRulesV2(value) => value,
-            ManagedIdentityMetadata::LegacyRecordV1(_) => return Err(EventStoreError::CorruptData),
-        };
-        if current.selection != *binding.selection()
-            || managed.snapshot != trust
-            || managed.snapshot != binding.closed_rules_snapshot()
-            || managed.canonical_digest != binding.closed_rules_digest()
-            || current
-                .selection
-                .expires_at_unix_ms
-                .is_some_and(|expiry| expiry <= now_ms())
-        {
-            return Err(EventStoreError::CorruptData);
-        }
         let managed_decision = binding
             .scope()
             .managed_policy
@@ -92,7 +65,7 @@ impl StoreTransaction {
             return Err(EventStoreError::CorruptData);
         }
         capture::verify_submit_origin(self, &tx, binding)?;
-        capture::verify_current_selection(&tx, &scope, &current.selection, project)?;
+        super::retained_policy::require_current(&tx, self, binding, lease.as_ref())?;
         let saved: Option<SavedPermissionBindingRow> = tx
             .query_row(
                 "SELECT b.binding_digest,b.binding,a.state,a.attempt_id,a.fence
@@ -139,8 +112,8 @@ impl StoreTransaction {
         let preparation = self.local_permission_preparation()?;
         let admission_port = preparation.invocation_scope_admission_port();
         let effective = admit_effective_mode(
-            current.selection.selected_mode,
-            current.selection.preset_version,
+            binding.selection().selected_mode,
+            binding.selection().preset_version,
             binding.scope(),
             admission_port,
         )
@@ -156,7 +129,7 @@ impl StoreTransaction {
             .transpose()?;
         let candidate = binding.approval().clone();
         let decision = PermissionPolicyCompiler::compile(&PolicyEvaluationInput {
-            selection: current.selection.clone(),
+            selection: binding.selection().clone(),
             effective_scope: binding.scope().clone(),
             effective,
             invocation: runne_application::permission_modes::InvocationPolicyRequest {

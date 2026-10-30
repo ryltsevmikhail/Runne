@@ -115,11 +115,39 @@ pub(crate) async fn probe_provider_readiness(
     if !keyring.retains_multiple_provider_journal_keys() {
         return ProviderActivationReadinessV1::SecureStoreUnavailable;
     }
-    match credential_access_policy(credential_id) {
-        Ok(_) => {}
+    let access = match credential_access_policy(credential_id) {
+        Ok(access) => access,
         Err(_) => return ProviderActivationReadinessV1::CredentialIdentityMismatch,
+    };
+    #[cfg(target_os = "macos")]
+    {
+        use runne_secure_store::{
+            MacOsPlainProviderCredentialStore, ProviderCredentialStatus, ProviderCredentialStore,
+            SecureStoreError,
+        };
+        return match MacOsPlainProviderCredentialStore::new()
+            .provider_credential_status(credential_id, &access)
+        {
+            Ok(ProviderCredentialStatus::Configured) => ProviderActivationReadinessV1::Ready,
+            Ok(ProviderCredentialStatus::Missing) => {
+                ProviderActivationReadinessV1::CredentialMissing
+            }
+            Ok(ProviderCredentialStatus::Unsupported) => {
+                ProviderActivationReadinessV1::SecureStoreUnavailable
+            }
+            Err(
+                SecureStoreError::CredentialAccessDenied
+                | SecureStoreError::CredentialIdentityMismatch
+                | SecureStoreError::CorruptProviderCredential,
+            ) => ProviderActivationReadinessV1::CredentialIdentityMismatch,
+            Err(_) => ProviderActivationReadinessV1::SecureStoreUnavailable,
+        };
     }
-    ProviderActivationReadinessV1::CredentialMissing
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = access;
+        ProviderActivationReadinessV1::CredentialMissing
+    }
 }
 
 pub(crate) fn credential_access_policy(
@@ -130,13 +158,18 @@ pub(crate) fn credential_access_policy(
 
 pub(crate) fn native_credential_access_policy()
 -> Result<ProviderCredentialAccessPolicy, DaemonError> {
-    let reader = std::env::current_exe()
-        .map_err(|_| DaemonError::Bootstrap("provider credential identity unavailable".into()))?;
+    // The protected launcher runs a copied image under a private activation
+    // directory. The CLI passes the installed writer/reader paths explicitly so
+    // the credential binding names the stable installation, not the copy.
+    let reader = std::env::var_os("RUNNE_DAEMON_PATH")
+        .map(PathBuf::from)
+        .or_else(|| std::env::current_exe().ok())
+        .ok_or_else(|| DaemonError::Bootstrap("provider credential identity unavailable".into()))?;
     let reader = std::fs::canonicalize(reader)
         .map_err(|_| DaemonError::Bootstrap("provider credential identity unavailable".into()))?;
-    let writer: PathBuf = reader
-        .parent()
-        .map(|directory| directory.join("runne"))
+    let writer: PathBuf = std::env::var_os("RUNNE_CLI_PATH")
+        .map(PathBuf::from)
+        .or_else(|| reader.parent().map(|directory| directory.join("runne")))
         .ok_or_else(|| DaemonError::Bootstrap("provider credential identity unavailable".into()))?;
     ProviderCredentialAccessPolicy::new(&writer, &reader)
         .map_err(|_| DaemonError::Bootstrap("provider credential identity unavailable".into()))

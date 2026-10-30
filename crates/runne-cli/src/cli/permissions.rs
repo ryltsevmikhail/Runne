@@ -13,7 +13,7 @@ mod protected_runtime_owner;
 mod protected_runtime_project_root_tests;
 #[cfg(all(test, target_os = "linux"))]
 #[path = "protected_runtime_tests.rs"]
-mod protected_runtime_tests;
+pub(crate) mod protected_runtime_tests;
 #[cfg(target_os = "linux")]
 #[path = "protected_runtime_ui.rs"]
 mod protected_runtime_ui;
@@ -212,8 +212,7 @@ include!("permissions/render.rs");
 include!("permissions/help.rs");
 include!("permissions/recovery_index.rs");
 include!("permissions/approval_recovery.rs");
-#[cfg(target_os = "linux")]
-include!("permissions/recovery_io_linux.rs");
+include!("permissions/recovery_io.rs");
 include!("permissions/mode.rs");
 include!("permissions/approval_runtime.rs");
 include!("permissions/approval_confirmation.rs");

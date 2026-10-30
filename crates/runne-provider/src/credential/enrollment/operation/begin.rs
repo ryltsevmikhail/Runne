@@ -32,6 +32,22 @@ pub struct BeginCredentialOperation {
 
 #[allow(missing_docs)]
 impl BeginCredentialOperation {
+    /// Explicit standalone CLI binding; never a signed Desktop release proof.
+    pub fn with_cli_host_installation(
+        mut self,
+        binding: super::super::CredentialCliHostInstallationBinding,
+    ) -> Result<Self, CredentialEnrollmentError> {
+        if self.provider_id.as_str() != "deepseek"
+            || !matches!(
+                self.action,
+                CredentialOperationAction::Pair | CredentialOperationAction::Revoke
+            )
+        {
+            return Err(CredentialEnrollmentError::InvalidInput);
+        }
+        self.qualified_release_tuple = Some(binding.into_storage_binding());
+        Ok(self)
+    }
     /// Validates one owner-bound Pair/MigrateLegacy allocation or exact Revoke target.
     #[allow(clippy::too_many_arguments)]
     pub fn new(

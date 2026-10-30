@@ -2,7 +2,7 @@ use super::permission_build::*;
 use super::*;
 use runne_application::permission_modes::{
     self, CompositeEffectScope, CompositeScopeDigest, ContainmentStrategy, ManagedDisposition,
-    ManagedPolicyCoverage, ManagedPolicyEvaluation, NativeScopeAdmissionPort,
+    ManagedPolicyCoverage, ManagedPolicyEvaluation, NativeScopeAdmissionPort, PermissionAction,
     PermissionPolicyCompiler, PermissionScope, PolicyDecision, admit_effective_mode,
     admit_invocation_scope,
 };
@@ -84,25 +84,9 @@ pub(super) fn stable_tool_id(bytes: &[u8]) -> [u8; 16] {
     value
 }
 
-pub(super) fn canonical_tool_arguments(
-    call: &runne_runtime::provider_tool::RuntimeToolCall,
-) -> Result<(IntegrityDigest, Vec<u8>, IntegrityDigest), ()> {
-    let declarations = vec![
-        runne_provider::ProviderToolDeclarationV1::for_name(
-            runne_provider::ProviderToolNameV1::WorkspaceFileRead,
-        ),
-        runne_provider::ProviderToolDeclarationV1::for_name(
-            runne_provider::ProviderToolNameV1::WorkspaceFileCreateNew,
-        ),
-    ];
-    let schema = IntegrityDigest::from_bytes(
-        Sha256::digest(serde_json::to_vec(&declarations).map_err(|_| ())?).into(),
-    );
-    let value: serde_json::Value = serde_json::from_str(&call.arguments_json).map_err(|_| ())?;
-    let arguments = serde_json::to_vec(&value).map_err(|_| ())?;
-    let digest = IntegrityDigest::from_bytes(Sha256::digest(&arguments).into());
-    Ok((schema, arguments, digest))
-}
+#[path = "permission/canonical.rs"]
+mod canonical;
+pub(super) use canonical::canonical_arguments_for_mode;
 
 pub(super) fn now_millis() -> i64 {
     std::time::SystemTime::now()
@@ -140,7 +124,8 @@ pub(super) fn prepare(
         binding,
         native,
     )?;
-    let managed_disposition = managed_disposition(&scope, trust_project, trust_snapshot)?;
+    let managed_disposition = managed_disposition(&scope, trust_project, trust_snapshot)
+        .map_err(|_| super::super::provider::d2_stage("permission_managed"))?;
     let effective_scope = effective_scope(snapshot, &scope, trust_project, trust_snapshot, native)?;
     let effective = admit_effective_mode(
         snapshot.selection.selected_mode,
@@ -148,9 +133,15 @@ pub(super) fn prepare(
         &effective_scope,
         helper_admission,
     )
-    .map_err(|_| ())?;
-    let native_receipt = admit_invocation_scope(&scope, helper_admission).map_err(|_| ())?;
-    let candidate = approval_binding(principal, &scope, binding);
+    .map_err(|_| super::super::provider::d2_stage("permission_effective"))?;
+    let native_receipt = admit_invocation_scope(&scope, helper_admission)
+        .map_err(|_| super::super::provider::d2_stage("permission_native"))?;
+    let helper_executable = if action(binding) == PermissionAction::ProcessStart {
+        Some(native.tool_helper_executable_digest().map_err(|_| ())?)
+    } else {
+        None
+    };
+    let candidate = approval_binding(principal, &scope, binding, helper_executable);
     let scope_digest = scope.digest().map_err(|_| ())?;
     let mut admission = ToolPermissionAdmissionV1 {
         key: binding.key,
@@ -179,7 +170,8 @@ pub(super) fn prepare(
                 && managed::durable_admission_facts_match(saved, &admission)
         })
         .and_then(|(record, saved)| {
-            let mut original = approval_binding(principal, &scope, &record.binding);
+            let mut original =
+                approval_binding(principal, &scope, &record.binding, helper_executable);
             original.composite_scope_digest =
                 CompositeScopeDigest::from_bytes(*saved.composite_scope_digest.as_bytes());
             original.containment_version = saved.containment;
@@ -208,7 +200,10 @@ pub(super) fn prepare(
     let requires_human = match decision {
         PolicyDecision::Allow { .. } => false,
         PolicyDecision::RequireApproval { .. } => true,
-        PolicyDecision::Deny(_) => return Err(()),
+        PolicyDecision::Deny(_) => {
+            super::super::provider::d2_stage("permission_compiler");
+            return Err(());
+        }
     };
     admission.decision_source = if requires_human || approved.is_some() {
         ToolPermissionDecisionSource::Human

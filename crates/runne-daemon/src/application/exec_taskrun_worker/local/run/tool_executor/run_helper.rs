@@ -47,7 +47,15 @@ pub(in crate::application) fn run_helper<'area>(
         ));
     }
     stage("effect_helper_supervise");
-    let deadline = Instant::now() + TOOL_OPERATION_DEADLINE;
+    let operation_deadline = serde_json::from_slice::<serde_json::Value>(input)
+        .ok()
+        .filter(|v| v["operation"] == "Coding" && v["tool_name"] == "workspace.command.run")
+        .and_then(|v| v["arguments"]["timeout_ms"].as_u64())
+        .filter(|v| (1..=120000).contains(v))
+        .map_or(TOOL_OPERATION_DEADLINE, |v| {
+            Duration::from_millis(v.saturating_add(1000))
+        });
+    let deadline = Instant::now() + operation_deadline;
     let mut stdout = Vec::with_capacity(STDOUT_CAP);
     let mut stderr = Vec::with_capacity(STDERR_CAP);
     let mut observation = OutputObservation::default();

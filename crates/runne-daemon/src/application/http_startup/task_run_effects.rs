@@ -15,11 +15,15 @@ use crate::canonical_provider::DaemonCanonicalProviderService;
 
 pub(super) struct ProviderTaskRunEffectsEnricher {
     service: Arc<DaemonCanonicalProviderService>,
+    store: StoreTransaction,
 }
 
 impl ProviderTaskRunEffectsEnricher {
-    pub(super) fn new(service: Arc<DaemonCanonicalProviderService>) -> Self {
-        Self { service }
+    pub(super) fn new(
+        service: Arc<DaemonCanonicalProviderService>,
+        store: StoreTransaction,
+    ) -> Self {
+        Self { service, store }
     }
 }
 
@@ -31,11 +35,27 @@ pub(super) fn build_task_run_host(
     let Some(provider) = provider else {
         return runne_runtime::RuntimeTaskRunHost::new(handle, store);
     };
-    runne_runtime::RuntimeTaskRunHost::new(handle, store)
-        .with_effects_enricher(Arc::new(ProviderTaskRunEffectsEnricher::new(provider)))
+    let enricher = Arc::new(ProviderTaskRunEffectsEnricher::new(provider, store.clone()));
+    runne_runtime::RuntimeTaskRunHost::new(handle, store).with_effects_enricher(enricher)
 }
 
 impl TaskRunEffectsEnricher for ProviderTaskRunEffectsEnricher {
+    fn tool_activity(
+        &self,
+        principal: &runne_api::ApiPrincipalId,
+        taskrun_id: runne_domain::id::TaskRunId,
+    ) -> Result<runne_api::TaskRunToolActivityV1, TaskRunHostError> {
+        #[cfg(target_os = "linux")]
+        {
+            super::tool_activity::read(&self.store, &self.service, principal, taskrun_id)
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            let _ = (principal, taskrun_id);
+            Err(TaskRunHostError::Unavailable)
+        }
+    }
+
     fn remote_fact_authenticator(&self) -> Option<Arc<dyn ProviderRemoteFactAuthenticator>> {
         Some(self.service.task_run_effects_authenticator())
     }

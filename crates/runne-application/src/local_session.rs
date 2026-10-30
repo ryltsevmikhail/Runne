@@ -176,6 +176,9 @@ pub struct LocalSessionService {
 mod bootstrap_reservation_store;
 mod bootstrap_v3;
 mod bootstrap_v3_transcript;
+mod close;
+#[cfg(test)]
+mod close_tests;
 mod enrollment_generation_store;
 pub use bootstrap_reservation_store::*;
 pub use bootstrap_v3::*;

@@ -18,7 +18,8 @@ pub(super) fn initialize(
         .active_journal_key_binding()
         .map_err(|_| DaemonError::Bootstrap("provider journal key unavailable".into()))?
     {
-        Some(_) => {
+        Some(binding) => {
+            ensure_active_key_material(execution_store, keyring, binding)?;
             execution
                 .preflight_existing_active_key(runtime_authority_id, 1)
                 .map_err(|_| DaemonError::Bootstrap("provider journal key unavailable".into()))?;
@@ -63,4 +64,39 @@ pub(super) fn initialize(
     )
     .validate_control_plane()
     .map_err(|error| DaemonError::Bootstrap(error.to_string()))
+}
+
+/// Repairs only unreadable material under an otherwise exact durable binding.
+///
+/// Regeneration is permitted only while the database holds no journal evidence:
+/// with no MAC to verify, replacing the bytes under the same non-secret binding
+/// preserves every invariant. Any evidence keeps the closed failure.
+fn ensure_active_key_material(
+    execution_store: &SqliteProviderExecutionStore,
+    keyring: &dyn ProviderJournalKeyring,
+    binding: ProviderJournalKeyBinding,
+) -> Result<(), DaemonError> {
+    let unavailable = || DaemonError::Bootstrap("provider journal key unavailable".into());
+    let key_ref = runne_secure_store::ProviderJournalKeyRef::new(
+        binding.key_id(),
+        binding.key_version(),
+        binding.runtime_authority_id(),
+        binding.database_generation(),
+    )
+    .map_err(|_| unavailable())?;
+    if keyring.load_provider_journal_key(key_ref).is_ok() {
+        return Ok(());
+    }
+    if !execution_store.journal_evidence_is_empty().map_err(|_| unavailable())? {
+        return Err(unavailable());
+    }
+    let material =
+        runne_secure_store::ProviderJournalKeyMaterial::generate(key_ref).map_err(|_| unavailable())?;
+    keyring
+        .replace_provider_journal_key(&material)
+        .map_err(|_| unavailable())?;
+    keyring
+        .load_provider_journal_key(key_ref)
+        .map_err(|_| unavailable())?;
+    Ok(())
 }

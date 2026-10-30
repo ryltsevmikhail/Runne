@@ -120,6 +120,11 @@ pub(super) fn helper_error_effect_started(stdout: &[u8]) -> Option<bool> {
         "read_failed",
         "write_failed",
         "path_denied",
+        "command_spawn_denied",
+        "command_spawn_access",
+        "command_spawn_missing",
+        "command_spawn_policy",
+        "command_spawn_other",
     ];
     (error.status == "error" && error.version == 1 && CODES.contains(&error.error.as_str()))
         .then_some(error.effect_started)
@@ -146,4 +151,24 @@ mod tests {
         assert_eq!(helper_error_effect_started(started), Some(true));
         assert_eq!(helper_error_effect_started(not_started), Some(false));
     }
+}
+
+pub(super) fn record_command_failure_stage(stdout: &[u8]) {
+    if stdout.len() > 512 {
+        return;
+    }
+    let Ok(value) = serde_json::from_slice::<serde_json::Value>(stdout) else {
+        return;
+    };
+    if value["status"] != "error" || value["version"] != 1 {
+        return;
+    }
+    let stage = match value["error"].as_str() {
+        Some("command_spawn_access") => "effect_command_access",
+        Some("command_spawn_missing") => "effect_command_missing",
+        Some("command_spawn_policy") => "effect_command_policy",
+        Some("command_spawn_other") => "effect_command_other",
+        _ => return,
+    };
+    crate::application::exec_taskrun_worker::provider::d2_stage(stage);
 }

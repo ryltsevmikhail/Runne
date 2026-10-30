@@ -13,6 +13,8 @@ mod claimed;
 mod command_receipt;
 #[path = "taskrun_cancellation_completion/proof.rs"]
 mod proof;
+mod read_proof;
+pub(super) use proof::prove_unclaimed_cancelled;
 use command_receipt::{command_id_exists, duplicate, idempotency_key_exists};
 
 impl TaskRunCancellationCompletionPort for StoreTransaction {

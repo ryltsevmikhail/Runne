@@ -98,6 +98,13 @@ impl MacOsCredentialBrokerChannel {
 }
 
 impl CredentialBrokerChannel for MacOsCredentialBrokerChannel {
+    fn send_service_handoff(
+        &mut self,
+        frame: runne_provider::CredentialWriterBrokerHandoffFrame,
+    ) -> Result<(), ProviderCredentialEnrollmentHostError> {
+        MacOsCredentialBrokerChannel::send_service_handoff(self, frame)
+    }
+
     fn binding_digest(&self) -> CredentialBindingDigest {
         CredentialBindingDigest::from_measured(self.writer.verified_measurement_facts().channel())
             .expect("verified channel binding")

@@ -2,7 +2,7 @@ use super::*;
 #[path = "protected_runtime_tests/approval_crash.rs"]
 pub mod approval_crash;
 #[path = "protected_runtime_tests/fixture.rs"]
-mod fixture;
+pub mod fixture;
 #[path = "protected_runtime_tests/lifecycle.rs"]
 mod lifecycle;
 #[path = "protected_runtime_tests/process.rs"]

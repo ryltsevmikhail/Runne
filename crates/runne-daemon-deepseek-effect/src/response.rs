@@ -14,10 +14,20 @@ impl<C> Sender<C> {
         response: DeepSeekTransportResponse,
     ) -> Result<ProviderStreamId, DispatchError> {
         #[cfg(feature = "linux-native-enrollment-qualification")]
-        let (decoded, diagnostic) =
-            runne_provider_deepseek::decode_transport_response_with_diagnostic(&response);
+        let (decoded, diagnostic) = if let Some(profile) = &self.tool_profile {
+            (
+                runne_provider_deepseek::decode_tool_transport_response(&response, profile),
+                None,
+            )
+        } else {
+            runne_provider_deepseek::decode_transport_response_with_diagnostic(&response)
+        };
         #[cfg(not(feature = "linux-native-enrollment-qualification"))]
-        let decoded = decode_transport_response(&response);
+        let decoded = if let Some(profile) = &self.tool_profile {
+            runne_provider_deepseek::decode_tool_transport_response(&response, profile)
+        } else {
+            decode_transport_response(&response)
+        };
         let events = match decoded {
             Ok(events) => {
                 self.observe(Diagnostic::Decoded);

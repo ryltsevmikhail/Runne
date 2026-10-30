@@ -92,10 +92,12 @@ pub(super) fn verify(
         )
         .map_err(|_| integrity())?;
     if budget_rows > 0 {
+        crate::store::taskrun_tool_invocation::budget_policy::verify_origin_policy(tx, taskrun_id)
+            .map_err(|_| integrity())?;
         let exact_budget: bool = tx.query_row(
             "SELECT EXISTS(SELECT 1 FROM taskrun_tool_budgets WHERE taskrun_id=?1 AND attempt_id=?2
                AND fence=?3 AND node_id=?4 AND node_epoch=?5
-               AND policy_revision='d2-safe-tool-loop-budget-v1')",
+               AND policy_revision IN ('d2-safe-tool-loop-budget-v1','coding-tool-loop-budget-v1'))",
             params![taskrun_id.as_bytes(), attempt.as_bytes(), evidence.fence as i64,
                 uuid::Uuid::from_bytes(evidence.node_id).to_string(), evidence.node_epoch as i64],
             |row| row.get(0),
@@ -204,12 +206,11 @@ fn verify_invocations(
             _ => false,
         };
         let area_binding_matches = area.as_ref().is_none_or(|bytes| {
-            let Ok(identity) =
-                runne_platform::process_managed_area::ManagedAreaIdentity::from_bytes(bytes)
+            let Some(encoded) =
+                crate::store::taskrun_tool_invocation::canonical_area_identity(bytes)
             else {
                 return false;
             };
-            let encoded = identity.to_bytes();
             let Ok(cycle_bytes) = <[u8; 16]>::try_from(cycle.as_slice()) else {
                 return false;
             };

@@ -2,6 +2,8 @@ use super::super::projection::*;
 use super::super::*;
 #[cfg(all(feature = "desktop-protected", target_os = "linux"))]
 use super::InternalProviderResult;
+#[cfg(all(feature = "desktop-protected", target_os = "linux"))]
+mod batch;
 mod call;
 mod dispatch;
 mod final_text;
@@ -62,7 +64,7 @@ impl DaemonCanonicalProviderService {
             }
             if tool_round
                 .as_ref()
-                .is_some_and(|round| round.round_index > 2)
+                .is_some_and(|round| round.round_index > 32)
             {
                 return Err(CanonicalProviderExecutionError::RejectedBeforeEffect);
             }
@@ -88,6 +90,26 @@ impl DaemonCanonicalProviderService {
                 tool_results,
                 round_call_id,
             )?;
+            let matcher = ProhibitedContentCredentialMatcher::new(self.prohibited_content.as_ref());
+            let redaction = ProviderEventRedactionBoundary::new(
+                self.tail_store.as_ref(),
+                self.scanner_store.as_ref(),
+                &matcher,
+            )
+            .with_observer(&super::redaction_diagnostics::QUALIFICATION_OBSERVER);
+            let execution = RuntimeProviderExecution::new(
+                self.keyring.as_ref(),
+                self.runtime_store.as_ref(),
+                route.profile.as_ref(),
+                self.prohibited_content.as_ref(),
+                &redaction,
+            );
+            // The journal key must be readable before any delivery window opens:
+            // a pre-send key failure is a clean pre-effect rejection, never a
+            // started-but-unknown provider effect that also blocks a safe exit.
+            execution
+                .preflight_existing_active_key(self.runtime_authority_id, self.database_generation)
+                .map_err(map_preflight_error)?;
             let binding = dispatch::start(
                 self,
                 &job,
@@ -105,23 +127,6 @@ impl DaemonCanonicalProviderService {
                 profile_digest: *binding.execution().profile_digest(),
                 runtime_generation: binding.execution().runtime_generation(),
             };
-            let matcher = ProhibitedContentCredentialMatcher::new(self.prohibited_content.as_ref());
-            let redaction = ProviderEventRedactionBoundary::new(
-                self.tail_store.as_ref(),
-                self.scanner_store.as_ref(),
-                &matcher,
-            )
-            .with_observer(&super::redaction_diagnostics::QUALIFICATION_OBSERVER);
-            let execution = RuntimeProviderExecution::new(
-                self.keyring.as_ref(),
-                self.runtime_store.as_ref(),
-                route.profile.as_ref(),
-                self.prohibited_content.as_ref(),
-                &redaction,
-            );
-            execution
-                .preflight_existing_active_key(self.runtime_authority_id, self.database_generation)
-                .map_err(map_execution_error)?;
             let stream_id = binding.execution().stream_id();
             let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(120);
             let mut cursor = 0_u64;
@@ -137,6 +142,15 @@ impl DaemonCanonicalProviderService {
                         false,
                         8 * 1024,
                     )
+                    .and_then(|collector| {
+                        if route.profile.profile_id()
+                            == runne_provider_deepseek::DEEPSEEK_RESPONSES_TOOL_PROFILE_ID
+                        {
+                            collector.with_max_calls(16)
+                        } else {
+                            Ok(collector)
+                        }
+                    })
                     .map_err(|_| CanonicalProviderExecutionError::RemoteIncomplete)?,
                 )
             } else {
@@ -223,9 +237,12 @@ impl DaemonCanonicalProviderService {
                 {
                     return Err(CanonicalProviderExecutionError::Uncertain);
                 }
-                execution
-                    .finalize_tool_terminal_output(&context)
-                    .map_err(map_execution_error)?;
+                if self.coding_agent_tools_enabled() {
+                    execution.finalize_coding_tool_terminal_output(&context)
+                } else {
+                    execution.finalize_tool_terminal_output(&context)
+                }
+                .map_err(map_execution_error)?;
                 let artifact = terminal_artifact::load(
                     self.execution_store.as_ref(),
                     binding.execution().attempt_id(),
@@ -241,27 +258,20 @@ impl DaemonCanonicalProviderService {
                     route.profile.profile_digest(),
                     binding.execution().runtime_generation(),
                     if proposal.is_some() { 4 } else { 7 },
+                    if self.coding_agent_tools_enabled() {
+                        16
+                    } else {
+                        1
+                    },
                 )?;
-                return match proposal {
-                    Some(call) => {
-                        if !sources.iter().any(|source| source.event_kind == 4)
-                            || !sources
-                                .iter()
-                                .any(|source| source.event_kind == 5 && source.terminal)
-                        {
-                            return Err(CanonicalProviderExecutionError::Uncertain);
-                        }
-                        Ok(InternalProviderResult::ToolRound(
-                            super::D2ProviderRoundOutcome::Proposal { call, sources },
-                        ))
-                    }
-                    None => Ok(InternalProviderResult::ToolRound(
-                        super::D2ProviderRoundOutcome::FinalStop {
-                            terminal: artifact,
-                            sources,
-                        },
-                    )),
-                };
+                let calls = collector
+                    .as_ref()
+                    .map(|c| c.committed_calls())
+                    .unwrap_or(&[]);
+                if calls.len() > 1 {
+                    return batch::from_sources(calls, &sources);
+                }
+                return batch::single(proposal, sources, artifact);
             }
             #[cfg(not(all(feature = "desktop-protected", target_os = "linux")))]
             if route.tool_mode {

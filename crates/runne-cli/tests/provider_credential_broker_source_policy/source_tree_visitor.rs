@@ -3,6 +3,7 @@ use syn::{Attribute, Expr, ExprCall, ExprMethodCall, ExprPath, Ident, Macro, Use
 
 use super::{
     BROKER, PERSISTENT_REFERENCE_PROBE, PROVIDER_CREDENTIAL, RAW_RECEIVER_IDENTIFIERS, TASK_RUN,
+    TUI_STDIN_SURFACES,
 };
 use crate::source_reference_audit::{
     include_reference_violation, macro_token_source_reference_violation, path_attribute_violation,
@@ -18,6 +19,7 @@ pub(super) struct SurfaceCounts {
 }
 
 pub(super) struct SourceVisitor<'a> {
+    pub(super) root: &'a std::path::Path,
     pub(super) relative: &'a str,
     pub(super) counts: &'a mut SurfaceCounts,
     pub(super) violations: &'a mut Vec<String>,
@@ -32,7 +34,7 @@ impl SourceVisitor<'_> {
 
 impl<'ast> Visit<'ast> for SourceVisitor<'_> {
     fn visit_attribute(&mut self, node: &'ast Attribute) {
-        if let Some(violation) = path_attribute_violation(node) {
+        if let Some(violation) = path_attribute_violation(node, self.root, self.relative) {
             self.reject(&violation);
         }
         visit::visit_attribute(self, node);
@@ -80,6 +82,11 @@ impl<'ast> Visit<'ast> for SourceVisitor<'_> {
             {
                 self.counts.probe_output_channel += 1;
             } else if self.relative == TASK_RUN
+                && call.args.is_empty()
+                && path_is(&function.path, &["std", "io", "stdin"])
+            {
+                self.counts.stdin += 1;
+            } else if TUI_STDIN_SURFACES.contains(&self.relative)
                 && call.args.is_empty()
                 && path_is(&function.path, &["std", "io", "stdin"])
             {
@@ -152,6 +159,11 @@ impl<'ast> Visit<'ast> for SourceVisitor<'_> {
             self.reject(&violation);
         }
         for identifier in super::macro_identifiers(node.tokens.clone()) {
+            if identifier == "stdin" && self.relative == "tui_backend/pty_fixture.rs" {
+                // The PTY fixture asserts that a real terminal is attached; it
+                // is compiled only under `cfg(test)`.
+                continue;
+            }
             if RAW_RECEIVER_IDENTIFIERS.contains(&identifier.as_str())
                 || identifier == "stdin"
                 || identifier == "receive_from_stdin"

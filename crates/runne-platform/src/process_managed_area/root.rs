@@ -1,11 +1,14 @@
 use super::{LinuxManagedArea, ManagedAreaBinding, ManagedAreaError, ManagedAreaIdentity};
 use rustix::fs::{
-    AtFlags, CWD, Mode, OFlags, ResolveFlags, fstat, fstatfs, mkdirat, openat, openat2, unlinkat,
+    AtFlags, CWD, Mode, OFlags, ResolveFlags, fstat, fstatfs, openat, openat2, unlinkat,
 };
 use std::fs::File;
 use std::os::fd::OwnedFd;
 use std::path::Path;
 use std::sync::Arc;
+
+#[path = "root/creation.rs"]
+mod creation;
 
 const CGROUP2_SUPER_MAGIC: i64 = 0x6367_7270;
 
@@ -33,41 +36,13 @@ impl LinuxManagedAreaRoot {
     }
 
     /// Creates an empty unique child area bound to one TaskRun attempt.
+    /// Requires an exclusive root-area writer through creation/publication or rollback.
+    /// This contract, also required by removal, is not enforced against same-UID writers.
     pub fn create_area(
         &self,
         binding: ManagedAreaBinding,
     ) -> Result<LinuxManagedArea, ManagedAreaError> {
-        let name = area_name(binding);
-        if let Err(error) = mkdirat(
-            self.directory.as_ref(),
-            name.as_str(),
-            Mode::from_raw_mode(0o700),
-        ) {
-            return Err(if error == rustix::io::Errno::EXIST {
-                ManagedAreaError::Conflict
-            } else {
-                ManagedAreaError::Unavailable
-            });
-        }
-        let area_fd = open_area(self.directory.as_ref(), &name)?;
-        let metadata = fstat(&area_fd).map_err(|_| ManagedAreaError::Unavailable)?;
-        check_cgroup2(&area_fd)?;
-        let identity = ManagedAreaIdentity::new(
-            self.boot_id,
-            self.device,
-            self.inode,
-            metadata.st_dev,
-            metadata.st_ino,
-            binding,
-        )?;
-        let area = LinuxManagedArea::new(
-            Arc::clone(&self.directory),
-            File::from(area_fd),
-            name.clone(),
-            identity.clone(),
-        );
-        area.require_empty()?;
-        Ok(area)
+        creation::create(self, binding)
     }
 
     /// Reopens an existing area only when root, boot, inode, and binding match.

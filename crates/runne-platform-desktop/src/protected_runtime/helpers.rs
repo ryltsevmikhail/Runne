@@ -36,6 +36,8 @@ impl EnrollmentBrokerFacts {
 /// one desktop-spawned bundled daemon.
 pub struct ProtectedBundledRuntimeProcess {
     child: Child,
+    #[cfg(unix)]
+    child_stderr: Option<ProtectedChildStderr>,
     #[cfg(target_os = "linux")]
     linux_launch_image: Option<LinuxLaunchImage>,
     #[cfg(windows)]

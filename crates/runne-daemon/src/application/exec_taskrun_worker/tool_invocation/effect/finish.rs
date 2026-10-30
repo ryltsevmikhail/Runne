@@ -28,6 +28,7 @@ impl crate::application::exec_taskrun_worker::DaemonAutomaticTaskRuns {
         let output = match run {
             Ok(output) => output,
             Err(failure) => {
+                audit::record_command_failure_stage(&failure.stdout);
                 audit::persist(
                     &self.store,
                     provider,
@@ -62,6 +63,7 @@ impl crate::application::exec_taskrun_worker::DaemonAutomaticTaskRuns {
         let stdout = output.stdout();
         let stderr = output.stderr();
         let persist_invalid = |reason, helper_error_effect_started| {
+            audit::record_command_failure_stage(stdout);
             audit::persist(
                 &self.store,
                 provider,
@@ -116,11 +118,7 @@ impl crate::application::exec_taskrun_worker::DaemonAutomaticTaskRuns {
         let (receipt, actual_content) = match executor::verify_helper_stdout(
             stdout,
             helper_binding,
-            if binding.tool_name == "workspace.file.read" {
-                "read"
-            } else {
-                "create_new"
-            },
+            crate::safe_tool_helper::coding_arguments::operation(&binding.tool_name)?,
             path,
             root,
         ) {
@@ -158,6 +156,7 @@ impl crate::application::exec_taskrun_worker::DaemonAutomaticTaskRuns {
         let task = runne_domain::task_run::TaskRun::replay(&stream.events).map_err(|_| ())?;
         let workspace_id = task.snapshot_v1().workspace_id().ok_or(())?;
         if super::super::target_snapshot::validate_d2_target_snapshot(
+            &self.store,
             &self.root_admission,
             workspace_id,
             binding,

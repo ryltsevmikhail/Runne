@@ -34,6 +34,7 @@ pub(super) fn sources(
     profile_digest: [u8; 32],
     runtime_generation: u64,
     required_event_kind: u8,
+    max_calls: usize,
 ) -> Result<Vec<ToolSourceRef>, CanonicalProviderExecutionError> {
     if !matches!(required_event_kind, 4 | 7) {
         return Err(CanonicalProviderExecutionError::Conflict);
@@ -62,25 +63,34 @@ pub(super) fn sources(
             });
         }
     }
-    if !valid_terminal_sources(&sources, required_event_kind) {
+    if !valid_terminal_sources_bounded(&sources, required_event_kind, max_calls) {
         return Err(CanonicalProviderExecutionError::Uncertain);
     }
     Ok(sources)
 }
 
+#[cfg(test)]
 fn valid_terminal_sources(sources: &[ToolSourceRef], required_event_kind: u8) -> bool {
+    valid_terminal_sources_bounded(sources, required_event_kind, 1)
+}
+fn valid_terminal_sources_bounded(
+    sources: &[ToolSourceRef],
+    required_event_kind: u8,
+    max_calls: usize,
+) -> bool {
     let terminal_count = sources
         .iter()
         .filter(|source| source.event_kind == 5 && source.terminal)
         .count();
     terminal_count == 1
         && if required_event_kind == 4 {
-            sources.len() == 2
+            (1..=16).contains(&max_calls)
+                && (2..=max_calls + 1).contains(&sources.len())
                 && sources
                     .iter()
                     .filter(|source| source.event_kind == 4 && !source.terminal)
                     .count()
-                    == 1
+                    == sources.len() - 1
         } else {
             required_event_kind == 7
                 && sources.len() <= 32

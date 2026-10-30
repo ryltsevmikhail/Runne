@@ -254,3 +254,11 @@ impl ProviderExecutionStore for SqliteProviderExecutionStore {
         self.mark_execution_uncertain_impl(attempt_id, fencing_token)
     }
 }
+
+mod installation_upgrade;
+#[cfg(test)]
+mod installation_upgrade_tests;
+
+mod terminal_adoption;
+#[cfg(test)]
+mod terminal_adoption_tests;

@@ -1,4 +1,68 @@
+#[path = "effects_diagnostics.rs"]
+pub(crate) mod effects;
+const ALLOWED: &[&str] = &[
+    "finance.usage_binding",
+    "finance.reservations",
+    "finance.remote_auth_error",
+    "finance.digest_mismatch",
+    "finance.stream_outbox",
+    "finance.stream_auth_error",
+    "remote.dispatch_lookup",
+    "remote.d2_round_chain",
+    "remote.dispatch_ambiguous",
+    "remote.attempt_read",
+    "remote.attempt_missing",
+    "remote.attempt_binding",
+    "remote.response_binding",
+    "remote.submit_origin",
+    "remote.expected_identity",
+    "remote.fact_authentication",
+    "remote.local_disposition",
+    "remote.accounting_projection",
+    "remote.grant_projection",
+    "remote.credential_projection",
+    "effects.stream_validation",
+    "effects.taskrun_replay",
+    "effects.submit_origin",
+    "effects.local_row",
+    "effects.local_binding",
+    "effects.latest_attempt",
+    "effects.local_terminal_proof",
+    "effects.local_terminal_unproven",
+    "effects.local_projection",
+    "effects.local_row_optional",
+    "effects.unexpected_local_row",
+    "effects.remote_snapshot",
+    "source.selected_profile",
+    "source.claim_source",
+    "source.claim_actor",
+    "source.begin_source",
+    "source.writer_lease",
+    "source.applicability",
+    "source.existing_pin",
+    "restart.binding",
+    "restart.live_epoch",
+    "restart.taskrun_state",
+    "restart.active_attempt",
+    "restart.active_cycle",
+    "restart.expected_head",
+    "restart.profile",
+    "restart.claim",
+    "restart.budget",
+    "restart.effect_rows",
+    "restart.dispatch_intent",
+    "no_effect.capture",
+    "no_effect.claim",
+    "no_effect.occupation",
+    "no_effect.runtime_evidence",
+    "no_effect.release",
+    "no_effect.mark",
+];
+
 pub(crate) fn record(stage: &'static str) {
+    if ALLOWED.contains(&stage) {
+        effects::record(stage);
+    }
     #[cfg(feature = "test-support")]
     {
         eprintln!("runne-store-diagnostic stage={stage}");
@@ -11,62 +75,13 @@ pub(crate) fn record(stage: &'static str) {
 
 #[cfg(feature = "test-support")]
 fn write_test_stage(stage: &'static str) {
-    const ALLOWED: &[&str] = &[
-        "remote.dispatch_lookup",
-        "remote.d2_round_chain",
-        "remote.dispatch_ambiguous",
-        "remote.attempt_read",
-        "remote.attempt_missing",
-        "remote.attempt_binding",
-        "remote.response_binding",
-        "remote.submit_origin",
-        "remote.expected_identity",
-        "remote.fact_authentication",
-        "remote.local_disposition",
-        "remote.accounting_projection",
-        "remote.grant_projection",
-        "remote.credential_projection",
-        "effects.stream_validation",
-        "effects.taskrun_replay",
-        "effects.submit_origin",
-        "effects.local_row",
-        "effects.local_binding",
-        "effects.latest_attempt",
-        "effects.local_terminal_proof",
-        "effects.local_terminal_unproven",
-        "effects.local_projection",
-        "effects.local_row_optional",
-        "effects.unexpected_local_row",
-        "effects.remote_snapshot",
-        "source.selected_profile",
-        "source.claim_source",
-        "source.claim_actor",
-        "source.begin_source",
-        "source.writer_lease",
-        "source.applicability",
-        "source.existing_pin",
-        "restart.binding",
-        "restart.live_epoch",
-        "restart.taskrun_state",
-        "restart.active_attempt",
-        "restart.active_cycle",
-        "restart.expected_head",
-        "restart.profile",
-        "restart.claim",
-        "restart.budget",
-        "restart.effect_rows",
-        "restart.dispatch_intent",
-        "no_effect.capture",
-        "no_effect.claim",
-        "no_effect.occupation",
-        "no_effect.runtime_evidence",
-        "no_effect.release",
-        "no_effect.mark",
-    ];
     if !ALLOWED.contains(&stage) {
         return;
     }
-    let directory_name = if stage.starts_with("no_effect.") {
+    let directory_name = if stage.starts_with("no_effect.")
+        || std::env::var_os("RUNNE_TEST_TERMINAL_AGENT_FIXTURE").as_deref()
+            == Some(std::ffi::OsStr::new("1"))
+    {
         "RUNNE_TEST_PROTECTED_RUNTIME_ROOT"
     } else {
         "RUNNE_TEST_D2_PROVIDER_BARRIER_DIR"

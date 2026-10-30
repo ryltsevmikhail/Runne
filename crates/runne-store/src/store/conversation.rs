@@ -1,7 +1,10 @@
+use runne_application::ports::PrincipalId;
+use runne_domain::id::WorkspaceId;
 mod commit;
 mod context_scope;
 mod diagnose;
 mod fingerprint_compat;
+mod list;
 mod load;
 mod receipts;
 
@@ -37,6 +40,16 @@ pub(crate) fn has_no_active_generation_before_global_position(
 use super::*;
 
 impl ConversationRepository for StoreTransaction {
+    fn list_conversations(
+        &self,
+        principal: &PrincipalId,
+        workspace: WorkspaceId,
+        limit: u16,
+        after: Option<ConversationId>,
+    ) -> Result<Vec<(ConversationId, ConversationLoadedStream)>, EventStoreError> {
+        self.list_conversations_impl(principal, workspace, limit, after)
+    }
+
     fn load_conversation(
         &self,
         conversation_id: ConversationId,

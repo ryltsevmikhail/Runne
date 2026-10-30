@@ -17,6 +17,7 @@ mod queries;
 mod receipts;
 mod reconciliation;
 mod records;
+mod root_identity;
 mod taskrun_audit;
 mod taskrun_fence;
 mod taskrun_origins;
@@ -88,6 +89,14 @@ impl ProjectWorkspaceStore {
 }
 
 impl ProjectWorkspaceRepository for ProjectWorkspaceStore {
+    fn find_workspace_by_root(
+        &self,
+        principal: &str,
+        digest: [u8; 32],
+    ) -> Result<Option<Workspace>, Error> {
+        root_identity::find(&self.store, principal, digest)
+    }
+
     fn create_project(
         &self,
         principal: &str,

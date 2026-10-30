@@ -67,6 +67,7 @@ pub struct RootAdmissionConsumption {
     authority_digest: [u8; 32],
     nonce: [u8; 16],
     admission_digest: [u8; 32],
+    filesystem_identity_digest: [u8; 32],
 }
 
 impl RootAdmissionConsumption {
@@ -75,6 +76,7 @@ impl RootAdmissionConsumption {
             authority_digest: claims.context().authority_digest(),
             nonce: claims.nonce(),
             admission_digest: claims.admission_digest(),
+            filesystem_identity_digest: claims.filesystem_identity_digest(),
         }
     }
     pub fn into_store_binding(self, authority: &str) -> Option<RootAdmissionStoreBinding> {
@@ -82,6 +84,7 @@ impl RootAdmissionConsumption {
             .then_some(RootAdmissionStoreBinding {
                 nonce: self.nonce,
                 admission_digest: self.admission_digest,
+                filesystem_identity_digest: self.filesystem_identity_digest,
             })
     }
 }
@@ -90,8 +93,12 @@ impl RootAdmissionConsumption {
 pub struct RootAdmissionStoreBinding {
     nonce: [u8; 16],
     admission_digest: [u8; 32],
+    filesystem_identity_digest: [u8; 32],
 }
 impl RootAdmissionStoreBinding {
+    pub fn filesystem_identity_digest(&self) -> [u8; 32] {
+        self.filesystem_identity_digest
+    }
     pub fn nonce(&self) -> [u8; 16] {
         self.nonce
     }
@@ -102,6 +109,14 @@ impl RootAdmissionStoreBinding {
 
 /// Principal-bound, versioned repository for canonical Project and Workspace state.
 pub trait ProjectWorkspaceRepository: Clone + Send + Sync + 'static {
+    fn find_workspace_by_root(
+        &self,
+        _principal: &str,
+        _digest: [u8; 32],
+    ) -> Result<Option<Workspace>, ProjectWorkspaceRepositoryError> {
+        Err(ProjectWorkspaceRepositoryError::Unavailable)
+    }
+
     fn create_project(
         &self,
         principal: &str,

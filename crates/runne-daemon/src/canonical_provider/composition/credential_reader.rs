@@ -18,6 +18,7 @@ pub(super) struct CredentialBoundary {
     pub(super) store: Arc<SqliteProviderCredentialLifecycleStore>,
     pub(super) readback: Option<Arc<dyn ProviderCredentialReadback>>,
     pub(super) adapter: Arc<dyn CanonicalProviderEffect>,
+    pub(super) tool_adapter: Option<Arc<dyn CanonicalProviderEffect>>,
     pub(super) status: ProviderCredentialStatus,
     pub(super) enrollment_authorities: Option<CredentialEnrollmentControlAuthorities>,
     #[cfg(all(target_os = "macos", feature = "desktop-protected"))]
@@ -36,21 +37,54 @@ pub(super) fn production(
     credential_id: ProviderCredentialId,
     adapter_factory: &ProviderEffectFactory,
     protected_activation: bool,
+    deepseek_tools: bool,
+    observer: Option<Arc<dyn runne_daemon_deepseek_effect::DeepSeekEffectObserver>>,
 ) -> Result<CredentialBoundary, DaemonError> {
     let credentials = super::super::credential_reader::compose(
         connection,
         credential_id,
-        credential_access_policy(credential_id)?,
+        credential_access_policy(credential_id)
+            .map_err(|_| DaemonError::Bootstrap("provider_compose_access_policy".into()))?,
         protected_activation,
-    )?;
+    )
+    .map_err(|error| match &error {
+        DaemonError::Bootstrap(code) if code.starts_with("provider_compose_") => error,
+        _ => DaemonError::Bootstrap("provider_compose_native_reader".into()),
+    })?;
     let adapter = adapter_factory(
         Arc::clone(&credentials.dispatch),
         Arc::clone(&credentials.store),
-    )?;
+    )
+    .map_err(|_| DaemonError::Bootstrap("provider_compose_primary_adapter".into()))?;
+    let tool_adapter = if deepseek_tools {
+        if credential_id != ProviderCredentialId::DeepSeek || !protected_activation {
+            return Err(DaemonError::Bootstrap(
+                "tool provider binding rejected".into(),
+            ));
+        }
+        let tool = match observer {
+            Some(observer) => {
+                <dyn runne_daemon_deepseek_effect::DeepSeekEffect>::production_tools_with_observer(
+                    Arc::clone(&credentials.dispatch),
+                    observer,
+                )
+            }
+            None => <dyn runne_daemon_deepseek_effect::DeepSeekEffect>::production_tools(
+                Arc::clone(&credentials.dispatch),
+            ),
+        };
+        Some(
+            tool.map(crate::canonical_provider::deepseek_effect_adapter)
+                .map_err(|_| DaemonError::Bootstrap("tool provider unavailable".into()))?,
+        )
+    } else {
+        None
+    };
     Ok(CredentialBoundary {
         store: credentials.store,
         readback: Some(credentials.readback),
         adapter,
+        tool_adapter,
         status: ProviderCredentialStatus::Missing,
         enrollment_authorities: Some(CredentialEnrollmentControlAuthorities {
             measurements: credentials.measurements,
@@ -97,6 +131,7 @@ pub(super) fn production_background(
         store: credentials.store,
         readback: Some(credentials.readback),
         adapter,
+        tool_adapter: None,
         status: ProviderCredentialStatus::Missing,
         enrollment_authorities: Some(CredentialEnrollmentControlAuthorities {
             measurements: credentials.measurements,
@@ -127,6 +162,7 @@ pub(super) fn fixture_missing(
         store,
         readback: None,
         adapter,
+        tool_adapter: None,
         status: ProviderCredentialStatus::Missing,
         enrollment_authorities: None,
         #[cfg(all(target_os = "macos", feature = "desktop-protected"))]
@@ -146,6 +182,7 @@ pub(super) fn fixture_enrolled(
         store,
         readback: None,
         adapter,
+        tool_adapter: None,
         status: ProviderCredentialStatus::Configured,
         enrollment_authorities: None,
         #[cfg(all(target_os = "macos", feature = "desktop-protected"))]
@@ -177,6 +214,7 @@ pub(super) fn fixture(
         store: credentials.store,
         readback: None,
         adapter,
+        tool_adapter: None,
         status: ProviderCredentialStatus::Configured,
         enrollment_authorities: None,
         #[cfg(all(target_os = "macos", feature = "desktop-protected"))]
@@ -198,6 +236,7 @@ pub(super) fn fixture(
         store,
         readback: None,
         adapter,
+        tool_adapter: None,
         status: ProviderCredentialStatus::Configured,
         enrollment_authorities: None,
         #[cfg(all(target_os = "macos", feature = "desktop-protected"))]

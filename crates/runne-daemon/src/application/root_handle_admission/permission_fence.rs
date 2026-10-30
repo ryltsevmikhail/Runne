@@ -221,6 +221,7 @@ struct PermissionRootFenceAdapter {
 
 struct HeldPermissionRoot<'a> {
     _state: MutexGuard<'a, State>,
+    #[cfg(target_os = "linux")]
     files: runne_platform_desktop::LinuxCommandWorkspaceFiles,
     version: u64,
     identity: [u8; 32],
@@ -250,19 +251,28 @@ impl PermissionRootFenceOwnerV1 for PermissionRootFenceAdapter {
             .ok_or(runne_application::ports::EventStoreError::Unavailable)?;
         let version = active.version;
         let identity = active.handle.filesystem_identity_digest();
-        let files = active
-            .handle
-            .open_linux_command_workspace(std::path::Path::new("."))
-            .map_err(|_| runne_application::ports::EventStoreError::Unavailable)?;
-        Ok(Box::new(HeldPermissionRoot {
-            _state: state,
-            files,
-            version,
-            identity,
-        }))
+        #[cfg(target_os = "linux")]
+        {
+            let files = active
+                .handle
+                .open_linux_command_workspace(std::path::Path::new("."))
+                .map_err(|_| runne_application::ports::EventStoreError::Unavailable)?;
+            return Ok(Box::new(HeldPermissionRoot {
+                _state: state,
+                files,
+                version,
+                identity,
+            }));
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            let _ = (state, version, identity);
+            Err(runne_application::ports::EventStoreError::Unavailable)
+        }
     }
 }
 
+#[cfg(target_os = "linux")]
 impl PermissionRootFenceGuardV1 for HeldPermissionRoot<'_> {
     fn workspace(&self) -> &std::fs::File {
         self.files.workspace()

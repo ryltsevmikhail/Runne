@@ -1,18 +1,17 @@
 use super::*;
 
 #[test]
-fn legacy_mutations_reject_before_input_identity_or_native_store() {
+fn mutations_reject_before_identity_or_native_store_when_the_backend_is_unsupported() {
     for command in [
         ProviderCredentialCommand::Set(ProviderCredentialId::OpenAi),
         ProviderCredentialCommand::Delete(ProviderCredentialId::OpenAi),
     ] {
         let result = execute_provider_credential_on_platform(
             command,
-            &mut PanicRead,
-            false,
-            &mut PanicBackend,
+            &PanicBackend,
             &PanicResolver,
-            true,
+            false,
+            &panic_read,
         );
         assert!(matches!(
             result,
@@ -21,19 +20,15 @@ fn legacy_mutations_reject_before_input_identity_or_native_store() {
     }
 }
 
-struct PanicRead;
-
-impl std::io::Read for PanicRead {
-    fn read(&mut self, _: &mut [u8]) -> std::io::Result<usize> {
-        panic!("legacy mutation must not read stdin")
-    }
+fn panic_read(_: ProviderCredentialId) -> Result<ProviderCredentialMaterial, CliError> {
+    panic!("mutation must not read a secret")
 }
 
 struct PanicResolver;
 
 impl CredentialIdentityResolver for PanicResolver {
     fn resolve(&self) -> Result<ProviderCredentialAccessPolicy, CliError> {
-        panic!("legacy mutation must not resolve native identity")
+        panic!("mutation must not resolve native identity")
     }
 }
 
@@ -45,6 +40,19 @@ impl CredentialBackend for PanicBackend {
         _: ProviderCredentialId,
         _: &ProviderCredentialAccessPolicy,
     ) -> Result<CredentialOutcome, SecureStoreError> {
-        panic!("legacy mutation must not query native store")
+        panic!("mutation must not query native store")
+    }
+
+    fn store(
+        &self,
+        _: ProviderCredentialId,
+        _: &ProviderCredentialMaterial,
+        _: &ProviderCredentialAccessPolicy,
+    ) -> Result<(), SecureStoreError> {
+        panic!("mutation must not store")
+    }
+
+    fn delete(&self, _: ProviderCredentialId) -> Result<(), SecureStoreError> {
+        panic!("mutation must not delete")
     }
 }

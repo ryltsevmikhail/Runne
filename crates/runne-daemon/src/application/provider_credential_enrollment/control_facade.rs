@@ -1,7 +1,7 @@
 use std::sync::Arc;
 #[cfg(any(
     test,
-    target_os = "linux",
+    unix,
     all(
         feature = "desktop-protected",
         target_os = "macos",
@@ -87,8 +87,7 @@ use super::{ProviderCredentialAdmission, begin::ProviderCredentialEnrollmentBegi
 ))]
 mod protected_session;
 #[cfg(any(
-    all(test, unix),
-    target_os = "linux",
+    any(test, unix),
     all(
         feature = "desktop-protected",
         target_os = "macos",
@@ -119,8 +118,7 @@ pub(crate) use protected_session::InitialCredentialExchange;
 ))]
 pub(crate) use protected_session::PostcommitAdmissionPermit;
 #[cfg(any(
-    all(test, unix),
-    target_os = "linux",
+    any(test, unix),
     all(
         feature = "desktop-protected",
         target_os = "macos",
@@ -153,8 +151,7 @@ pub(crate) struct DaemonProviderCredentialEnrollmentControl {
     handles: ProviderCredentialOperationHandleIssuer,
     rendezvous: PendingBrokerRendezvousRegistry,
     #[cfg(any(
-        all(test, unix),
-        target_os = "linux",
+        any(test, unix),
         all(
             feature = "desktop-protected",
             target_os = "macos",

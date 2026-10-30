@@ -1,3 +1,4 @@
+use crate::permission_modes::compiler_rules::workspace_process_scope;
 use crate::project_trust::{
     ManagedEffectClass, ManagedEffectDecision, ProjectTrustEffectPolicySnapshot,
     ProjectTrustProjectId, managed_effect_policy_digest_v2,
@@ -108,6 +109,9 @@ impl ClosedManagedCoverageV1 {
                 }
             }
             FilesystemPosture::BoundedRoots(_) => {
+                if workspace_process_scope(scope) {
+                    add(ManagedEffectClass::ProcessStart);
+                }
                 for right in &scope.filesystem.permissions {
                     add(class_for_right(*right));
                 }
@@ -118,6 +122,14 @@ impl ClosedManagedCoverageV1 {
     }
 
     pub(crate) fn supports_scope(self, scope: &CompositeEffectScope) -> bool {
+        if workspace_process_scope(scope) {
+            return scope.managed_policy.policy_digest() == self.policy_digest
+                && self.disposition(ManagedEffectClass::ProcessStart)
+                    != ManagedEffectDecision::Deny
+                && scope.filesystem.permissions.iter().all(|right| {
+                    self.disposition(class_for_right(*right)) != ManagedEffectDecision::Deny
+                });
+        }
         if scope.containment == ContainmentStrategy::SameUserCompositeV2 {
             return self.supports_scope_shape(scope);
         }
@@ -190,6 +202,9 @@ impl ClosedManagedCoverageV1 {
     }
 
     pub(crate) fn supports_scope_shape(self, scope: &CompositeEffectScope) -> bool {
+        if workspace_process_scope(scope) {
+            return scope.managed_policy.policy_digest() == self.policy_digest;
+        }
         if scope.managed_policy.policy_digest() != self.policy_digest {
             return false;
         }

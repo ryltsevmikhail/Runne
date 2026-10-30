@@ -9,6 +9,9 @@
 use std::fmt;
 use thiserror::Error;
 
+/// Upper bound on backend-specific framing added to a mutation-payload envelope.
+pub const MAX_MUTATION_PAYLOAD_ENVELOPE_OVERHEAD: usize = 256;
+
 mod payload_crypto;
 #[cfg(feature = "project-owner-key-store")]
 mod project_owner_key;
@@ -268,7 +271,11 @@ mod macos;
 pub use macos::MacOsKeychainStore;
 
 #[cfg(target_os = "macos")]
-pub use macos::MacOsProviderCredentialStore as NativeProviderCredentialStore;
+pub use macos::MacOsPlainProviderCredentialStore;
+#[cfg(target_os = "macos")]
+pub use macos::MacOsPlainProviderCredentialStore as NativeProviderCredentialStore;
+#[cfg(target_os = "macos")]
+pub use macos::MacOsProviderCredentialStore;
 
 #[cfg(all(target_os = "macos", feature = "test-support"))]
 pub use macos::ScenarioSourceSlotSeed;

@@ -139,7 +139,7 @@ impl Fixture {
     }
 }
 
-struct FixedObserver;
+pub(in crate::updater_metadata) struct FixedObserver;
 
 impl CodeIdentityObserver for FixedObserver {
     fn verify_bundle(&self, _path: &Path) -> Result<(), super::NativeEnrollmentTupleError> {

@@ -10,7 +10,9 @@ const JOURNAL_BOOTSTRAP: &str =
     "crates/runne-daemon/src/canonical_provider/composition/journal_bootstrap.rs";
 
 pub(super) fn is_allowed_to_string_projection(path: &str, tokens: &[Token], index: usize) -> bool {
-    is_daemon_error_wrapper(path, tokens, index)
+    // Tool activity projects canonical identifiers into its bounded response.
+    path == "crates/runne-daemon/src/application/http_startup/tool_activity.rs"
+        || is_daemon_error_wrapper(path, tokens, index)
         || is_exact_authority_uuid_format(path, tokens, index)
 }
 

@@ -8,6 +8,7 @@ pub(crate) fn load_task_run_effects_snapshot_in_transaction(
     >,
     successor_eligibility: SuccessorEligibilityV1,
 ) -> Result<runne_application::ports::TaskRunEffectsReadSnapshot, EventStoreError> {
+    let diagnostic = crate::store::test_support_diagnostics::effects::Scope::new(tx.path());
     let verified = crate::store::test_support_diagnostics::on_error(
         "effects.stream_validation",
         crate::store::taskrun_claim::stream_validate::verify_stream(tx, taskrun_id, None)
@@ -179,14 +180,40 @@ pub(crate) fn load_task_run_effects_snapshot_in_transaction(
     if source1.is_some() && remote.is_some() {
         return Err(EventStoreError::CorruptData);
     }
+    let queued_cancelled = !local_is_selected
+        && attempt_id.is_none()
+        && cancellation_requested
+        && taskrun.state() == runne_domain::task_run::TaskRunState::Cancelled
+        && super::taskrun_cancellation_completion::prove_unclaimed_cancelled(
+            tx,
+            taskrun_id,
+            runtime_authority_id,
+        )
+        .is_ok();
+    // A terminal attempt that carries none of the durable provider-delivery
+    // slots never reached the provider. Without this branch a recovered
+    // pre-dispatch claim projects an unknown remote effect, which keeps a safe
+    // runtime exit blocked even though no delivery was ever issued.
+    let delivery_absent = match attempt_id {
+        Some(attempt) if !local_is_selected && taskrun.state().is_terminal() => {
+            provider_delivery_evidence(tx, taskrun_id, attempt)?.proves_no_delivery()
+        }
+        _ => false,
+    };
     let effects = TaskRunEffectsV1 {
         taskrun_id,
         stream_version,
         attempt_id,
         cancellation_requested,
         local_command,
-        remote: if let Some(fact) = source1.as_ref() {
+        remote: if queued_cancelled {
+            let mut effect = project_remote_effect(None, false, true);
+            effect.outcome = runne_api::RemoteEffectOutcomeV1::NotStarted;
+            effect
+        } else if let Some(fact) = source1.as_ref() {
             project_unknown_source1_effect(fact, cancellation_requested)
+        } else if delivery_absent {
+            project_no_delivery_remote(cancellation_requested)
         } else {
             project_remote_effect(remote.as_ref(), cancellation_requested, local_is_selected)
         },
@@ -196,12 +223,15 @@ pub(crate) fn load_task_run_effects_snapshot_in_transaction(
             successor_eligibility
         },
     };
+    diagnostic.succeeded();
     Ok(runne_application::ports::TaskRunEffectsReadSnapshot {
         effects,
         remote,
         source1,
     })
 }
+
+include!("effects_remote_snapshot_no_effect.rs");
 
 include!("effects_remote_snapshot_projection.rs");
 

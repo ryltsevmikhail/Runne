@@ -5,11 +5,14 @@ use super::super::*;
 pub(in crate::store) struct RegisteredPermissionOwnerPair {
     pub(super) trust_store: Arc<crate::ProjectTrustStore>,
     trust_identity: ([u8; 16], u64),
+    #[cfg(target_os = "linux")]
     pub(super) native_owner: Arc<runne_platform::local_command_linux::LinuxPermissionOwnerV1>,
     pub(super) root_fence: Arc<dyn PermissionRootFenceOwnerV1>,
 }
 
 impl RegisteredPermissionOwnerPair {
+    /// Registers the retained Linux native owner; other platforms have no producer.
+    #[cfg(target_os = "linux")]
     pub(super) fn checked(
         authority: RuntimeAuthorityId,
         trust_store: Arc<crate::ProjectTrustStore>,

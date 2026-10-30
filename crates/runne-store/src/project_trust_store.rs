@@ -206,6 +206,9 @@ mod current_fence_tests;
 #[cfg(all(test, unix))]
 mod effect_lease_tests;
 
+#[cfg(all(test, target_os = "linux"))]
+pub(crate) mod concurrent_test_support;
+
 #[cfg(test)]
 mod tests {
     use super::masked_epoch;

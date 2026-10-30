@@ -255,7 +255,7 @@ mod enrollment_v3_broker_rejection_tests;
 mod enrollment_v3_broker_tests;
 #[cfg(all(test, unix, feature = "desktop-protected"))]
 mod enrollment_v3_tests;
-#[cfg(all(test, target_os = "linux", feature = "desktop-protected"))]
+#[cfg(all(test, unix, feature = "desktop-protected"))]
 pub(crate) use enrollment_v3_tests::owned_and_sessions as test_enrollment_owned_and_sessions;
 #[cfg(all(test, unix, feature = "test-support"))]
 mod launch_channel_tests;
@@ -267,3 +267,14 @@ mod test_root_admission_fixture;
 pub mod test_support;
 
 include!("protected_activation/bootstrap_validation.rs");
+
+#[cfg(all(unix, feature = "desktop-protected"))]
+pub mod terminal_adoption;
+
+#[cfg(all(
+    target_os = "linux",
+    feature = "desktop-protected",
+    feature = "test-support",
+    not(test)
+))]
+mod terminal_fixture;

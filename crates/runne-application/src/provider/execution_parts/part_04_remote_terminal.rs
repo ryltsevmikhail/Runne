@@ -177,6 +177,8 @@ pub enum ProviderRemoteLocalDisposition {
     NoOutputApplied,
     AuditOnly,
     AcceptedCancellationClosed,
+    /// Verified coding cancellation closure after all bound provider rounds are terminal.
+    AcceptedCancellationAfterTerminal,
     Superseded,
     Unknown,
 }

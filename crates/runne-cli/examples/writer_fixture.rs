@@ -6,12 +6,17 @@
 //! Only authenticates and constructs the writer; does not claim or execute
 //! a credential effect. Exit success is not full enrollment evidence.
 
+#[cfg(target_os = "linux")]
 use std::io::Read as _;
 
+#[cfg(target_os = "linux")]
 use runne_native_enrollment_authority::AuthenticatedProviderCredentialWriterSession;
+#[cfg(target_os = "linux")]
 use runne_secure_store::NativeProviderCredentialWriters;
+#[cfg(target_os = "linux")]
 use runne_secure_store::{CountingFakeSource, install_test_source};
 
+#[cfg(target_os = "linux")]
 fn main() {
     // Fixture store state only — no real Secret Service or keyutils contact.
     let fake = CountingFakeSource::unlocked();
@@ -39,4 +44,10 @@ fn main() {
     drop(control);
     drop(ticket);
     drop(effect_route);
+}
+
+#[cfg(not(target_os = "linux"))]
+fn main() {
+    eprintln!("this fixture is Linux-only");
+    std::process::exit(1);
 }

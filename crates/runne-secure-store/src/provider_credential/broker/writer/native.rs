@@ -5,6 +5,10 @@ mod native_helpers;
 
 use native_helpers::{BrokerAuthorizedCreate, map_lifecycle, provider, version};
 
+#[cfg(all(target_os = "macos", feature = "provider-credential-broker-writer"))]
+use super::BrokeredProviderCredentialLegacySource;
+#[cfg(all(target_os = "macos", feature = "provider-credential-broker-writer"))]
+use runne_provider::CredentialWriterEffectAuthority;
 #[cfg(any(test, feature = "test-support"))]
 use runne_provider::{CredentialAuthorityPair, CredentialWriterAuthorityPair};
 use runne_provider::{

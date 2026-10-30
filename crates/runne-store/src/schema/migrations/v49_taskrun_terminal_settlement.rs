@@ -26,7 +26,7 @@ pub(super) fn apply_v49_migration(connection: &Connection) -> SqliteResult<()> {
 }
 
 pub(super) fn v49_matches(connection: &Connection, version: i64) -> SqliteResult<bool> {
-    if !matches!(version, 49..=68) {
+    if !matches!(version, 49..=71) {
         return Ok(false);
     }
     if !v48_matches(connection, version)? {
@@ -135,8 +135,17 @@ pub(super) fn v49_matches(connection: &Connection, version: i64) -> SqliteResult
         ))
     })?;
     for row in rows {
-        let (payload, intent, taskrun_id, attempt_id, node_id, node_epoch, fence, terminal_event_id, terminal_version) =
-            row?;
+        let (
+            payload,
+            intent,
+            taskrun_id,
+            attempt_id,
+            node_id,
+            node_epoch,
+            fence,
+            terminal_event_id,
+            terminal_version,
+        ) = row?;
         let Ok(event) = TaskRunEventCodec.decode(&payload) else {
             return Ok(false);
         };

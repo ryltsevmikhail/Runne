@@ -11,12 +11,12 @@ use std::os::unix::fs::PermissionsExt as _;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-pub(super) struct Fixture {
-    pub(super) temporary: PathBuf,
+pub struct Fixture {
+    pub(crate) temporary: PathBuf,
     pub(super) bundle: PathBuf,
     pub(super) cli: PathBuf,
-    pub(super) daemon: PathBuf,
-    pub(super) root: PathBuf,
+    pub(crate) daemon: PathBuf,
+    pub(crate) root: PathBuf,
     pub(super) home: PathBuf,
     pub(super) state: PathBuf,
     pub(super) mock_log: PathBuf,
@@ -34,7 +34,7 @@ fn private_directory(path: &Path) {
         .expect("set private fixture permissions");
 }
 
-pub(super) fn fixture() -> Fixture {
+pub fn fixture() -> Fixture {
     let parent = std::env::var_os("RUNNE_CLI_OWNER_ARTIFACT_ROOT").map_or_else(
         || PathBuf::from(std::env::var_os("HOME").expect("fixture HOME")),
         PathBuf::from,
@@ -94,9 +94,7 @@ pub(super) fn fixture() -> Fixture {
     clippy::too_many_lines,
     reason = "one real daemon fixture seeds workspace trust for CLI lifecycle tests"
 )]
-pub(super) fn seed_workspace(
-    fixture: &Fixture,
-) -> (runne_runtime_client::CanonicalId, u64, String) {
+pub fn seed_workspace(fixture: &Fixture) -> (runne_runtime_client::CanonicalId, u64, String) {
     runne_platform_desktop::require_linux_cli_baseline_root(&fixture.root)
         .expect("baseline root before real daemon fixture");
     let spec = ProtectedBundledRuntimeLaunchSpec::new(&fixture.daemon, &fixture.root)

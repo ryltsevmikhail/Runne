@@ -8,6 +8,10 @@ where
 {
     Router::new()
         .route(
+            "/v1/task-runs/{taskrun_id}/tools",
+            get(get_task_run_tool_activity::<H>),
+        )
+        .route(
             "/v1/task-runs",
             get(list_task_runs::<H>).post(create_task_run::<H>),
         )

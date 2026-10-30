@@ -16,7 +16,7 @@ use crate::canonical_provider::ProviderEffectFactory;
 use crate::canonical_provider::{RuntimeStoreDecorator, openai_effect_adapter};
 use crate::error::DaemonError;
 use ack_failure_store::AckFailureStore;
-use bootstrap::RetainedFixtureKeyring;
+pub(super) use bootstrap::RetainedFixtureKeyring;
 use tls_sse_server::TlsSseServer;
 #[cfg(not(test))]
 use zeroize::Zeroizing;

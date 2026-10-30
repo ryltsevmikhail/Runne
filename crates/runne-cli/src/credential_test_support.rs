@@ -1,7 +1,8 @@
 use super::{
     CliError, CredentialBackend, CredentialIdentityResolver, CredentialOutcome, OsString,
     OutputFormat, ProcessOutcome, ProviderCredentialAccessPolicy, ProviderCredentialId,
-    SecureStoreError, VecDeque, process_outcome, run_provider_credential_with,
+    ProviderCredentialMaterial, SecureStoreError, VecDeque, process_outcome,
+    run_provider_credential_with,
 };
 use std::io::Read;
 #[cfg(unix)]
@@ -18,20 +19,30 @@ pub fn run(
     stdin_is_terminal: bool,
     scenario: &str,
 ) -> ProcessResult {
+    let mut secret = Vec::new();
+    if stdin_is_terminal {
+        input.read_to_end(&mut secret).expect("read test secret");
+    }
     let mut backend = Backend {
-        configured: scenario == "status",
-        failure: scenario == "backend-error",
+        configured: std::cell::Cell::new(scenario == "status"),
+        failure: scenario == "backend-error" || scenario == "set-backend-error",
+        drop_store: scenario == "drop-store",
     };
     let resolver = Resolver::new(
         scenario == "resolver-error" || scenario == "set-resolver-error" || scenario == "delete",
     );
+    let read_secret = |_: ProviderCredentialId| {
+        if !stdin_is_terminal {
+            return Err(CliError::CredentialRequiresTerminal);
+        }
+        ProviderCredentialMaterial::new(secret.clone()).map_err(|_| CliError::CredentialOperation)
+    };
     let result = run_provider_credential_with(
         VecDeque::from(arguments),
-        input,
-        stdin_is_terminal,
         &mut backend,
         &resolver,
         true,
+        &read_secret,
     );
     ProcessResult {
         outcome: process_outcome(result, OutputFormat::Text),
@@ -79,8 +90,9 @@ impl CredentialIdentityResolver for Resolver {
 }
 
 struct Backend {
-    configured: bool,
+    configured: std::cell::Cell<bool>,
     failure: bool,
+    drop_store: bool,
 }
 
 impl CredentialBackend for Backend {
@@ -94,10 +106,35 @@ impl CredentialBackend for Backend {
                 "backend-detail".to_owned(),
             ));
         }
-        Ok(if self.configured {
+        Ok(if self.configured.get() {
             CredentialOutcome::Configured
         } else {
             CredentialOutcome::Missing
         })
+    }
+
+    fn store(
+        &self,
+        _id: ProviderCredentialId,
+        _material: &ProviderCredentialMaterial,
+        _access: &ProviderCredentialAccessPolicy,
+    ) -> Result<(), SecureStoreError> {
+        if self.failure {
+            return Err(SecureStoreError::OperationFailed(
+                "backend-detail".to_owned(),
+            ));
+        }
+        self.configured.set(!self.drop_store);
+        Ok(())
+    }
+
+    fn delete(&self, _id: ProviderCredentialId) -> Result<(), SecureStoreError> {
+        if self.failure {
+            return Err(SecureStoreError::OperationFailed(
+                "backend-detail".to_owned(),
+            ));
+        }
+        self.configured.set(false);
+        Ok(())
     }
 }

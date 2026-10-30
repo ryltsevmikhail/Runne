@@ -45,4 +45,12 @@ impl<R: ProjectWorkspaceRepository, C: CurrentRootAdmissionContext, V: RootAdmis
         self.submit(|reply| WorkItem::GetWorkspace(context, id, reply))
             .await
     }
+    async fn find_workspace_by_root(
+        &self,
+        context: ProjectQueryContext,
+        digest: [u8; 32],
+    ) -> Result<Option<WorkspaceSnapshot>, ProjectWorkspaceHostError> {
+        self.submit(|reply| WorkItem::FindWorkspaceByRoot(context, digest, reply))
+            .await
+    }
 }

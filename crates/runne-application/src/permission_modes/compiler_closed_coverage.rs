@@ -24,6 +24,7 @@ pub(crate) fn check_minimum(
     }
     if action == PermissionAction::ProcessStart
         && scope.containment == ContainmentStrategy::WorkspaceBoundV1
+        && !crate::permission_modes::compiler_rules::workspace_process_scope(scope)
     {
         return Err(DenyReason::OutsideAdmittedScope);
     }

@@ -109,7 +109,7 @@ pub fn create_empty_generic_password(
     metadata: &[u8],
     exact: &ExactKeychainAccess,
 ) -> Result<CreatedGenericPasswordItem, KeychainAclError> {
-    create_generic_password_content(keychain, service, account, metadata, None, exact)
+    create_generic_password_content_with_access(keychain, service, account, metadata, None, &exact.creation_access)
 }
 
 /// Creates one generic-password item atomically under the exact ACL with the
@@ -135,16 +135,23 @@ pub fn create_populated_generic_password(
     password: &[u8],
     exact: &ExactKeychainAccess,
 ) -> Result<CreatedGenericPasswordItem, KeychainAclError> {
-    create_generic_password_content(keychain, service, account, metadata, Some(password), exact)
+    create_generic_password_content_with_access(
+        keychain,
+        service,
+        account,
+        metadata,
+        Some(password),
+        &exact.creation_access,
+    )
 }
 
-fn create_generic_password_content(
+fn create_generic_password_content_with_access(
     keychain: &SecKeychain,
     service: &str,
     account: &str,
     metadata: &[u8],
     password: Option<&[u8]>,
-    exact: &ExactKeychainAccess,
+    access: &SecAccess,
 ) -> Result<CreatedGenericPasswordItem, KeychainAclError> {
     if service.is_empty()
         || account.is_empty()
@@ -193,7 +200,7 @@ fn create_generic_password_content(
     // SAFETY: attribute buffers, the optional password buffer and all
     // Security.framework objects remain live for the call, and `item` is a
     // valid writable out-pointer consumed under the create rule below.
-    let initial_access = &exact.creation_access;
+    let initial_access = access;
     let create_status = unsafe {
         SecKeychainItemCreateFromContent(
             GENERIC_PASSWORD_ITEM_CLASS,

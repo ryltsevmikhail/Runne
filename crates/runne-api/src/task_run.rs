@@ -8,6 +8,8 @@ pub use runne_domain::task_run::{
     TaskRunLocalCommand,
 };
 
+mod tool_activity;
+pub use tool_activity::*;
 mod query_port;
 pub use query_port::TaskRunQueryHostPort;
 mod effects;

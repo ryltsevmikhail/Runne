@@ -44,6 +44,7 @@ const taskRunEffectsRussian = {
   'taskRun.effects.cancelNotRequested': 'не запрашивалась',
   'taskRun.effects.cancelRequestedValue': 'запрошена',
   'taskRun.effects.cancelConfirmed': 'подтверждена',
+  'taskRun.effects.cancelAlreadyTerminal': 'запрос провайдера завершён',
   'taskRun.effects.cancelUnconfirmed': 'не подтверждена',
   'taskRun.effects.available': 'доступна',
   'taskRun.effects.unavailableValue': 'недоступна',
