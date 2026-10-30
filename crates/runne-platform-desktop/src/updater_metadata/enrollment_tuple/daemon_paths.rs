@@ -7,9 +7,13 @@ use super::{NativeEnrollmentArtifactPathsV1, NativeEnrollmentTupleError};
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 use runne_macos_process_identity::MacOsLocalPeerProcessIdentity;
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-use security_framework::os::macos::code_signing::{
-    Flags, GuestAttributes, SecCode, SecRequirement,
-};
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+#[path = "daemon_paths/peer_executable.rs"]
+mod peer_executable;
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+use peer_executable::peer_executable_path;
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+use security_framework::os::macos::code_signing::{Flags, SecCode, SecRequirement};
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 use sha2::{Digest as _, Sha256};
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
@@ -174,18 +178,6 @@ impl NativeEnrollmentArtifactPathsV1 {
 }
 
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-fn peer_executable_path(pid: NonZeroU32) -> Result<PathBuf, NativeEnrollmentTupleError> {
-    let mut attributes = GuestAttributes::new();
-    attributes.set_pid(pid.get().cast_signed());
-    SecCode::copy_guest_with_attribues(None, &attributes, Flags::NONE)
-        .map_err(|_| NativeEnrollmentTupleError::Rejected)?
-        .path(Flags::NONE)
-        .ok()
-        .and_then(|path| path.to_path())
-        .and_then(|path| std::fs::canonicalize(path).ok())
-        .ok_or(NativeEnrollmentTupleError::Rejected)
-}
-
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
 fn staged_directory(runtime_root: &Path) -> Result<PathBuf, NativeEnrollmentTupleError> {
     let root =

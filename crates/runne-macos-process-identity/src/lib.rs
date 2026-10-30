@@ -36,6 +36,15 @@ pub use credential_service_package_observation::{
     MacOsPendingCredentialServicePackageObservationV1, MacOsVerifiedCredentialServicePackageV1,
 };
 pub use local_parent_channel::validate_current_parent_channel;
+
+/// Kernel-reported executable image path of one live process.
+///
+/// A bundle-signed GUI guest reports its `.app` root through static code
+/// identification; this returns the executable it is actually running.
+#[must_use]
+pub fn executable_path(pid: std::num::NonZeroU32) -> Option<std::path::PathBuf> {
+    ffi::executable_path(pid)
+}
 pub use local_peer::{MacOsLocalPeerProcessIdentity, MacOsLocalPeerProcessIdentityError};
 pub use packaged_writer_observation::{
     MacOsPackagedWriterObservationError, MacOsPendingPackagedWriterObservationV1,
