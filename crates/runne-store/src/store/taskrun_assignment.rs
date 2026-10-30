@@ -218,7 +218,7 @@ pub(super) fn ensure_live_local_node(
     };
     if epoch != id.node_epoch as i64
         || descriptor != 1
-        || platform != "linux"
+        || platform != current_node_platform()
         || protocol != "runne-taskrun-v1"
         || workspace != "git-worktree-v1"
         || capacity <= 0
@@ -259,4 +259,20 @@ fn lease_receipt(expiry: i64) -> Result<TaskRunLeaseReceipt, Error> {
     Ok(TaskRunLeaseReceipt {
         lease_expires_at: Timestamp::from_unix_micros(micros),
     })
+}
+
+/// Platform recorded by the local execution node.
+const fn current_node_platform() -> &'static str {
+    #[cfg(target_os = "linux")]
+    {
+        "linux"
+    }
+    #[cfg(target_os = "macos")]
+    {
+        "darwin"
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    {
+        "unsupported"
+    }
 }
