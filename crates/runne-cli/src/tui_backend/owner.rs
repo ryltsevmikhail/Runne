@@ -96,6 +96,11 @@ pub async fn start_protected(
     let (client, selected_profile) = match connected {
         Ok(value) => value,
         Err(error) => {
+            if let Some(tail) = supervisor.child_stderr_tail() {
+                eprintln!("runne-protected-child-stderr-begin");
+                eprint!("{tail}");
+                eprintln!("runne-protected-child-stderr-end");
+            }
             let _ = supervisor.stop();
             return Err(error);
         }

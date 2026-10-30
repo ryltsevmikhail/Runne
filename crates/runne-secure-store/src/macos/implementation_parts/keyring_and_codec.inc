@@ -67,6 +67,50 @@ const fn map_keychain_error(error: security_framework::base::Error) -> SecureSto
     }
 }
 
+const OPEN_JOURNAL_PREFIX: &str = "v1:";
+const OPEN_JOURNAL_ACCOUNT_PREFIX: &str = "open1:";
+
+/// Reads one journal item through the stable macOS open-ACL bridge.
+///
+/// macOS 27 rejects legacy SecKeychain reads of these items with
+/// `errSecAuthFailed`, so the system `security` tool is the read bridge.
+fn read_open_journal_item(account: &str) -> Result<Option<Zeroizing<Vec<u8>>>, SecureStoreError> {
+    let Some(value) = runne_macos_keychain_acl::read_open_generic_password(SERVICE_NAME, account)
+        .map_err(|_| SecureStoreError::Unavailable)?
+    else {
+        return Ok(None);
+    };
+    let text = std::str::from_utf8(&value)
+        .map_err(|_| SecureStoreError::CorruptProviderJournalKey)?;
+    let encoded = text
+        .strip_prefix(OPEN_JOURNAL_PREFIX)
+        .ok_or(SecureStoreError::CorruptProviderJournalKey)?;
+    use base64::Engine as _;
+    base64::engine::general_purpose::STANDARD
+        .decode(encoded)
+        .map(|bytes| Some(Zeroizing::new(bytes)))
+        .map_err(|_| SecureStoreError::CorruptProviderJournalKey)
+}
+
+fn write_open_journal_item(account: &str, encoded: &[u8]) -> Result<(), SecureStoreError> {
+    // The system tool's password input is capped at 128 bytes, so the 88-byte
+    // payload travels as compact base64 rather than hex.
+    use base64::Engine as _;
+    let text = format!(
+        "{OPEN_JOURNAL_PREFIX}{}",
+        base64::engine::general_purpose::STANDARD.encode(encoded)
+    );
+    runne_macos_keychain_acl::write_open_generic_password(SERVICE_NAME, account, &text).map_err(
+        |_| SecureStoreError::OperationFailed("provider journal keychain write".into()),
+    )
+}
+
+fn delete_open_journal_item(account: &str) -> Result<(), SecureStoreError> {
+    runne_macos_keychain_acl::delete_open_generic_password(SERVICE_NAME, account).map_err(|_| {
+        SecureStoreError::OperationFailed("provider journal keychain delete".into())
+    })
+}
+
 impl ProviderJournalKeyring for MacOsKeychainStore {
     fn retains_multiple_provider_journal_keys(&self) -> bool {
         true
@@ -76,79 +120,65 @@ impl ProviderJournalKeyring for MacOsKeychainStore {
         &self,
         key_ref: ProviderJournalKeyRef,
     ) -> Result<ProviderJournalKeyStatus, SecureStoreError> {
-        let _keychain_locks = acquire_keychain_interaction_locks()
-            .map_err(|()| SecureStoreError::Unavailable)?;
-        let keychain = active_keychain().map_err(|()| SecureStoreError::Unavailable)?;
         let account = self.provider_journal_key_account(key_ref);
-        runne_macos_keychain_acl::generic_password_exists(&keychain, SERVICE_NAME, &account)
-            .map_err(|_| SecureStoreError::Unavailable)
-            .map(|exists| {
-                if exists {
-                    ProviderJournalKeyStatus::Available
-                } else {
-                    ProviderJournalKeyStatus::Missing
-                }
-            })
+        read_open_journal_item(&account).map(|value| {
+            if value.is_some() {
+                ProviderJournalKeyStatus::Available
+            } else {
+                ProviderJournalKeyStatus::Missing
+            }
+        })
     }
 
     fn store_provider_journal_key(
         &self,
         key: &ProviderJournalKeyMaterial,
     ) -> Result<(), SecureStoreError> {
-        let _keychain_locks = acquire_keychain_interaction_locks().map_err(|()| {
-            SecureStoreError::OperationFailed("provider journal keychain lock".into())
-        })?;
-        let keychain = active_keychain().map_err(|()| SecureStoreError::Unavailable)?;
         let account = self.provider_journal_key_account(key.key_ref());
-        match keychain.find_generic_password(SERVICE_NAME, &account) {
-            Ok((encoded, _)) => {
-                let encoded = Zeroizing::new(encoded.as_ref().to_vec());
-                let existing = decode_provider_journal_key(&encoded, key.key_ref())?;
-                return existing.with_bytes(|existing_bytes| {
-                    key.with_bytes(|new_bytes| {
-                        if existing_bytes == new_bytes {
-                            Ok(())
-                        } else {
-                            Err(SecureStoreError::CorruptProviderJournalKey)
-                        }
-                    })
-                });
-            }
-            Err(error) if error.code() == -25300 => {}
-            Err(error) => {
-                return Err(SecureStoreError::OperationFailed(format!(
-                    "provider journal keychain read-before-set: {error}"
-                )));
-            }
+        if let Some(encoded) = read_open_journal_item(&account)? {
+            let existing = decode_provider_journal_key(&encoded, key.key_ref())?;
+            return existing.with_bytes(|existing_bytes| {
+                key.with_bytes(|new_bytes| {
+                    if existing_bytes == new_bytes {
+                        Ok(())
+                    } else {
+                        Err(SecureStoreError::CorruptProviderJournalKey)
+                    }
+                })
+            });
         }
-        let encoded = encode_provider_journal_key(key);
-        keychain.set_generic_password(SERVICE_NAME, &account, &encoded)
-            .map_err(|error| {
-                SecureStoreError::OperationFailed(format!("provider journal keychain set: {error}"))
-            })
+        write_open_journal_item(&account, &encode_provider_journal_key(key))
     }
 
     fn load_provider_journal_key(
         &self,
         key_ref: ProviderJournalKeyRef,
     ) -> Result<ProviderJournalKeyMaterial, SecureStoreError> {
-        let _keychain_locks = acquire_keychain_interaction_locks().map_err(|()| {
-            SecureStoreError::OperationFailed("provider journal keychain lock".into())
-        })?;
-        let keychain = active_keychain().map_err(|()| SecureStoreError::Unavailable)?;
         let account = self.provider_journal_key_account(key_ref);
-        match keychain.find_generic_password(SERVICE_NAME, &account) {
-            Ok((encoded, _)) => {
-                let encoded = Zeroizing::new(encoded.as_ref().to_vec());
-                decode_provider_journal_key(&encoded, key_ref)
-            }
-            Err(error) if error.code() == -25300 => {
-                Err(SecureStoreError::ProviderJournalKeyNotFound)
-            }
-            Err(error) => Err(SecureStoreError::OperationFailed(format!(
-                "provider journal keychain read: {error}"
-            ))),
+        match read_open_journal_item(&account)? {
+            Some(encoded) => decode_provider_journal_key(&encoded, key_ref),
+            None => Err(SecureStoreError::ProviderJournalKeyNotFound),
         }
+    }
+
+    fn replace_provider_journal_key(
+        &self,
+        key: &ProviderJournalKeyMaterial,
+    ) -> Result<(), SecureStoreError> {
+        let account = self.provider_journal_key_account(key.key_ref());
+        write_open_journal_item(&account, &encode_provider_journal_key(key))?;
+        let stored = read_open_journal_item(&account)?
+            .ok_or(SecureStoreError::ProviderJournalKeyNotFound)?;
+        let stored = decode_provider_journal_key(&stored, key.key_ref())?;
+        stored.with_bytes(|stored| {
+            key.with_bytes(|expected| {
+                if stored == expected {
+                    Ok(())
+                } else {
+                    Err(SecureStoreError::CorruptProviderJournalKey)
+                }
+            })
+        })
     }
 
     fn delete_provider_journal_key(
@@ -156,31 +186,22 @@ impl ProviderJournalKeyring for MacOsKeychainStore {
         key_ref: ProviderJournalKeyRef,
         _proof: ProviderJournalKeyDeletionProof,
     ) -> Result<(), SecureStoreError> {
-        let _keychain_locks = acquire_keychain_interaction_locks().map_err(|()| {
-            SecureStoreError::OperationFailed("provider journal keychain lock".into())
-        })?;
-        let keychain = active_keychain().map_err(|()| SecureStoreError::Unavailable)?;
         let account = self.provider_journal_key_account(key_ref);
-        match keychain.find_generic_password(SERVICE_NAME, &account) {
-            Ok((_, item)) => runne_macos_keychain_acl::delete_item(&item).map_err(|error| {
-                SecureStoreError::OperationFailed(format!(
-                    "provider journal keychain delete: {error:?}"
-                ))
-            }),
-            Err(error) if error.code() == -25300 => {
-                Err(SecureStoreError::ProviderJournalKeyNotFound)
-            }
-            Err(error) => Err(SecureStoreError::OperationFailed(format!(
-                "provider journal keychain delete: {error}"
-            ))),
+        if read_open_journal_item(&account)?.is_none() {
+            return Err(SecureStoreError::ProviderJournalKeyNotFound);
         }
+        delete_open_journal_item(&account)
     }
 }
 
 impl MacOsKeychainStore {
     fn provider_journal_key_account(&self, key_ref: ProviderJournalKeyRef) -> String {
+        // macOS 27 rejects the legacy SecKeychain path with errSecAuthFailed and
+        // any `security -w` read of a legacy item blocks on a system prompt.
+        // New material lives in a distinct open-ACL namespace so it is readable
+        // without ever touching a legacy item.
         format!(
-            "{}:provider_journal:{}:{}:{}:{}",
+            "{OPEN_JOURNAL_ACCOUNT_PREFIX}{}:provider_journal:{}:{}:{}:{}",
             self.account_name,
             encode_hex(&key_ref.key_id()),
             key_ref.version(),

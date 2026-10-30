@@ -1,28 +1,49 @@
 impl DevelopmentBundledRuntimeLauncher {
     #[cfg(unix)]
-    #[allow(clippy::too_many_lines)]
     fn launch_unix(
         &self,
         spec: &ProtectedBundledRuntimeLaunchSpec,
         controls: &mut LaunchTestControls,
     ) -> Result<ProtectedBundledRuntimeProcess, ProtectedBundledRuntimeError> {
         let mut diagnostic = ProtectedLaunchDiagnostic::new();
+        let result = self.launch_unix_inner(spec, controls, &mut diagnostic);
+        if let Err(error) = &result {
+            diagnostic.report(*error);
+        }
+        result
+    }
+
+    #[cfg(unix)]
+    #[allow(clippy::too_many_lines)]
+    fn launch_unix_inner(
+        &self,
+        spec: &ProtectedBundledRuntimeLaunchSpec,
+        controls: &mut LaunchTestControls,
+        diagnostic: &mut ProtectedLaunchDiagnostic,
+    ) -> Result<ProtectedBundledRuntimeProcess, ProtectedBundledRuntimeError> {
+        diagnostic.at("executable_path");
         let executable_path = validate_executable_path(spec.executable())?;
         if executable_path != spec.executable() {
             return Err(ProtectedBundledRuntimeError::ExecutableIdentityMismatch);
         }
+        diagnostic.at("runtime_root");
         let runtime_root = ensure_owner_private_directory(spec.runtime_root())?;
         if runtime_root != spec.runtime_root() {
             return Err(ProtectedBundledRuntimeError::RuntimeRootUnavailable);
         }
+        diagnostic.at("source_identity");
         let current_source = ExecutableIdentityV1::measure(&executable_path)
             .map_err(|_| ProtectedBundledRuntimeError::ExecutableIdentityMismatch)?;
         if &current_source != spec.trusted_source_identity() {
             return Err(ProtectedBundledRuntimeError::ExecutableIdentityMismatch);
         }
+        diagnostic.at("profile");
         let profile =
             expected_profile_for_launch(&runtime_root, spec.provider_activation().is_some())?;
         let state_store = ActivationStateStore::open(&runtime_root)?;
+        diagnostic.at("installation_source");
+        let installation = terminal_installation::prepare_launch(&state_store)?;
+        diagnostic.at("launch_artifact");
         let (launch_executable_path, executable) = select_launch_artifact(
             &state_store,
             &executable_path,
@@ -31,12 +52,14 @@ impl DevelopmentBundledRuntimeLauncher {
         )?;
         #[cfg(target_os = "linux")]
         let launched_executable = open_launch_image(&launch_executable_path, &executable)?;
+        diagnostic.at("stable_binding");
         let stable = state_store.load_stable()?;
         let pending = state_store.load_pending()?;
 
         // Forward profile rebind: identity fields are preserved and authenticated
         // by the daemon; the stored binding is replaced only after signed ready.
         let mut rebind_previous: Option<Box<StableRuntimeBindingV1>> = None;
+        diagnostic.at("activation_disposition");
         let disposition = match (pending, stable) {
             (Some(pending), stable) => {
                 if pending.executable() != &executable
@@ -62,6 +85,7 @@ impl DevelopmentBundledRuntimeLauncher {
         #[cfg(target_os = "linux")]
         let provider_bus_address = linux_provider_bus::address_for_launch(spec)?;
 
+        diagnostic.at("launch_authority");
         let issued_at = unix_millis()?;
         let expires_at = issued_at
             .checked_add(
@@ -104,6 +128,7 @@ impl DevelopmentBundledRuntimeLauncher {
             None => DesktopLaunchRequest::V1(request_v1),
         };
 
+        diagnostic.at("protected_channel");
         let (mut parent_channel, child_channel) = UnixStream::pair()
             .map_err(|_| ProtectedBundledRuntimeError::ProtectedChannelUnavailable)?;
         parent_channel
@@ -128,7 +153,12 @@ impl DevelopmentBundledRuntimeLauncher {
                 command.env(name, value);
             }
         }
-        terminal_installation::apply(&mut command, &state_store)?;
+        diagnostic.at("installation_environment");
+        terminal_installation::apply(
+            &mut command,
+            &state_store,
+            installation.current.as_ref(),
+        )?;
         #[cfg(target_os = "linux")]
         linux_provider_bus::apply_to_command(
             &mut command,
@@ -161,13 +191,13 @@ impl DevelopmentBundledRuntimeLauncher {
         if controls.capture_output {
             command.stdout(Stdio::piped()).stderr(Stdio::piped());
         } else {
-            command.stdout(Stdio::null()).stderr(Stdio::null());
+            // The drain keeps the child from blocking on a full pipe while
+            // preserving only a bounded tail for a failed-start explanation.
+            command.stdout(Stdio::null()).stderr(Stdio::piped());
         }
+        diagnostic.at("spawn");
         let Ok(child) = command.spawn() else {
-            let error = ProtectedBundledRuntimeError::SpawnFailed;
-            diagnostic.at("spawn");
-            diagnostic.report(error);
-            return Err(error);
+            return Err(ProtectedBundledRuntimeError::SpawnFailed);
         };
         // `Command` retains the parent-side configuration. Drop it before
         // waiting for a frame so an early child exit closes the inherited
@@ -179,6 +209,7 @@ impl DevelopmentBundledRuntimeLauncher {
         let captured_stdout = child.as_mut().and_then(|child| child.stdout.take());
         #[cfg(feature = "test-support")]
         let captured_stderr = child.as_mut().and_then(|child| child.stderr.take());
+        let child_stderr = start_child_stderr(child.as_mut(), controls.capture_output);
 
         diagnostic.at("child_identity");
         let result = (|| {
@@ -265,12 +296,18 @@ impl DevelopmentBundledRuntimeLauncher {
             }
             controls.checkpoint(ActivationCheckpoint::AfterFinalPin)?;
             state_store.remove_pending()?;
+            if let Some((previous, next)) = &installation.image_upgrade {
+                diagnostic.at("installation_rebind");
+                state_store.migrate_installation_images(previous, next)?;
+            }
             diagnostic.at("process_activation");
             let activation = ready.into_process_activation(request)?;
             Ok(ProtectedBundledRuntimeProcess {
                 child: child
                     .take()
                     .ok_or(ProtectedBundledRuntimeError::InvalidState)?,
+                #[cfg(unix)]
+                child_stderr: None,
                 #[cfg(target_os = "linux")]
                 linux_launch_image: Some(LinuxLaunchImage {
                     runtime_root: runtime_root.clone(),
@@ -293,14 +330,13 @@ impl DevelopmentBundledRuntimeLauncher {
             })
         })();
 
-        if let Err(error) = &result {
-            diagnostic.report(*error);
+        let mut result = result;
+        if let Ok(process) = result.as_mut() {
+            process.child_stderr = child_stderr;
+            return result;
         }
-        if result.is_err()
-            && let Some(child) = child.as_mut()
-        {
-            let _ = child.kill();
-            let _ = child.wait();
+        if let Some((status, tail)) = reap_failed_child(&mut child, child_stderr.as_ref()) {
+            diagnostic.record_child(status, tail);
         }
         result
     }

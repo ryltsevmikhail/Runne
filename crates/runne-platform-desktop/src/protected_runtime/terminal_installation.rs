@@ -11,7 +11,7 @@ const RECORD: &str = "terminal-installation-v1.json";
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct TerminalSource {
+pub(super) struct TerminalSource {
     version: u8,
     config: PathBuf,
     config_sha256: [u8; 32],
@@ -96,7 +96,8 @@ fn config_hash(path: &Path) -> Result<[u8; 32], ProtectedBundledRuntimeError> {
 }
 
 impl TerminalSource {
-    fn validate(&self) -> Result<(), ProtectedBundledRuntimeError> {
+    /// Checks everything the record witnesses except the exact image bytes.
+    fn validate_layout(&self) -> Result<(), ProtectedBundledRuntimeError> {
         let invalid = ProtectedBundledRuntimeError::ActivationStateUnavailable;
         let config_home = self.config.parent().and_then(Path::parent).ok_or(invalid)?;
         // macOS writes provider credentials from the CLI image itself; Linux
@@ -115,7 +116,16 @@ impl TerminalSource {
             || self.daemon.file_name() != Some(std::ffi::OsStr::new("runned"))
             || !host_image_ok
             || config_hash(&self.config)? != self.config_sha256
-            || measured(&self.cli)? != self.cli_image
+        {
+            return Err(invalid);
+        }
+        Ok(())
+    }
+
+    fn validate(&self) -> Result<(), ProtectedBundledRuntimeError> {
+        self.validate_layout()?;
+        let invalid = ProtectedBundledRuntimeError::ActivationStateUnavailable;
+        if measured(&self.cli)? != self.cli_image
             || measured(&self.daemon)? != self.daemon_image
             || measured(&self.host)? != self.host_image
         {
@@ -133,6 +143,16 @@ fn load(
         source.validate()?;
     }
     Ok(source)
+}
+
+#[cfg(target_os = "macos")]
+fn macos_home_for(config_home: &Path) -> Result<PathBuf, ProtectedBundledRuntimeError> {
+    config_home
+        .parent()
+        .and_then(Path::parent)
+        .filter(|home| config_home == home.join("Library").join("Application Support"))
+        .map(Path::to_path_buf)
+        .ok_or(ProtectedBundledRuntimeError::ActivationStateUnavailable)
 }
 
 pub(super) fn select(
@@ -159,8 +179,9 @@ pub(super) fn select(
 pub(super) fn apply(
     command: &mut Command,
     state: &ActivationStateStore,
+    source: Option<&TerminalSource>,
 ) -> Result<(), ProtectedBundledRuntimeError> {
-    if let Some(source) = load(state)? {
+    if let Some(source) = source {
         let config_home = source
             .config
             .parent()
@@ -190,15 +211,8 @@ pub(super) fn apply(
     Ok(())
 }
 
-#[cfg(target_os = "macos")]
-fn macos_home_for(config_home: &Path) -> Result<PathBuf, ProtectedBundledRuntimeError> {
-    config_home
-        .parent()
-        .and_then(Path::parent)
-        .filter(|home| config_home == home.join("Library").join("Application Support"))
-        .map(Path::to_path_buf)
-        .ok_or(ProtectedBundledRuntimeError::ActivationStateUnavailable)
-}
+mod launch_source;
+pub(super) use launch_source::{InstallationLaunchSource, prepare_launch};
 
 #[cfg(test)]
 #[path = "terminal_installation_tests.rs"]
