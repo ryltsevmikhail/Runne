@@ -13,9 +13,9 @@ pub(crate) mod coding_arguments;
 mod coding_command;
 #[cfg(target_os = "macos")]
 mod coding_command_sandbox;
-mod coding_process;
 pub(crate) mod coding_fs;
 mod coding_listing;
+mod coding_process;
 #[cfg(all(test, target_os = "linux"))]
 mod coding_tests;
 #[cfg(feature = "test-support")]
