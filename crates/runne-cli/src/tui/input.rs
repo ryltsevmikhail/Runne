@@ -15,7 +15,7 @@ pub(super) fn key(
         return Ok(true);
     }
     if state.credential_prompt.is_some() {
-        return credential_key(state, key, commands);
+        return Ok(credential_key(state, key));
     }
     let send = |command| send_command(commands, command);
     if key.modifiers.contains(KeyModifiers::CONTROL) {
@@ -119,7 +119,7 @@ fn submit(
     match text.trim() {
         "" => {}
         "/login" | "/login deepseek" => {
-            begin_credential(state, crate::ProviderCredentialId::DeepSeek)?
+            begin_credential(state, crate::ProviderCredentialId::DeepSeek)?;
         }
         "/login openai" => begin_credential(state, crate::ProviderCredentialId::OpenAi)?,
         "/new" => send(UiCommand::NewSession)?,
@@ -200,13 +200,28 @@ fn begin_credential(
     Ok(())
 }
 
-fn credential_key(
+/// Reports exactly the completed step: the key reached the login Keychain.
+///
+/// The TUI cannot run the credential enrollment lifecycle, so the provider
+/// stays unactivated and dispatch keeps failing closed. The notice must not
+/// imply readiness or a runtime restart that would not change that.
+const CREDENTIAL_STORED_NOTICE: &str =
+    "Key saved to Keychain · provider activation not performed · unavailable in the CLI";
+
+fn credential_key(state: &mut State, key: KeyEvent) -> bool {
+    credential_key_with(state, key, crate::store_provider_credential_material)
+}
+
+pub(super) fn credential_key_with(
     state: &mut State,
     key: KeyEvent,
-    commands: &Sender<UiCommand>,
-) -> std::io::Result<bool> {
+    store: impl Fn(
+        crate::ProviderCredentialId,
+        &ProviderCredentialMaterial,
+    ) -> Result<(), crate::CliError>,
+) -> bool {
     if key.kind == KeyEventKind::Release {
-        return Ok(true);
+        return true;
     }
     match key.code {
         KeyCode::Esc => state.cancel_credential(),
@@ -215,20 +230,16 @@ fn credential_key(
         }
         KeyCode::Enter => {
             let Some(provider) = state.credential_prompt.take() else {
-                return Ok(true);
+                return true;
             };
             let secret = std::mem::take(&mut state.secret);
-            let material = match ProviderCredentialMaterial::new(secret.as_bytes().to_vec()) {
-                Ok(material) => material,
-                Err(_) => {
-                    state.notice = "Error: key is empty or exceeds the credential bound".into();
-                    return Ok(true);
-                }
+            let Ok(material) = ProviderCredentialMaterial::new(secret.as_bytes().to_vec()) else {
+                state.notice = "Error: key is empty or exceeds the credential bound".into();
+                return true;
             };
-            match crate::store_provider_credential_material(provider, &material) {
+            match store(provider, &material) {
                 Ok(()) => {
-                    send_command(commands, UiCommand::RestartRuntime)?;
-                    state.notice = "Key saved to Keychain; restarting the runtime".into();
+                    state.notice = CREDENTIAL_STORED_NOTICE.into();
                 }
                 Err(error) => {
                     state.notice = format!("Error: {error}; the key was not saved");
@@ -244,5 +255,5 @@ fn credential_key(
         }
         _ => {}
     }
-    Ok(true)
+    true
 }

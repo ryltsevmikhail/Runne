@@ -16,7 +16,6 @@ pub enum UiCommand {
     Send(String),
     NewSession,
     RegisterProject,
-    RestartRuntime,
     SelectSession(String),
     Cancel,
     Approval {

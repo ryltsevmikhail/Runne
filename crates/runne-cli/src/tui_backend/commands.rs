@@ -59,14 +59,6 @@ impl Backend {
                 version,
                 review_key,
             } => self.approve(id, decision, version, review_key).await?,
-            UiCommand::RestartRuntime => {
-                self.owner.restart().await?;
-                self.runs.clear();
-                self.approvals.clear();
-                self.titles.clear();
-                self.selected = None;
-                self.snapshot.status = "Runtime restarted after credential enrollment".into();
-            }
             UiCommand::Refresh | UiCommand::Quit => {}
         }
         self.refresh().await

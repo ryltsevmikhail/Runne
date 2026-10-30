@@ -250,6 +250,39 @@ fn login_prompt_hides_typed_key_and_never_puts_it_in_the_editor() {
 }
 
 #[test]
+fn stored_key_notice_never_claims_activation_or_restart() {
+    let seen = std::cell::RefCell::new(Vec::new());
+    let mut state = state::State {
+        credential_prompt: Some(crate::ProviderCredentialId::DeepSeek),
+        ..state::State::default()
+    };
+    state.push_secret("sk-test-key");
+    input::credential_key_with(
+        &mut state,
+        KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE),
+        |provider, material| {
+            material.with_bytes(|bytes| seen.borrow_mut().push((provider, bytes.to_vec())));
+            Ok(())
+        },
+    );
+    assert_eq!(
+        seen.into_inner(),
+        vec![(
+            crate::ProviderCredentialId::DeepSeek,
+            b"sk-test-key".to_vec()
+        )]
+    );
+    assert!(state.credential_prompt.is_none());
+    assert!(state.secret.is_empty());
+    let notice = state.notice.to_lowercase();
+    assert!(notice.contains("key saved to keychain"));
+    assert!(notice.contains("activation not performed"));
+    assert!(notice.contains("unavailable in the cli"));
+    assert!(!notice.contains("restart"));
+    assert!(!notice.contains("ready"));
+}
+
+#[test]
 fn pasted_key_goes_to_the_hidden_buffer_not_the_editor() {
     let mut state = state::State::default();
     state.credential_prompt = Some(crate::ProviderCredentialId::DeepSeek);
