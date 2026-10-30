@@ -1,51 +1,65 @@
 //! Helper entry point and the in-process Seatbelt self-test.
 
-use std::ffi::CString;
+use std::ffi::{CString, OsString};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+
+use runne_sandbox_protocol as protocol;
 
 use crate::args::{self, Invocation, Launch};
 use crate::exec;
 use crate::profile;
 use crate::seatbelt;
+use crate::status::Reporter;
 
-const EXIT_BAD_USAGE: u8 = 2;
-const EXIT_SANDBOX_FAILED: u8 = 3;
-const EXIT_PROFILE_INVALID: u8 = 4;
-const EXIT_CWD_FAILED: u8 = 5;
-const EXIT_EXEC_FAILED: u8 = 6;
 const EXIT_DENY_FAILED: u8 = 7;
 const EXIT_ALLOW_FAILED: u8 = 8;
 const EXIT_SETUP_FAILED: u8 = 9;
 
 /// Parses the invocation and either runs the self-test or launches the target.
 pub fn run_or_launch() -> ExitCode {
-    let invocation = match args::parse(std::env::args_os().skip(1)) {
+    let arguments: Vec<OsString> = std::env::args_os().skip(1).collect();
+    let reporter = Reporter::from_arguments(&arguments);
+    if let Some(reporter) = reporter {
+        reporter.report_panics();
+    }
+    let invocation = match args::parse(arguments) {
         Ok(value) => value,
         Err(message) => {
             eprintln!("runne-sandbox-helper: {message}");
             print_usage();
-            return ExitCode::from(EXIT_BAD_USAGE);
+            return failed(reporter, protocol::STATUS_USAGE);
         }
     };
     match invocation {
         Invocation::SelfTest => run_self_test(),
-        Invocation::Launch(launch) => launch_target(&launch),
+        Invocation::Launch(launch) => launch_target(&launch, reporter),
     }
 }
 
-fn launch_target(launch: &Launch) -> ExitCode {
+/// Reports a status the runtime can trust, then exits with the same code.
+///
+/// Without a status descriptor the helper keeps its historical behaviour and
+/// only writes the diagnostic to stderr.
+fn failed(reporter: Option<Reporter>, status: u8) -> ExitCode {
+    if let Some(reporter) = reporter {
+        reporter.fail(status);
+    }
+    ExitCode::from(status)
+}
+
+fn launch_target(launch: &Launch, reporter: Option<Reporter>) -> ExitCode {
     let profile = match profile::read(launch.profile_fd) {
         Ok(value) => value,
         Err(message) => {
             eprintln!("runne-sandbox-helper: {message}");
-            return ExitCode::from(EXIT_PROFILE_INVALID);
+            return failed(reporter, protocol::STATUS_PROFILE);
         }
     };
     if let Err(message) = seatbelt::apply(&profile) {
         eprintln!("runne-sandbox-helper: cannot apply the sandbox profile: {message}");
-        return ExitCode::from(EXIT_SANDBOX_FAILED);
+        return failed(reporter, protocol::STATUS_SANDBOX);
     }
     if let Some(fd) = launch.cwd_fd {
         // SAFETY: fchdir only reads the descriptor the parent supplied.
@@ -57,12 +71,16 @@ fn launch_target(launch: &Launch) -> ExitCode {
         unsafe { libc::close(fd) };
         if result != 0 {
             eprintln!("runne-sandbox-helper: cannot enter the working directory: {error}");
-            return ExitCode::from(EXIT_CWD_FAILED);
+            return failed(reporter, protocol::STATUS_CWD);
         }
     }
-    let message = exec::replace(&launch.program, &launch.args);
+    // The status descriptor stays open until `execv`; its close-on-exec flag
+    // removes it from the program, and keeping it here lets a failed exec
+    // still be reported.
+    let keep = reporter.map(Reporter::descriptor);
+    let message = exec::replace(&launch.program, &launch.args, keep);
     eprintln!("runne-sandbox-helper: {message}");
-    ExitCode::from(EXIT_EXEC_FAILED)
+    failed(reporter, protocol::STATUS_EXEC)
 }
 
 fn run_self_test() -> ExitCode {
@@ -87,7 +105,7 @@ fn run_self_test() -> ExitCode {
     };
     if let Err(message) = seatbelt::apply(&profile) {
         eprintln!("runne-sandbox-helper: self-test sandbox failed: {message}");
-        return ExitCode::from(EXIT_SANDBOX_FAILED);
+        return ExitCode::from(protocol::STATUS_SANDBOX);
     }
 
     if fs::read("/etc/passwd").is_ok() {
@@ -174,7 +192,7 @@ fn escape(value: &str) -> String {
 fn print_usage() {
     eprintln!(
         "usage: runne-sandbox-helper --self-test\n\
-         \x20      runne-sandbox-helper --profile-fd FD [--cwd-fd FD] -- PROGRAM [ARG...]"
+         \x20      runne-sandbox-helper [--status-fd FD] --profile-fd FD [--cwd-fd FD] -- PROGRAM [ARG...]"
     );
 }
 

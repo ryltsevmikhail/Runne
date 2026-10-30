@@ -4,23 +4,27 @@
 //! lets the helper apply it, enter the pinned working directory and replace
 //! itself with the resolved program. The runtime never interprets a shell
 //! string and never accepts profile text from a caller.
+//!
+//! Helper failures are reported on a second inherited descriptor that the
+//! helper arms close-on-exec. Only the helper ever holds that descriptor, so a
+//! program that writes a helper-looking diagnostic to stderr and picks one of
+//! the helper's exit codes cannot be mistaken for a helper failure.
 
 use super::coding_arguments::CodingArguments;
 use super::*;
 use runne_platform::containment::macos::MacOsSeatbeltProfileV1;
+use runne_sandbox_protocol::{self as protocol, Report};
 use security_framework::os::macos::code_signing::{Flags, SecRequirement, SecStaticCode};
 use std::os::fd::{FromRawFd, RawFd};
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
 use std::str::FromStr;
 
 /// Bundled helper name.
 const HELPER_NAME: &str = "runne-sandbox-helper";
 /// Team that must have signed the helper before the runtime executes it.
 const SIGNING_TEAM: &str = "758F9Z45SR";
-/// Prefix the helper writes for each of its own failures.
-const HELPER_DIAGNOSTIC: &str = "runne-sandbox-helper:";
 /// Directories an unqualified program name is resolved against.
 const SEARCH_PATH: &[&str] = &["/usr/bin", "/bin"];
 
@@ -33,12 +37,15 @@ pub(super) fn run(root: &File, args: &CodingArguments) -> Result<Vec<u8>, &'stat
     let cwd = coding_fs::open(root, &args.path, O_PATH | libc::O_DIRECTORY)?;
     let cwd_fd = cwd.as_raw_fd();
     set_close_on_exec(cwd_fd, false)?;
-    let (read_fd, write_fd) = profile_pipe()?;
+    let (profile_read, profile_write) = profile_pipe()?;
+    let (status_read, status_write) = status_pipe()?;
 
     let mut command = Command::new(&helper);
     command
+        .arg(protocol::STATUS_FD_FLAG)
+        .arg(status_write.to_string())
         .arg("--profile-fd")
-        .arg(read_fd.to_string())
+        .arg(profile_read.to_string())
         .arg("--cwd-fd")
         .arg(cwd_fd.to_string())
         .arg("--")
@@ -54,63 +61,74 @@ pub(super) fn run(root: &File, args: &CodingArguments) -> Result<Vec<u8>, &'stat
     let mut child = match command.spawn() {
         Ok(child) => child,
         Err(error) => {
-            // No helper inherited the read end, and the write end was never
-            // handed to `write_profile`, so both descriptors still belong here.
-            unsafe {
-                libc::close(read_fd);
-                libc::close(write_fd);
-            }
-            return Err(match error.raw_os_error() {
-                Some(libc::EACCES) => "command_spawn_access",
-                Some(libc::ENOENT) => "command_spawn_missing",
-                Some(libc::EPERM) => "command_spawn_policy",
-                _ => "command_spawn_other",
-            });
+            // No helper inherited either descriptor pair, so every end still
+            // belongs to this process.
+            close_descriptors([profile_read, profile_write, status_read, status_write]);
+            return Err(spawn_error(&error));
         }
     };
-    // The helper owns the read end from here; keeping it open in the parent
-    // would leave the helper waiting for end-of-profile.
-    unsafe {
-        libc::close(read_fd);
-    }
-    if write_profile(write_fd, &profile.render()).is_err() {
-        unsafe {
-            libc::kill(-(child.id() as i32), libc::SIGKILL);
-        }
-        let _ = child.wait();
-        return Err("command_profile_write");
+    // The helper owns the inherited ends from here. Keeping the profile read
+    // end open would leave the helper waiting for end-of-profile, and keeping
+    // the status write end open would hide end-of-exec from this process.
+    close_descriptors([profile_read, status_write]);
+    // SAFETY: the runtime owns the status read end and closes it exactly once
+    // when this file value is dropped.
+    let mut status = unsafe { File::from_raw_fd(status_read) };
+    if write_profile(profile_write, &profile.render()).is_err() {
+        halt(&mut child);
+        return Err(match protocol::classify(&read_status(&mut status)) {
+            Report::Failed(code) => helper_error(code),
+            Report::Started | Report::Unconfirmed => "command_profile_write",
+        });
     }
     let collected = coding_process::collect(&mut child, args.timeout_ms)?;
-    if let Some(error) = helper_failure(&collected) {
-        return Err(error);
-    }
-    coding_process::receipt(collected)
-}
-
-/// Separates a helper failure from a program that happened to use its exit
-/// codes: only an empty stdout plus the helper's own diagnostic prefix counts.
-fn helper_failure(collected: &coding_process::Collected) -> Option<&'static str> {
-    let code = collected.status.code()?;
-    if !collected.stdout.is_empty() || !diagnostic_line(&collected.stderr) {
-        return None;
-    }
-    match code {
-        2 => Some("command_helper_usage"),
-        3 => Some("command_spawn_policy"),
-        4 => Some("command_profile_denied"),
-        5 => Some("command_cwd_denied"),
-        6 => Some("command_spawn_missing"),
-        _ => None,
+    // Only the helper can have written here: the descriptor never reaches the
+    // program, so this report decides between a helper failure and a receipt
+    // for a program that really ran.
+    match protocol::classify(&read_status(&mut status)) {
+        Report::Started => coding_process::receipt(collected),
+        Report::Failed(code) => Err(helper_error(code)),
+        Report::Unconfirmed => Err(protocol::PROTOCOL_ERROR),
     }
 }
 
-/// Seatbelt writes its own diagnostic before the helper can report, so the
-/// helper's message is matched anywhere on its own line rather than at the
-/// start of stderr.
-fn diagnostic_line(stderr: &[u8]) -> bool {
-    stderr
-        .split(|byte| *byte == b'\n')
-        .any(|line| line.starts_with(HELPER_DIAGNOSTIC.as_bytes()))
+/// Tool error for one helper status byte; unknown bytes never become receipts.
+fn helper_error(status: u8) -> &'static str {
+    protocol::error_for(status).unwrap_or(protocol::PROTOCOL_ERROR)
+}
+
+/// Stops the whole helper process group and reaps it.
+fn halt(child: &mut Child) {
+    // SAFETY: the child leads the process group this runtime created for it,
+    // so a negated pid addresses that group.
+    unsafe {
+        libc::kill(-(child.id() as i32), libc::SIGKILL);
+    }
+    let _ = child.wait();
+}
+
+/// Reads every status byte recorded before the descriptor reached end-of-file.
+///
+/// The read end is non-blocking: a descriptor that outlived its writer yields
+/// whatever was recorded instead of stalling the runtime.
+fn read_status(status: &mut File) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    let mut buffer = [0u8; 8];
+    loop {
+        match status.read(&mut buffer) {
+            Ok(0) | Err(_) => return bytes,
+            Ok(count) => bytes.extend_from_slice(&buffer[..count]),
+        }
+    }
+}
+
+fn spawn_error(error: &std::io::Error) -> &'static str {
+    match error.raw_os_error() {
+        Some(libc::EACCES) => "command_spawn_access",
+        Some(libc::ENOENT) => "command_spawn_missing",
+        Some(libc::EPERM) => "command_spawn_policy",
+        _ => "command_spawn_other",
+    }
 }
 
 /// Locates the bundled helper: beside the daemon, or one level up for cargo's
@@ -169,22 +187,46 @@ fn absolute_program(program: &str) -> Result<PathBuf, &'static str> {
 /// Creates the profile pipe: the read end is inherited by the helper, the
 /// write end stays private to the runtime.
 fn profile_pipe() -> Result<(RawFd, RawFd), &'static str> {
+    let (read, write) = create_pipe("command_profile_pipe")?;
+    let configured = set_close_on_exec(read, false).and_then(|()| set_close_on_exec(write, true));
+    if let Err(error) = configured {
+        close_descriptors([read, write]);
+        return Err(error);
+    }
+    Ok((read, write))
+}
+
+/// Creates the status pipe: the helper inherits the write end and arms it
+/// close-on-exec itself, while the runtime keeps a non-blocking read end.
+fn status_pipe() -> Result<(RawFd, RawFd), &'static str> {
+    let (read, write) = create_pipe("command_status_pipe")?;
+    let configured = set_close_on_exec(read, true)
+        .and_then(|()| set_close_on_exec(write, false))
+        .and_then(|()| set_nonblocking(read));
+    if configured.is_err() {
+        close_descriptors([read, write]);
+        return Err("command_status_pipe");
+    }
+    Ok((read, write))
+}
+
+fn create_pipe(error: &'static str) -> Result<(RawFd, RawFd), &'static str> {
     let mut descriptors = [0; 2];
     // SAFETY: the array holds exactly the two descriptors the kernel fills.
     if unsafe { libc::pipe(descriptors.as_mut_ptr()) } != 0 {
-        return Err("command_profile_pipe");
-    }
-    let configured = set_close_on_exec(descriptors[0], false)
-        .and_then(|()| set_close_on_exec(descriptors[1], true));
-    if let Err(error) = configured {
-        for descriptor in descriptors {
-            unsafe {
-                libc::close(descriptor);
-            }
-        }
         return Err(error);
     }
     Ok((descriptors[0], descriptors[1]))
+}
+
+fn close_descriptors(descriptors: impl IntoIterator<Item = RawFd>) {
+    for descriptor in descriptors {
+        // SAFETY: each descriptor still belongs to this process here and is
+        // closed exactly once.
+        unsafe {
+            libc::close(descriptor);
+        }
+    }
 }
 
 fn write_profile(fd: RawFd, profile: &str) -> Result<(), &'static str> {
@@ -193,6 +235,20 @@ fn write_profile(fd: RawFd, profile: &str) -> Result<(), &'static str> {
     let mut file = unsafe { File::from_raw_fd(fd) };
     file.write_all(profile.as_bytes())
         .map_err(|_| "command_profile_write")
+}
+
+fn set_nonblocking(fd: RawFd) -> Result<(), &'static str> {
+    // SAFETY: F_GETFL and F_SETFL only inspect and update this descriptor's
+    // flags.
+    let current = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+    if current < 0 {
+        return Err("command_status_pipe");
+    }
+    // SAFETY: same as above; the flag word is only modified bitwise.
+    if unsafe { libc::fcntl(fd, libc::F_SETFL, current | libc::O_NONBLOCK) } < 0 {
+        return Err("command_status_pipe");
+    }
+    Ok(())
 }
 
 fn set_close_on_exec(fd: RawFd, enabled: bool) -> Result<(), &'static str> {
@@ -211,3 +267,7 @@ fn set_close_on_exec(fd: RawFd, enabled: bool) -> Result<(), &'static str> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "coding_command_sandbox_tests.rs"]
+mod tests;

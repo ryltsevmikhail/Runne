@@ -4,6 +4,8 @@ use std::ffi::OsString;
 use std::os::fd::RawFd;
 use std::path::Path;
 
+use runne_sandbox_protocol::STATUS_FD_FLAG;
+
 /// Largest profile the helper accepts from the runtime.
 pub const MAX_PROFILE_BYTES: usize = 64 * 1024;
 
@@ -46,12 +48,18 @@ pub fn parse(args: impl IntoIterator<Item = OsString>) -> Result<Invocation, Str
 
     let mut profile_fd = None;
     let mut cwd_fd = None;
+    let mut status_fd = None;
     let mut rest = Vec::new();
     let mut arguments = std::iter::once(first).chain(remaining);
     while let Some(argument) = arguments.next() {
         if argument == "--" {
             rest.extend(arguments);
             break;
+        } else if argument == STATUS_FD_FLAG {
+            if status_fd.is_some() {
+                return Err(format!("duplicate {STATUS_FD_FLAG}"));
+            }
+            status_fd = Some(parse_fd(arguments.next(), STATUS_FD_FLAG)?);
         } else if argument == "--profile-fd" {
             if profile_fd.is_some() {
                 return Err("duplicate --profile-fd".to_string());
@@ -135,6 +143,38 @@ mod tests {
     #[test]
     fn rejects_a_relative_program() {
         assert!(parse_str(&["--profile-fd", "3", "--", "echo"]).is_err());
+    }
+
+    #[test]
+    fn accepts_a_status_descriptor() {
+        let Ok(Invocation::Launch(launch)) =
+            parse_str(&[STATUS_FD_FLAG, "5", "--profile-fd", "3", "--", "/bin/echo"])
+        else {
+            panic!("expected a launch invocation");
+        };
+        assert_eq!(launch.profile_fd, 3);
+    }
+
+    #[test]
+    fn rejects_a_duplicate_status_descriptor() {
+        assert!(
+            parse_str(&[
+                STATUS_FD_FLAG,
+                "5",
+                STATUS_FD_FLAG,
+                "6",
+                "--profile-fd",
+                "3",
+                "--",
+                "/bin/echo",
+            ])
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn rejects_a_stdio_status_descriptor() {
+        assert!(parse_str(&[STATUS_FD_FLAG, "2", "--profile-fd", "3", "--", "/bin/echo"]).is_err());
     }
 
     #[test]
