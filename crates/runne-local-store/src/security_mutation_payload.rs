@@ -1,5 +1,5 @@
 use crate::{MutationIdentity, SecurityStateError};
-use runne_secure_store::SecurityProfileLock;
+use runne_secure_store::{MAX_MUTATION_PAYLOAD_ENVELOPE_OVERHEAD, SecurityProfileLock};
 use zeroize::Zeroizing;
 
 #[cfg(all(test, feature = "test-support"))]
@@ -45,7 +45,7 @@ pub fn open(
     stored: &[u8],
     expected_ref: &[u8; 32],
 ) -> Result<Zeroizing<Vec<u8>>, SecurityStateError> {
-    if stored.len() > MAX_PAYLOAD_BYTES + 64 {
+    if stored.len() > MAX_PAYLOAD_BYTES + MAX_MUTATION_PAYLOAD_ENVELOPE_OVERHEAD {
         return Err(SecurityStateError::IdentityConflict);
     }
     let plaintext = if stored.starts_with(ENVELOPE_MAGIC) {

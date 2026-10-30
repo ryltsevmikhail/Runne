@@ -1,4 +1,4 @@
-use runne_secure_store::SecurityProfileLock;
+use runne_secure_store::{MAX_MUTATION_PAYLOAD_ENVELOPE_OVERHEAD, SecurityProfileLock};
 use rusqlite::{Connection, OptionalExtension, params};
 use sha2::{Digest, Sha256};
 
@@ -127,7 +127,7 @@ pub(super) fn decode_draft(
     }
     let payload = payload.ok_or(ProtectedDraftError::Invalid)?;
     if payload.len() < MAGIC.len() + 28
-        || payload.len() > MAX_DRAFT_BYTES + 64
+        || payload.len() > MAX_DRAFT_BYTES + MAX_MUTATION_PAYLOAD_ENVELOPE_OVERHEAD
         || payload.get(..MAGIC.len()) != Some(MAGIC)
     {
         return Err(ProtectedDraftError::Invalid);

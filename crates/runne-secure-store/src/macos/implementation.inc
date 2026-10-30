@@ -1,4 +1,5 @@
 include!("implementation_parts/prelude_and_anchor.inc");
+include!("implementation_parts/mutation_payload.inc");
 include!("implementation_parts/provider_credential_source_slots.inc");
 include!("implementation_parts/provider_credential_store.inc");
 include!("implementation_parts/provider_credential_cleanup.inc");
