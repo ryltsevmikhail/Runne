@@ -3,7 +3,9 @@
 // macOS 27 erases the partition ACL on save, so exact cross-process ACLs are
 // unusable there. The item is created through the system `security` tool with
 // `-A`; the provider-credential payload carries its own binding and is
-// verified by the reader.
+// verified by the reader. Consequence: any process of the user can read the
+// item without a prompt; this is the conscious macOS 27 trade-off held as P1
+// until a signed bundle can enforce a stable identity.
 
 /// Writes one open generic-password item through the system `security` tool.
 ///
