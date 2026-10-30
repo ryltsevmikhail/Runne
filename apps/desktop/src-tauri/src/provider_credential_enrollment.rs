@@ -12,6 +12,30 @@ mod prepared;
 mod projection;
 mod status;
 pub use status::load_status;
+
+/// Ensures the packaged credential service is registered before native enrollment.
+///
+/// macOS on Apple Silicon reaches the credential service only through the
+/// bundled `LaunchAgent`; without this gate every XPC lookup fails closed into
+/// an opaque status error. Other platforms keep their existing admission path.
+///
+/// # Errors
+///
+/// Returns a stable IPC code naming why the service cannot serve enrollments.
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+pub fn ensure_credential_service_registered() -> Result<(), &'static str> {
+    service_registration::ensure_registered().map_err(|error| error.code())
+}
+
+/// No-op on platforms whose enrollment does not use the macOS `LaunchAgent`.
+///
+/// # Errors
+///
+/// Never returns an error on these platforms.
+#[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
+pub const fn ensure_credential_service_registered() -> Result<(), &'static str> {
+    Ok(())
+}
 #[cfg(not(all(target_os = "macos", target_arch = "aarch64")))]
 #[path = "provider_credential_enrollment/prepared/reap_guard.rs"]
 mod reap_guard;

@@ -265,6 +265,22 @@ describe('providers page credential enrollment', () => {
     expect(wrapper.get('[role="status"]').text()).not.toContain('[object Object]')
   })
 
+  it('explains a withheld credential service instead of dumping the raw code', async () => {
+    const wrapper = mountProvidersPage({
+      requestCredentialIntent: async () => {
+        throw { code: 'provider_credential_service_approval_required' }
+      },
+    })
+    await flushPromises()
+
+    await wrapper.get('button[aria-label="Enroll credential (openai)"]').trigger('click')
+    await flushPromises()
+
+    const note = wrapper.get('[role="status"]').text()
+    expect(note).toContain('Login Items')
+    expect(note).not.toContain('provider_credential_service_approval_required')
+  })
+
   it('reads a fresh credential status when the projection was unavailable before enrolling', async () => {
     let credentialCalls = 0
     const intents: RecordedIntent[] = []
